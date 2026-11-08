@@ -48,6 +48,18 @@ entries with your section's prefix (G, C, D, H, U, S, P) and the next free numbe
 
 ## Hook & Ops
 
+- H-001 — `inbox-hook` imports only `contracts/paths` (no Effect, no schema decode) and posts the raw envelope. Why: cold start. The daemon validates; the hook must never be a reason Claude is slow.
+- H-002 — Fail open everywhere: any throw, refused/missing socket, 500 ms ingest timeout, non-2xx, or bad stdin JSON → exit 0, empty stdout. Never exit 2. A vanished daemon mid-poll is also silent (not `ask`), so Claude behaves as with no hooks. Only a lapsed hold budget prints `ask`.
+- H-003 — Hold budget 120 s (env `SESSION_INBOX_HOLD_SECONDS` overrides, for tests), polled in `wait<=110` slices; a `pending` reply just loops. The registered PreToolUse `timeout` is 130 s so Claude never kills the hook before our own `ask` fallback prints.
+- H-004 — No top-level `await` in `main.ts` (the `main()` wrapper): `bun build --bytecode` emits CommonJS and fails otherwise. Compile flags: `--minify --bytecode` for the hook; the daemon uses `--minify` only.
+- H-005 — Cold start of the compiled binary (90 MB, daemon down, Apple silicon, Bun 1.4.4): about 30-40 ms steady state. The first exec of a freshly written binary costs about 700 ms (one-off macOS scan). `install.ts` runs `inbox-hook warmup` (with `SESSION_INBOX_INTERNAL=1`, so a no-op) right after copying so Claude's first hook doesn't pay it; the compiled-binary test does the same.
+- H-006 — Hook registration format (Claude Code 2.1.x): `hooks.<Event> = [{matcher?, hooks:[{type:"command", command, timeout}]}]`, timeout in seconds, command `"<home>/bin/inbox-hook" <Event>` quoted because the path contains a space. PreToolUse matcher `Bash|Write|Edit|MultiEdit|NotebookEdit|WebFetch|AskUserQuestion` (broader than G-014's allow-rule filter: the daemon decides whether to hold; a non-held PreToolUse just returns no `requestId`). PostToolUse matcher `*`. Others have no matcher, timeout 5.
+- H-007 — Settings merge lives in `apps/hook/src/settings.ts` as pure functions, our entries identified by the executable basename `inbox-hook` (so moving `--home` replaces rather than duplicates). Merge replaces ours in place (order of user hooks untouched), removes strays elsewhere, and keeps every other key/hook. `unmergeHooks` removes only groups that became empty because of us, so merge→unmerge round-trips to the original (an originally absent `hooks` key is dropped again). `ops/claude-settings.snippet.json` is generated from `buildHooks("<home>")` and a test keeps it in sync.
+- H-008 — `install.ts`/`uninstall.ts` are dry-run by default and print a unified diff of settings.json; `--yes` backs up to `settings.json.bak-<timestamp>` first. A settings file that isn't valid JSON aborts untouched. Scripts import `paths.ts` by relative path (root has no dep on contracts).
+- H-009 — launchd plist template sets `SESSION_INBOX_HOME` in `EnvironmentVariables` so a non-default `--home` reaches the daemon; install does `bootout` (ignored), `bootstrap gui/$UID`, `kickstart -k`. Uninstall boots out and removes the plist but leaves binaries and data.
+- H-010 — Record mode stores only `{event, payload, env}` with the three env fields the envelope already carries (entrypoint, host session id, claude pid) — never process env, tokens or account ids. Payloads themselves may contain prompts and file contents, so `fixtures/` should be treated as private and scrubbed before anything is committed.
+- H-011 — Tests run the hook as a subprocess against a fake daemon on a Unix socket under `/tmp/sih-XXXX`, for both `bun src/main.ts` and a freshly compiled binary. The install-script test runs `--yes` only with `--settings <tmp> --home <tmp> --no-launchd`.
+
 ## UI
 
 ## Shell

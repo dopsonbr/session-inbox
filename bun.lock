@@ -10,6 +10,13 @@
         "typescript": "5.9.3",
       },
     },
+    "apps/hook": {
+      "name": "@session-inbox/hook",
+      "version": "0.0.0",
+      "dependencies": {
+        "@session-inbox/contracts": "workspace:*",
+      },
+    },
     "packages/contracts": {
       "name": "@session-inbox/contracts",
       "version": "0.0.0",
@@ -42,6 +49,8 @@
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.6.6", "", { "os": "win32", "cpu": "x64" }, "sha512-B7KMG26A4I9lAuxwBGMmiVcjMGAeJRoz+pzFt9brRvOAsIrgOu8ptJld5rUWui6tM1uiJwxeJhhDPuAiZtxXdw=="],
 
     "@session-inbox/contracts": ["@session-inbox/contracts@workspace:packages/contracts"],
+
+    "@session-inbox/hook": ["@session-inbox/hook@workspace:apps/hook"],
 
     "@types/bun": ["@types/bun@1.4.4", "", { "dependencies": { "bun-types": "1.4.4" } }, "sha512-9wkRDXUXK124pEnAutE6n/l18j+i9GC5IAHK8TmX/2nlySETmky0OU6yL5U8pW1AoKh++AN9auDCr647BfurjQ=="],
 
