@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Desktop companion</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#18181B}a:hover{color:#000}
+button,input{font-family:inherit}
+.shell{display:grid;grid-template-columns:260px minmax(0,1fr) minmax(0,1.3fr)}
+@media (max-width: 900px){.shell{grid-template-columns:1fr}}
+</style>
+</helmet>
+<div style="box-sizing: border-box; min-height: 800px; background: #F7F6F2; font-family: Inter, system-ui, sans-serif; color: #18181B; display: flex; flex-direction: column">
+<header style="height: 56px; padding: 0 20px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #E7E4DB; background: #FFFFFF">
+<span style="font-size: 16px; font-weight: 700; letter-spacing: -0.01em">Session Inbox</span>
+<span style="font-size: 13px; color: #52514B">3 need you · 4 running · 9 done today</span>
+<label for="search" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Search sessions</label>
+<input id="search" type="search" placeholder="Search sessions" style="margin-left: auto; width: 240px; max-width: 40%; height: 36px; padding: 0 12px; border-radius: 10px; border: 1px solid #DEDBD2; background: #F7F6F2; font-size: 14px">
+</header>
+
+<div class="shell" style="flex: 1; min-height: 744px">
+<nav aria-label="Projects" style="border-right: 1px solid #E7E4DB; background: #FBFAF7; padding: 16px 12px; display: flex; flex-direction: column; gap: 4px">
+<p style="margin: 0 8px 8px; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B6A63">Projects</p>
+<a href="#all" style="min-height: 40px; padding: 0 10px; border-radius: 10px; background: #18181B; color: #FFFFFF; display: flex; align-items: center; font-size: 14px; font-weight: 600; text-decoration: none">All sessions</a>
+<a href="#p1" style="min-height: 40px; padding: 0 10px; border-radius: 10px; display: flex; align-items: center; gap: 8px; font-size: 14px; text-decoration: none; color: #18181B"><span style="flex: 1">order-up-api</span><span style="font-size: 12px; font-weight: 700; color: #9A3412">1</span></a>
+<a href="#p2" style="min-height: 40px; padding: 0 10px; border-radius: 10px; display: flex; align-items: center; gap: 8px; font-size: 14px; text-decoration: none; color: #18181B"><span style="flex: 1">ravelo-insights</span><span style="font-size: 12px; font-weight: 700; color: #9A3412">1</span></a>
+<a href="#p3" style="min-height: 40px; padding: 0 10px; border-radius: 10px; display: flex; align-items: center; gap: 8px; font-size: 14px; text-decoration: none; color: #18181B"><span style="flex: 1">agent-kit</span><span style="font-size: 12px; font-weight: 700; color: #991B1B">!</span></a>
+<a href="#p4" style="min-height: 40px; padding: 0 10px; border-radius: 10px; display: flex; align-items: center; font-size: 14px; text-decoration: none; color: #52514B">simple-offline-pos</a>
+<p style="margin: 20px 8px 8px; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B6A63">Environments</p>
+<div style="padding: 0 10px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: #3F3F46">
+<div style="display: flex; align-items: center; gap: 8px"><span style="width: 8px; height: 8px; border-radius: 4px; background: #15803D" aria-hidden="true"></span>MacBook · desktop app (online)</div>
+<div style="display: flex; align-items: center; gap: 8px"><span style="width: 8px; height: 8px; border-radius: 4px; background: #15803D" aria-hidden="true"></span>Cloud · 2 environments</div>
+</div>
+</nav>
+
+<section aria-label="Inbox" style="border-right: 1px solid #E7E4DB; padding: 16px; display: flex; flex-direction: column; gap: 8px">
+<p style="margin: 0 4px 4px; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B6A63">Needs you</p>
+<a href="#s1" style="text-decoration: none; background: #FFFFFF; border: 2px solid #C2410C; border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
+<div style="display: flex; gap: 8px; font-size: 12px"><span style="font-weight: 600; color: #9A3412">Permission</span><span style="color: #6B6A63">order-up-api › test-runner</span><span style="margin-left: auto; color: #6B6A63">2m</span></div>
+<div style="font-size: 15px; font-weight: 600; color: #18181B">Retry policy for usom calls</div>
+</a>
+<a href="#s2" style="text-decoration: none; background: #FFFFFF; border: 1px solid #E7E4DB; border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
+<div style="display: flex; gap: 8px; font-size: 12px"><span style="font-weight: 600; color: #9A3412">Question</span><span style="color: #6B6A63">ravelo-insights</span><span style="margin-left: auto; color: #6B6A63">14m</span></div>
+<div style="font-size: 15px; font-weight: 600; color: #18181B">POS export ingestion</div>
+</a>
+<a href="#s3" style="text-decoration: none; background: #FFFFFF; border: 1px solid #E7E4DB; border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
+<div style="display: flex; gap: 8px; font-size: 12px"><span style="font-weight: 600; color: #991B1B">Failed</span><span style="color: #6B6A63">agent-kit</span><span style="margin-left: auto; color: #6B6A63">41m</span></div>
+<div style="font-size: 15px; font-weight: 600; color: #18181B">Hook event schema v2</div>
+</a>
+<p style="margin: 12px 4px 4px; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B6A63">Running</p>
+<div style="background: #FFFFFF; border: 1px solid #E7E4DB; border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
+<div style="display: flex; gap: 8px; font-size: 12px"><span style="font-weight: 600; color: #1D4ED8">Running</span><span style="color: #6B6A63">order-up-api · cloud</span><span style="margin-left: auto; color: #6B6A63">8m</span></div>
+<div style="font-size: 15px; font-weight: 600">Delivery window refactor</div>
+<div style="font-size: 13px; color: #52514B">2 subagents · editing 4 files</div>
+</div>
+<div style="background: #FFFFFF; border: 1px solid #E7E4DB; border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
+<div style="display: flex; gap: 8px; font-size: 12px"><span style="font-weight: 600; color: #1D4ED8">Running</span><span style="color: #6B6A63">agent-kit · desktop</span><span style="margin-left: auto; color: #6B6A63">3m</span></div>
+<div style="font-size: 15px; font-weight: 600">Session tree parser</div>
+</div>
+</section>
+
+<section aria-label="Session detail" style="padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; background: #FFFFFF">
+<div style="display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap">
+<div style="flex: 1; min-width: 200px">
+<div style="font-size: 13px; color: #52514B">order-up-api › Retry policy for usom calls › test-runner</div>
+<h2 style="margin: 4px 0 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em">Retry policy for usom calls</h2>
+</div>
+<a href="#open" style="height: 40px; padding: 0 14px; border-radius: 10px; background: #18181B; color: #FFFFFF; display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; text-decoration: none">Open in Claude desktop</a>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px">
+<div style="border: 1px solid #E7E4DB; border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px">
+<p style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B6A63">Since you left</p>
+<ul style="margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.5; color: #3F3F46">
+<li>Backoff with jitter in UsomClient</li>
+<li>Breaker opens after 5 fails / 30s</li>
+<li>Unit tests 42/42 pass</li>
+</ul>
+</div>
+<div style="border: 1px solid #E7E4DB; border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px">
+<p style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B6A63">Session tree</p>
+<div style="font-size: 14px; line-height: 1.8; color: #3F3F46">
+<div><span style="color: #15803D; font-weight: 600">✓</span> explore · map usom clients</div>
+<div><span style="color: #9A3412; font-weight: 700">●</span> <strong>test-runner</strong> — waiting</div>
+<div><span style="color: #6B6A63">○</span> code-reviewer — queued</div>
+</div>
+</div>
+</div>
+
+<div style="border: 2px solid #C2410C; border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 12px">
+<div style="font-size: 14px; font-weight: 700; color: #9A3412">Permission needed</div>
+<pre style="margin: 0; padding: 10px 12px; background: #18181B; color: #F4F4F5; border-radius: 10px; font-family: ui-monospace, monospace; font-size: 13px; white-space: pre-wrap">./gradlew integrationTest --tests '*Usom*'</pre>
+<div style="display: flex; gap: 8px; flex-wrap: wrap">
+<button style="height: 44px; padding: 0 18px; border-radius: 10px; border: none; background: #18181B; color: #FFFFFF; font-size: 14px; font-weight: 600; cursor: pointer">Allow once</button>
+<button style="height: 44px; padding: 0 18px; border-radius: 10px; border: 1px solid #DEDBD2; background: #FFFFFF; font-size: 14px; font-weight: 600; cursor: pointer">Always allow</button>
+<button style="height: 44px; padding: 0 18px; border-radius: 10px; border: 1px solid #DEDBD2; background: #FFFFFF; color: #991B1B; font-size: 14px; font-weight: 600; cursor: pointer">Deny</button>
+</div>
+</div>
+
+<div style="margin-top: auto; display: flex; gap: 8px">
+<label for="dreply" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Reply to session</label>
+<input id="dreply" type="text" placeholder="Short reply… (⌘↵ to send)" style="flex: 1; height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid #DEDBD2; background: #F7F6F2; font-size: 14px">
+<button style="height: 44px; padding: 0 18px; border-radius: 10px; border: none; background: #C2410C; color: #FFFFFF; font-size: 14px; font-weight: 600; cursor: pointer">Send</button>
+</div>
+</section>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Session Inbox — desktop</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#18181B}a:hover{color:#000}
+button,input,textarea{font-family:inherit}
+.shell{display:grid;grid-template-columns:288px minmax(300px,0.85fr) minmax(0,1.5fr)}
+@media (max-width: 1100px){.shell{grid-template-columns:240px minmax(0,1fr)}.shell > .detail{grid-column:1 / -1;border-top:1px solid #E7E4DB}}
+@media (max-width: 720px){.shell{grid-template-columns:1fr}}
+</style>
+</helmet>
+<div style="box-sizing: border-box; min-height: 900px; background: #F7F6F2; font-family: Inter, system-ui, sans-serif; color: #18181B; display: flex; flex-direction: column">
+
+<header style="min-height: 56px; padding: 8px 20px; display: flex; flex-wrap: wrap; align-items: center; gap: 16px; border-bottom: 1px solid #E7E4DB; background: #FFFFFF">
+<span style="font-size: 16px; font-weight: 700; letter-spacing: -0.01em">Session Inbox</span>
+<div style="display: flex; gap: 14px; font-size: 13px; color: #52514B">
+<span><strong style="color: #9A3412">3</strong> need you</span>
+<span><strong style="color: #1D4ED8">4</strong> working</span>
+<span><strong style="color: #15803D">2</strong> ready to review</span>
+</div>
+<label for="search" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Search sessions</label>
+<input id="search" type="search" placeholder="Jump to session  ⌘K" style="margin-left: auto; width: 260px; max-width: 100%; height: 36px; padding: 0 12px; border-radius: 10px; border: 1px solid #DEDBD2; background: #F7F6F2; font-size: 14px">
+</header>
+
+<div class="shell" style="flex: 1">
+
+<nav aria-label="Projects and sessions" style="border-right: 1px solid #E7E4DB; background: #FBFAF7; padding: 16px 12px; display: flex; flex-direction: column; gap: 2px">
+<p style="margin: 0 8px 8px; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B6A63">Projects</p>
+
+<a href="#p-orderup" style="min-height: 36px; padding: 0 8px; border-radius: 8px; display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; text-decoration: none; color: #18181B">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+<span style="flex: 1">order-up-api</span><span style="font-size: 12px; font-weight: 700; color: #9A3412">1</span></a>
+<div style="margin-left: 15px; padding-left: 10px; border-left: 2px solid #E7E4DB; display: flex; flex-direction: column; gap: 2px">
+<a href="#s-retry" style="min-height: 34px; padding: 0 8px; border-radius: 8px; background: #FFFFFF; border: 1px solid #E7E4DB; display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; text-decoration: none; color: #18181B"><span style="width: 8px; height: 8px; border-radius: 4px; background: #C2410C; flex: none" aria-hidden="true"></span><span style="flex: 1">Retry policy for usom</span></a>
+<div style="margin-left: 12px; padding-left: 10px; border-left: 2px solid #EFEDE6; display: flex; flex-direction: column; gap: 2px; font-size: 13px">
+<div style="min-height: 28px; display: flex; align-items: center; gap: 6px; color: #52514B"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#15803D" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>Explore · usom clients</div>
+<div style="min-height: 28px; display: flex; align-items: center; gap: 6px; color: #18181B; font-weight: 600"><span style="width: 8px; height: 8px; border-radius: 4px; background: #C2410C" aria-hidden="true"></span>test-runner · asking</div>
+<div style="min-height: 28px; display: flex; align-items: center; gap: 6px; color: #6B6A63"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#6B6A63" stroke-width="2.5" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle></svg>code-reviewer · queued</div>
+</div>
+<a href="#s-delivery" style="min-height: 34px; padding: 0 8px; border-radius: 8px; display: flex; align-items: center; gap: 8px; font-size: 13px; text-decoration: none; color: #3F3F46"><span style="width: 8px; height: 8px; border-radius: 4px; background: #1D4ED8; flex: none" aria-hidden="true"></span><span style="flex: 1">Delivery window refactor</span><span style="font-size: 11px; color: #6B6A63">cloud</span></a>
+</div>
+
+<a href="#p-ravelo" style="min-height: 36px; margin-top: 4px; padding: 0 8px; border-radius: 8px; display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; text-decoration: none; color: #18181B">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
+<span style="flex: 1">ravelo-insights</span><span style="font-size: 12px; font-weight: 700; color: #9A3412">1</span></a>
+<a href="#p-agentkit" style="min-height: 36px; padding: 0 8px; border-radius: 8px; display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; text-decoration: none; color: #18181B">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
+<span style="flex: 1">agent-kit</span><span style="font-size: 12px; font-weight: 700; color: #991B1B">failed</span></a>
+<a href="#p-pos" style="min-height: 36px; padding: 0 8px; border-radius: 8px; display: flex; align-items: center; gap: 8px; font-size: 14px; text-decoration: none; color: #52514B">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#52514B" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
+<span style="flex: 1">simple-offline-pos</span></a>
+
+<p style="margin: 24px 8px 8px; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B6A63">Where sessions run</p>
+<div style="padding: 0 8px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: #3F3F46">
+<div style="display: flex; align-items: center; gap: 8px"><span style="width: 8px; height: 8px; border-radius: 4px; background: #15803D" aria-hidden="true"></span>This Mac · hooks connected</div>
+<div style="display: flex; align-items: center; gap: 8px"><span style="width: 8px; height: 8px; border-radius: 4px; background: #15803D" aria-hidden="true"></span>Cloud · claude.ai/code</div>
+</div>
+</nav>
+
+<section aria-label="Queue" style="border-right: 1px solid #E7E4DB; padding: 16px; display: flex; flex-direction: column; gap: 8px">
+<div role="tablist" aria-label="Queues" style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 4px">
+<button role="tab" aria-selected="true" style="height: 34px; padding: 0 12px; border-radius: 17px; border: none; background: #18181B; color: #FFFFFF; font-size: 13px; font-weight: 600">Needs you 3</button>
+<button role="tab" aria-selected="false" style="height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid #DEDBD2; background: #FFFFFF; color: #3F3F46; font-size: 13px; font-weight: 500">Working 4</button>
+<button role="tab" aria-selected="false" style="height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid #DEDBD2; background: #FFFFFF; color: #3F3F46; font-size: 13px; font-weight: 500">Ready to review 2</button>
+<button role="tab" aria-selected="false" style="height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid #DEDBD2; background: #FFFFFF; color: #3F3F46; font-size: 13px; font-weight: 500">Snoozed 1</button>
+</div>
+
+<a href="#s-retry" style="text-decoration: none; background: #FFFFFF; border: 2px solid #C2410C; border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; gap: 8px; align-items: center; font-size: 12px"><span style="font-weight: 700; color: #9A3412">2 questions</span><span style="color: #6B6A63">order-up-api › test-runner</span><span style="margin-left: auto; color: #6B6A63">waiting 2m</span></div>
+<div style="font-size: 15px; font-weight: 600; color: #18181B">Retry policy for usom calls</div>
+<div style="font-size: 13px; color: #52514B">Which tests to run · retry budget for 5xx</div>
+</a>
+<a href="#s-ravelo" style="text-decoration: none; background: #FFFFFF; border: 1px solid #E7E4DB; border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; gap: 8px; align-items: center; font-size: 12px"><span style="font-weight: 700; color: #9A3412">Permission</span><span style="color: #6B6A63">ravelo-insights</span><span style="margin-left: auto; color: #6B6A63">waiting 14m</span></div>
+<div style="font-size: 15px; font-weight: 600; color: #18181B">POS export ingestion</div>
+<div style="font-size: 13px; color: #52514B">Wants to run <code style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px">bun run migrate</code></div>
+</a>
+<a href="#s-hooks" style="text-decoration: none; background: #FFFFFF; border: 1px solid #E7E4DB; border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; gap: 8px; align-items: center; font-size: 12px"><span style="font-weight: 700; color: #991B1B">Stopped with errors</span><span style="color: #6B6A63">agent-kit</span><span style="margin-left: auto; color: #6B6A63">41m</span></div>
+<div style="font-size: 15px; font-weight: 600; color: #18181B">Hook event schema v2</div>
+<div style="font-size: 13px; color: #52514B">3 tests failing in parser.spec.ts</div>
+</a>
+
+<p style="margin: 14px 4px 0; font-size: 12px; color: #6B6A63">Routine progress never shows up here. Only questions, permission requests, stops and failures do.</p>
+</section>
+
+<section class="detail" aria-label="Session detail" style="padding: 20px 24px 24px; display: flex; flex-direction: column; gap: 16px; background: #FFFFFF">
+<div style="display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap">
+<div style="flex: 1; min-width: 240px">
+<div style="font-size: 13px; color: #52514B">order-up-api › Retry policy for usom calls › test-runner</div>
+<h1 style="margin: 4px 0 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em">Claude has 2 questions for you</h1>
+</div>
+<div style="display: flex; gap: 8px">
+<button aria-label="Snooze" style="height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid #DEDBD2; background: #FFFFFF; font-size: 14px; font-weight: 500; color: #18181B; cursor: pointer">Snooze</button>
+<a href="#open-in-claude" style="height: 40px; padding: 0 14px; border-radius: 10px; background: #18181B; color: #FFFFFF; display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; text-decoration: none">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"></path></svg>Open in Claude</a>
+</div>
+</div>
+
+<dl style="margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px; background: #E7E4DB; border: 1px solid #E7E4DB; border-radius: 12px; overflow: hidden">
+<div style="background: #FBFAF7; padding: 10px 12px"><dt style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B6A63">Runs on</dt><dd style="margin: 2px 0 0; font-size: 14px; font-weight: 500">This Mac · desktop app</dd></div>
+<div style="background: #FBFAF7; padding: 10px 12px"><dt style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B6A63">Worktree</dt><dd style="margin: 2px 0 0; font-size: 14px; font-weight: 500; font-family: 'JetBrains Mono', ui-monospace, monospace">feat/usom-retry</dd></div>
+<div style="background: #FBFAF7; padding: 10px 12px"><dt style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B6A63">Changes</dt><dd style="margin: 2px 0 0; font-size: 14px; font-weight: 500">6 files · +218 / −41</dd></div>
+<div style="background: #FBFAF7; padding: 10px 12px"><dt style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #6B6A63">Pull request</dt><dd style="margin: 2px 0 0; font-size: 14px; font-weight: 500">Not opened yet</dd></div>
+</dl>
+
+<form aria-label="Answer Claude's questions" style="border: 2px solid #C2410C; border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 16px">
+<fieldset style="margin: 0; padding: 0; border: none; display: flex; flex-direction: column; gap: 8px">
+<legend style="padding: 0; margin-bottom: 8px; font-size: 15px; font-weight: 600">1. Which integration tests should I run before opening the PR?</legend>
+<div style="display: flex; flex-wrap: wrap; gap: 8px">
+<button type="button" aria-pressed="true" style="min-height: 40px; padding: 0 14px; border-radius: 10px; border: 2px solid #18181B; background: #18181B; color: #FFFFFF; font-size: 14px; font-weight: 600; cursor: pointer">Only *Usom* tests</button>
+<button type="button" aria-pressed="false" style="min-height: 40px; padding: 0 14px; border-radius: 10px; border: 1px solid #DEDBD2; background: #FFFFFF; color: #18181B; font-size: 14px; cursor: pointer">Full integration suite</button>
+<button type="button" aria-pressed="false" style="min-height: 40px; padding: 0 14px; border-radius: 10px; border: 1px solid #DEDBD2; background: #FFFFFF; color: #18181B; font-size: 14px; cursor: pointer">Skip — I'll run them</button>
+</div>
+</fieldset>
+<fieldset style="margin: 0; padding: 0; border: none; display: flex; flex-direction: column; gap: 8px">
+<legend style="padding: 0; margin-bottom: 8px; font-size: 15px; font-weight: 600">2. How many retries on a 5xx before the breaker counts it as a failure?</legend>
+<div style="display: flex; flex-wrap: wrap; gap: 8px">
+<button type="button" aria-pressed="false" style="min-height: 40px; padding: 0 14px; border-radius: 10px; border: 1px solid #DEDBD2; background: #FFFFFF; color: #18181B; font-size: 14px; cursor: pointer">2 (recommended)</button>
+<button type="button" aria-pressed="false" style="min-height: 40px; padding: 0 14px; border-radius: 10px; border: 1px solid #DEDBD2; background: #FFFFFF; color: #18181B; font-size: 14px; cursor: pointer">3</button>
+<label for="q2-other" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Other answer to question 2</label>
+<input id="q2-other" type="text" value="1, but only for idempotent GETs" style="min-height: 40px; flex: 1; min-width: 200px; padding: 0 12px; border-radius: 10px; border: 2px solid #18181B; background: #FFFFFF; font-size: 14px; color: #18181B">
+</div>
+</fieldset>
+<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; border-top: 1px solid #EFEDE6; padding-top: 14px">
+<span style="font-size: 13px; color: #52514B">Your answers go to <strong style="font-weight: 600; color: #18181B">test-runner</strong> in one reply. The session picks up from there.</span>
+<button type="submit" style="margin-left: auto; height: 44px; padding: 0 20px; border-radius: 10px; border: none; background: #C2410C; color: #FFFFFF; font-size: 15px; font-weight: 600; cursor: pointer">Send answers  ⌘↵</button>
+</div>
+</form>
+
+<section aria-label="Activity" style="display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; align-items: center"><h2 style="margin: 0; font-size: 14px; font-weight: 600">Since you left · 26 min</h2><a href="#open-in-claude" style="margin-left: auto; font-size: 13px; color: #1D4ED8">Full transcript in Claude</a></div>
+<ol style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 0; font-size: 14px">
+<li style="display: grid; grid-template-columns: 64px 14px 1fr; gap: 10px; align-items: center; min-height: 32px"><span style="font-size: 12px; color: #6B6A63">10:24</span><span style="width: 10px; height: 10px; border-radius: 5px; background: #C2410C" aria-hidden="true"></span><span style="font-weight: 600">Asked 2 questions (this item)</span></li>
+<li style="display: grid; grid-template-columns: 64px 14px 1fr; gap: 10px; align-items: center; min-height: 32px"><span style="font-size: 12px; color: #6B6A63">10:19</span><span style="width: 10px; height: 10px; border-radius: 5px; border: 2px solid #A8A59C; box-sizing: border-box" aria-hidden="true"></span><span style="color: #3F3F46">Unit tests pass — 42 / 42</span></li>
+<li style="display: grid; grid-template-columns: 64px 14px 1fr; gap: 10px; align-items: center; min-height: 32px"><span style="font-size: 12px; color: #6B6A63">10:06</span><span style="width: 10px; height: 10px; border-radius: 5px; border: 2px solid #A8A59C; box-sizing: border-box" aria-hidden="true"></span><span style="color: #3F3F46">Added circuit breaker (5 fails / 30s)</span></li>
+<li style="display: grid; grid-template-columns: 64px 14px 1fr; gap: 10px; align-items: center; min-height: 32px"><span style="font-size: 12px; color: #6B6A63">09:58</span><span style="width: 10px; height: 10px; border-radius: 5px; border: 2px solid #A8A59C; box-sizing: border-box" aria-hidden="true"></span><span style="color: #3F3F46">Backoff with jitter in UsomClient</span></li>
+</ol>
+</section>
+</section>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

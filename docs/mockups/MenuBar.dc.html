@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Notification + menu bar</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#18181B}a:hover{color:#000}
+button,input{font-family:inherit}
+</style>
+</helmet>
+<div style="width: 480px; height: 900px; box-sizing: border-box; padding: 32px 28px; background: #E9E7E1; font-family: Inter, system-ui, sans-serif; color: #18181B; display: flex; flex-direction: column; gap: 14px">
+
+<p style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #52514B">macOS notification · collapsed</p>
+<div style="background: rgba(255,255,255,0.92); border-radius: 18px; padding: 14px; display: flex; gap: 12px; box-shadow: 0 8px 24px rgba(24,24,27,0.12)">
+<div style="width: 40px; height: 40px; border-radius: 10px; background: #18181B; flex: none; display: flex; align-items: center; justify-content: center">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 13l2.5-7h11L20 13v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"></path><path d="M4 13h4l1 2h6l1-2h4"></path></svg>
+</div>
+<div style="flex: 1; min-width: 0">
+<div style="display: flex; gap: 8px"><span style="font-size: 14px; font-weight: 600">Claude has 2 questions</span><span style="margin-left: auto; font-size: 12px; color: #52514B">now</span></div>
+<div style="font-size: 13px; color: #3F3F46; line-height: 1.4">order-up-api › test-runner · Which integration tests should I run before opening the PR?</div>
+</div>
+</div>
+
+<p style="margin: 10px 0 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #52514B">Expanded · permission request</p>
+<div style="background: rgba(255,255,255,0.95); border-radius: 18px; padding: 14px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 8px 24px rgba(24,24,27,0.12)">
+<div style="display: flex; gap: 12px">
+<div style="width: 40px; height: 40px; border-radius: 10px; background: #18181B; flex: none; display: flex; align-items: center; justify-content: center">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 13l2.5-7h11L20 13v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"></path><path d="M4 13h4l1 2h6l1-2h4"></path></svg>
+</div>
+<div style="flex: 1; min-width: 0">
+<div style="font-size: 14px; font-weight: 600">Claude wants to run a command</div>
+<div style="font-size: 13px; color: #3F3F46">ravelo-insights · POS export ingestion</div>
+</div>
+</div>
+<pre style="margin: 0; padding: 8px 10px; background: #F1EFE8; border-radius: 8px; font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap">bun run migrate</pre>
+<div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1px; background: #DEDBD2; border-radius: 10px; overflow: hidden">
+<button style="height: 40px; border: none; background: #FFFFFF; font-size: 13px; font-weight: 600; color: #18181B; cursor: pointer">Allow</button>
+<button style="height: 40px; border: none; background: #FFFFFF; font-size: 13px; font-weight: 600; color: #991B1B; cursor: pointer">Deny</button>
+<button style="height: 40px; border: none; background: #FFFFFF; font-size: 13px; font-weight: 500; color: #18181B; cursor: pointer">Open…</button>
+</div>
+</div>
+
+<p style="margin: 10px 0 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #52514B">Menu bar popover</p>
+<div style="background: #FFFFFF; border-radius: 14px; border: 1px solid #DEDBD2; box-shadow: 0 12px 32px rgba(24,24,27,0.16); overflow: hidden; display: flex; flex-direction: column">
+<div style="padding: 12px 14px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid #EFEDE6">
+<span style="font-size: 14px; font-weight: 700">3 need you</span>
+<span style="font-size: 13px; color: #52514B">4 working · 2 to review</span>
+<button aria-label="Pause notifications" style="margin-left: auto; width: 32px; height: 32px; border-radius: 8px; border: 1px solid #DEDBD2; background: #FFFFFF; display: flex; align-items: center; justify-content: center; cursor: pointer">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#18181B" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M9 5v14M15 5v14"></path></svg>
+</button>
+</div>
+<a href="#s-retry" style="padding: 10px 14px; display: flex; gap: 10px; align-items: center; text-decoration: none; background: #FDF4EC">
+<span style="width: 8px; height: 8px; border-radius: 4px; background: #C2410C; flex: none" aria-hidden="true"></span>
+<span style="flex: 1; min-width: 0"><span style="display: block; font-size: 14px; font-weight: 600; color: #18181B">Retry policy for usom calls</span><span style="display: block; font-size: 12px; color: #52514B">2 questions · order-up-api</span></span>
+<span style="font-size: 12px; color: #52514B">2m</span>
+</a>
+<a href="#s-ravelo" style="padding: 10px 14px; display: flex; gap: 10px; align-items: center; text-decoration: none">
+<span style="width: 8px; height: 8px; border-radius: 4px; background: #C2410C; flex: none" aria-hidden="true"></span>
+<span style="flex: 1; min-width: 0"><span style="display: block; font-size: 14px; font-weight: 600; color: #18181B">POS export ingestion</span><span style="display: block; font-size: 12px; color: #52514B">Permission · ravelo-insights</span></span>
+<span style="font-size: 12px; color: #52514B">14m</span>
+</a>
+<a href="#s-hooks" style="padding: 10px 14px; display: flex; gap: 10px; align-items: center; text-decoration: none">
+<span style="width: 8px; height: 8px; border-radius: 4px; background: #B91C1C; flex: none" aria-hidden="true"></span>
+<span style="flex: 1; min-width: 0"><span style="display: block; font-size: 14px; font-weight: 600; color: #18181B">Hook event schema v2</span><span style="display: block; font-size: 12px; color: #52514B">Stopped with errors · agent-kit</span></span>
+<span style="font-size: 12px; color: #52514B">41m</span>
+</a>
+<div style="padding: 10px 14px; border-top: 1px solid #EFEDE6; display: flex; gap: 8px">
+<a href="#inbox" style="flex: 1; height: 36px; border-radius: 8px; background: #18181B; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; text-decoration: none">Open inbox  ⌘⇧I</a>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":480,"height":900}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
