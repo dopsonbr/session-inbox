@@ -9,11 +9,14 @@
 import {
   chmodSync,
   copyFileSync,
+  cpSync,
   existsSync,
   mkdirSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from "node:fs"
+import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { parseArgs } from "node:util"
 import { mergeHooks, serialize } from "../apps/hook/src/settings.ts"
@@ -74,13 +77,36 @@ for (const b of binaries) {
   }
 }
 
+// 1b. UI assets the daemon serves
+const uiSrc = join(dist, "ui")
+const uiDest = join(home, "ui")
+if (!apply) say(`would copy ${uiSrc} -> ${uiDest}`)
+else if (existsSync(uiSrc)) {
+  rmSync(uiDest, { recursive: true, force: true })
+  cpSync(uiSrc, uiDest, { recursive: true })
+  say(`copied ${uiDest}`)
+}
+
 // 2. launchd
 if (!values["no-launchd"]) {
   const template = readFileSync(
     join(root, "ops/launchd/com.sessioninbox.inboxd.plist.template"),
     "utf8",
   )
-  const plist = template.replaceAll("{{HOME}}", home)
+  // launchd's PATH is /usr/bin:/bin:/usr/sbin:/sbin; the daemon spawns `claude` (outbox, titles).
+  const claudeDir = dirname(Bun.which("claude") ?? join(homedir(), ".local/bin/claude"))
+  const path = [
+    ...new Set([
+      claudeDir,
+      "/opt/homebrew/bin",
+      "/usr/local/bin",
+      "/usr/bin",
+      "/bin",
+      "/usr/sbin",
+      "/sbin",
+    ]),
+  ].join(":")
+  const plist = template.replaceAll("{{HOME}}", home).replaceAll("{{PATH}}", path)
   const target = plistPath()
   const domain = `gui/${uid()}`
   if (!apply) {

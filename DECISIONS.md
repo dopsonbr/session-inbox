@@ -92,6 +92,8 @@ entries with your section's prefix (G, C, D, H, U, S, P) and the next free numbe
 - H-009 — launchd plist template sets `SESSION_INBOX_HOME` in `EnvironmentVariables` so a non-default `--home` reaches the daemon; install does `bootout` (ignored), `bootstrap gui/$UID`, `kickstart -k`. Uninstall boots out and removes the plist but leaves binaries and data.
 - H-010 — Record mode stores only `{event, payload, env}` with the three env fields the envelope already carries (entrypoint, host session id, claude pid) — never process env, tokens or account ids. Payloads themselves may contain prompts and file contents, so `fixtures/` should be treated as private and scrubbed before anything is committed.
 - H-011 — Tests run the hook as a subprocess against a fake daemon on a Unix socket under `/tmp/sih-XXXX`, for both `bun src/main.ts` and a freshly compiled binary. The install-script test runs `--yes` only with `--settings <tmp> --home <tmp> --no-launchd`.
+- H-012 — The installer ships the built UI to `<home>/ui`, and the plist sets `SESSION_INBOX_UI_DIR` to it. The compiled daemon can't locate the repo, so without this it served only the placeholder page.
+- H-013 — The plist sets PATH to the directory of `claude` (resolved at install time) plus Homebrew and the system dirs. launchd's default PATH has no `~/.local/bin`, so outbox replies and title generation would fail with "claude not found".
 
 ## UI
 

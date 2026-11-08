@@ -12,6 +12,10 @@
   <dict>
     <key>SESSION_INBOX_HOME</key>
     <string>{{HOME}}</string>
+    <key>SESSION_INBOX_UI_DIR</key>
+    <string>{{HOME}}/ui</string>
+    <key>PATH</key>
+    <string>{{PATH}}</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>
