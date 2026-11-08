@@ -1,60 +1,176 @@
 # Session Inbox
 
-A macOS menu-bar companion for Claude Code sessions running on this Mac (CLI and the Claude desktop app's Code tab). It notifies you when a session needs you, lets you answer questions or approve tool calls without opening Claude, and hands you back to the exact session for anything substantive.
+**A macOS menu-bar inbox for your local Claude Code sessions.** It tells you when a session needs you, lets you answer a question or approve a tool call without switching to Claude, and drops you into the exact session when there's real work to do.
 
-- Notifies only for questions, permission requests, stops and failures. Routine tool activity stays silent.
-- Mirrors Claude's structure: project → session → subagent.
-- Allow or Deny straight from the notification; answers to several questions go back as one reply.
-- If the daemon is down, Claude behaves exactly as if nothing were installed.
+- **Quiet by default.** You hear about questions, permission requests, stops and failures. Routine tool activity never notifies.
+- **Answer in place.** Allow or Deny from the notification itself. Answer several of Claude's questions in one form and they reach the waiting session together.
+- **Claude's own structure.** Project → session → subagent, grouped by repository, worktrees included.
+- **Invisible when off.** If the daemon isn't running, every hook exits immediately with no output and Claude behaves exactly as if nothing were installed.
+
+Scope for v1: sessions on **this Mac** only (the Claude desktop app's Code tab and the `claude` CLI). No cloud sessions, no sync, no transcript viewer.
+
+## How it works
 
 ```
-Claude Code ──hook JSON──▶ inbox-hook ──unix socket──▶ inboxd (Bun daemon, SQLite)
-     ▲                         │ waits for allow/deny          │ HTTP + SSE on 127.0.0.1
-     └──── decision ◀──────────┘                               ▼
-                                              Tauri menu-bar app + Foldkit UI
+ Claude Code session                                   you
+ ───────────────────                                   ───
+ hook fires ──JSON──▶ inbox-hook ──unix socket──▶ inboxd ──SSE──▶ menu-bar app ──▶ notification
+      ▲                   │ (holds PreToolUse        │  (Bun daemon,        │       │ Allow / Deny / Open
+      │                   │  until you decide)       │   SQLite)            ▼       ▼
+      └──── allow / deny / answers ◀─────────────────┴◀──── intents ◀── inbox window (Foldkit UI)
 ```
 
-Design: [docs/implementation.md](docs/implementation.md) (spec snapshot), [DECISIONS.md](DECISIONS.md) (everything we decided and why, and where it overrides the spec), [docs/spike.md](docs/spike.md) (Phase 0 findings).
+| Piece | What it does |
+| --- | --- |
+| **`inbox-hook`** | A compiled Bun binary that Claude runs for each hook event. It forwards the event to the daemon. For risky tools and `AskUserQuestion` it waits up to 120 s for your decision, then falls back to Claude's own prompt. |
+| **`inboxd`** | The only thing that decides anything: it classifies events, tracks session and item state, decides when to notify, dedupes, and routes replies. It runs as a launchd agent, keeps state in SQLite, and serves an HTTP + SSE API and the UI on `127.0.0.1`. |
+| **Menu-bar app** | A thin Tauri v2 shell: tray badge with the "needs you" count, a popover, native notifications with action buttons, `sessioninbox://` deep links, ⌘⇧I, launch at login. |
+| **Inbox UI** | Foldkit + Effect, rendered from daemon state: project tree, queues, question form, approval card, activity timeline. |
+
+**When does it interrupt a session?** It only holds a tool call when Claude itself would have asked you. That means the session is in the default permission mode, the tool is one of Bash, Write, Edit, MultiEdit, NotebookEdit or WebFetch, and none of your allow rules match. `AskUserQuestion` is always routed through the inbox. Clicking **Open in Claude** on a held item releases it at once, so Claude's own prompt appears.
+
+**Replies.** Answers to a question Claude is waiting on go back through its held hook. Free-text replies to an idle session go out as `claude --resume <id> -p "<reply>"`, and never while a turn is running.
 
 ## Install
 
-Requires Bun ≥ 1.4, Rust (for the menu-bar app), and the Claude desktop app or CLI.
+Requirements: macOS, [Bun](https://bun.sh) ≥ 1.4, Rust (`brew install rust`) for the menu-bar app, and the Claude desktop app or the `claude` CLI.
 
 ```bash
+git clone https://github.com/dopsonbr/session-inbox && cd session-inbox
 bun install
-bun scripts/install.ts          # dry run: shows every file and settings.json change
-bun scripts/install.ts --yes    # build, copy to ~/Library/Application Support/SessionInbox,
-                                # load the launchd agent, merge hooks into ~/.claude/settings.json
-bun scripts/build-shell.ts      # build "Session Inbox.app" (menu bar); open it from the printed path
+bun scripts/install.ts           # dry run: prints every file, launchd and settings.json change
 ```
 
-`install.ts --yes` backs up `~/.claude/settings.json` first, and re-running it changes nothing. `bun scripts/uninstall.ts --yes` removes the hooks and the launchd agent.
+Review the diff, then apply it:
 
-**Trial in one project only.** To leave your global settings alone, install the hooks into one repo's local settings and run the daemon by hand:
+```bash
+bun scripts/install.ts --yes
+```
+
+That command does four things:
+
+1. Builds `inbox-hook`, `inboxd` and the UI.
+2. Copies them to `~/Library/Application Support/SessionInbox/`.
+3. Loads the launchd agent `com.sessioninbox.inboxd`.
+4. Merges the hooks into `~/.claude/settings.json`. It backs the file up first, keeps everything else in it, and re-running it changes nothing.
+
+Then build and open the menu-bar app:
+
+```bash
+bun scripts/build-shell.ts       # prints the path to "Session Inbox.app"
+open "apps/desktop/src-tauri/target/release/bundle/macos/Session Inbox.app"
+```
+
+New Claude sessions pick up the hooks. Restart any session that's already open.
+
+### Try it in one project first
+
+To leave your global Claude settings untouched, install the hooks into a single repository and run the daemon in a terminal:
 
 ```bash
 bun scripts/install.ts --yes --no-launchd --settings /path/to/repo/.claude/settings.local.json
-bun apps/daemon/src/main.ts     # leave running; open the URL it logs
+bun apps/daemon/src/main.ts      # logs the inbox URL; Ctrl-C to stop
 ```
 
-## Develop
+### Uninstall
 
 ```bash
-bun test                        # unit, fixture-replay and API tests (whole repo)
+bun scripts/uninstall.ts         # dry run
+bun scripts/uninstall.ts --yes   # removes our hooks (only ours) and the launchd agent
+```
+
+## Using it
+
+| Where | What you can do |
+| --- | --- |
+| Notification | **Allow** / **Deny** a permission request without opening a window; **Answer** or **Open** a question. A click opens the item. |
+| Menu bar | Badge = items that need you. The popover lists them; **Open inbox** or ⌘⇧I opens the main window. |
+| Inbox window | Queues: **Needs you**, **Working**, **Ready to review**, **Snoozed**. Snooze 15 m / 1 h / tomorrow, dismiss, mute a project. |
+| Keyboard | ⌘K jump to a session · ⌘↵ send answers or allow · ⌘⌫ deny · arrow keys to move through the tree |
+| Open in Claude | Desktop sessions open via `claude://code/continue?session=…`. CLI sessions open via `claude://resume?session=…`, and `cd <dir> && claude --resume <id>` is also copied to your clipboard. |
+
+Session titles start as your first prompt and are replaced by a short Claude-written title a moment later (via `claude -p --model haiku`, with hooks disabled for that call).
+
+## Files and configuration
+
+Everything lives in `~/Library/Application Support/SessionInbox/`:
+
+| File | Purpose |
+| --- | --- |
+| `bin/inbox-hook`, `bin/inboxd`, `ui/` | Installed binaries and UI |
+| `inbox.db` | SQLite (WAL): sessions, items, events, outbox, notifications, drafts, settings |
+| `inboxd.sock` | Unix socket for hooks (mode 0600) |
+| `connection.json`, `token` | HTTP port and bearer token for the app (mode 0600) |
+| `inboxd.log` | Daemon log (launchd stdout and stderr) |
+
+Settings are rows in the `settings` table, read when the daemon starts:
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `holds.tools` | Bash, Write, Edit, MultiEdit, NotebookEdit, WebFetch | Tools that may be held for approval |
+| `holds.budgetMs` | `120000` | How long a held hook waits before falling back to Claude's prompt |
+| `holds.safeBashPrefixes` | `ls`, `git status`, … | Bash commands never held |
+| `questions.answerMode` | `updatedInput` | How answers reach a waiting `AskUserQuestion` (`denyWithReason` is the fallback) |
+| `notifications.fallback` | `true` | Use `osascript` notifications when the menu-bar app isn't running |
+| `notifications.reviewGroupMs` | `30000` | Window for grouping "ready to review" notifications |
+| `titles.generate` | `true` | Ask Claude for a short session title |
+
+```bash
+sqlite3 ~/Library/Application\ Support/SessionInbox/inbox.db \
+  "insert or replace into settings values ('titles.generate', 'false')"
+launchctl kickstart -k gui/$(id -u)/com.sessioninbox.inboxd
+```
+
+Environment overrides, mostly for development:
+
+- `SESSION_INBOX_HOME`: moves the whole data directory.
+- `SESSION_INBOX_UI_DIR`: where the daemon serves the UI from.
+- `SESSION_INBOX_CLAUDE`: path to the `claude` binary.
+- `CLAUDE_CONFIG_DIR`: where Claude settings are read for allow rules.
+- `SESSION_INBOX_HOLD_SECONDS`: the hook's hold budget.
+
+## Troubleshooting
+
+- **The menu-bar app says "daemon offline":** run `launchctl print gui/$(id -u)/com.sessioninbox.inboxd` and check `inboxd.log`. To restart, run `launchctl kickstart -k gui/$(id -u)/com.sessioninbox.inboxd`.
+- **Nothing shows up for a session:** the hooks load when a session starts, so restart it. Check that `~/.claude/settings.json` lists `inbox-hook` under `hooks`.
+- **Claude seems to pause before running a command:** that's a held approval waiting for you. It falls back to Claude's own prompt after 120 s, or at once when you click **Open in Claude**.
+- **No notification actions:** the app is ad-hoc signed. macOS may need **Alerts** style for "Session Inbox" in System Settings → Notifications for the buttons to show.
+
+## Status
+
+v1 is built and covered by tests, a smoke test and a browser check against a live daemon. Not yet confirmed on a real installed setup:
+
+- That hooks fire for sessions started in the desktop app. Static analysis says yes; see [docs/spike.md](docs/spike.md).
+- That `AskUserQuestion` answers land through `updatedInput`. The daemon switches to `denyWithReason` automatically if they don't.
+- That the exact-session deep link lands on the right session.
+- Notification clicks and buttons on a real desktop.
+
+The design and its reasoning are in [docs/implementation.md](docs/implementation.md) (spec snapshot) and [DECISIONS.md](DECISIONS.md), which records every decision and where it departs from the spec.
+
+## Development
+
+```bash
+bun install
+bun test                              # unit, lifecycle-table, fixture-replay and API tests
 bun run typecheck
-bun run lint
-bun scripts/smoke.ts            # real daemon + real inbox-hook, fake payloads; no Claude account
-bun scripts/demo.ts             # real daemon seeded with sample sessions; prints a URL for the UI
+bun run lint                          # Biome
+bun scripts/smoke.ts                  # real daemon + real inbox-hook end to end; no Claude account needed
+bun scripts/demo.ts                   # real daemon seeded with sample sessions; prints a URL to click around
 bun run --cwd apps/desktop dev:mock   # UI against an in-memory fake daemon
 bun run --cwd apps/daemon dev         # daemon with --watch on .dev/home
+cd apps/desktop/src-tauri && cargo test && cargo clippy -- -D warnings
 ```
 
 | Path | What |
 | --- | --- |
-| `apps/daemon` | `inboxd`: ingest, attention-item state machine, holds, outbox, notifications, HTTP/SSE |
-| `apps/hook` | `inbox-hook`: forwards hook JSON, long-polls decisions, fails open; `record` mode for fixtures |
-| `apps/desktop/src` | Foldkit + Effect UI (main window and `?view=compact` popover) |
-| `apps/desktop/src-tauri` | Tauri v2 shell: tray badge, popover, native notifications, deep links |
-| `packages/contracts` | Effect Schemas shared by daemon and UI |
-| `fixtures/` | recorded and synthetic hook payloads replayed by the tests |
-| `scripts/` | Bun scripts: install, build, smoke, demo, spike tools |
+| `apps/daemon` | `inboxd`: ingest, attention-item state machine, holds, outbox, notification policy, HTTP + SSE |
+| `apps/hook` | `inbox-hook`: forward, long-poll, fail open; `record` mode writes fixtures; settings merge |
+| `apps/desktop/src` | Foldkit + Effect UI: main window and `?view=compact` popover |
+| `apps/desktop/src-tauri` | Tauri v2 shell: tray, popover, notifications, deep links, autostart |
+| `packages/contracts` | Effect Schemas shared by the daemon and the UI: the only shared code |
+| `fixtures/` | Recorded (real) and synthetic hook payloads replayed by the tests |
+| `ops/` | launchd plist template, Claude settings snippet |
+| `scripts/` | Bun scripts: install, uninstall, build, build-shell, smoke, demo, spike tools |
+| `docs/` | Spec snapshot, mockups, Phase 0 spike report |
+
+Stack: Bun 1.4 · Effect 4.1.2 · Foldkit 0.170 · Basecoat CSS · Tailwind 4 · Tauri 2 · SQLite. Contributor and agent guidance is in [CLAUDE.md](CLAUDE.md).
