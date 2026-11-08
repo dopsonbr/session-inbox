@@ -89,7 +89,9 @@ export const startDaemon = async (
   const ctx: ServerContext = { engine, token, uiDir: resolve(opts.uiDir), port: 0 }
 
   if (existsSync(p.socket)) rmSync(p.socket)
-  const sock = Bun.serve({ unix: p.socket, fetch: hookHandler(ctx) })
+  // idleTimeout 0: decision long-polls last up to 110 s (Bun's types omit it for unix; runtime honours it).
+  const sockOptions: unknown = { unix: p.socket, fetch: hookHandler(ctx), idleTimeout: 0 }
+  const sock = Bun.serve(sockOptions as Parameters<typeof Bun.serve>[0])
   chmodSync(p.socket, 0o600)
   const http = Bun.serve({
     hostname: "127.0.0.1",
