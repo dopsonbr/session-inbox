@@ -173,8 +173,11 @@ const PLACEHOLDER = `<!doctype html><html><head><meta charset="utf-8">${TOKEN_ME
 <body style="font:13px -apple-system,system-ui;padding:24px"><h1 style="font-size:16px">Session Inbox daemon is running</h1>
 <p>The UI isn't built yet. Build <code>apps/desktop</code> or pass <code>--ui-dir</code>.</p></body></html>`
 
-const injectToken = (html: string, token: string) =>
-  html.replace(TOKEN_META, `<meta name="session-inbox-token" content="${token}">`)
+/** Tolerates the self-closing form Vite emits (`content="" />`). */
+const TOKEN_META_RE = /<meta\s+name="session-inbox-token"\s+content=""\s*\/?>/
+
+export const injectToken = (html: string, token: string) =>
+  html.replace(TOKEN_META_RE, `<meta name="session-inbox-token" content="${token}">`)
 
 const serveStatic = async (ctx: ServerContext, url: URL): Promise<Response> => {
   const index = join(ctx.uiDir, "index.html")

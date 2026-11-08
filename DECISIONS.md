@@ -33,6 +33,7 @@ entries with your section's prefix (G, C, D, H, U, S, P) and the next free numbe
 - G-020 — `scripts/install.ts` is a dry run by default. It touches `~/.claude/settings.json` and launchd only with `--yes`, backs up first, and merges idempotently. Installing hooks globally changes every Claude session on the machine, so it's an explicit step.
 - G-021 — Quiet hours are out of scope for v1. The user said not to worry about them.
 - G-022 — `scripts/smoke.ts` also drives the real `inbox-hook` process: a held Write denied from the HTTP API, and fail-open against a home with no daemon. That covers the hook↔daemon seam the unit tests can't, and still needs no Claude account.
+- G-023 — `scripts/demo.ts` runs the real daemon on a throwaway home, seeds realistic sessions over the hook socket, and serves the built UI, so the whole loop can be checked in a browser with no Claude account. Integration check found the daemon matched only `content="">`, while Vite emits `content="" />`, so the token never got injected. The match is now a regex, with a test.
 
 ## Contracts
 
