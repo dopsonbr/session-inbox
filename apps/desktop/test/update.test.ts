@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { RadioGroup } from "@foldkit/ui"
+import { Combobox, Dialog, RadioGroup } from "@foldkit/ui"
 import type { Item, ItemDetail, Snapshot, StreamMessage } from "@session-inbox/contracts"
 import { Effect, Option } from "effect"
 import { given, message, model, story } from "foldkit/story"
@@ -7,6 +7,8 @@ import { makeFakeClient } from "../src/client/fake.ts"
 import { Message } from "../src/message.ts"
 import type { Model } from "../src/model.ts"
 import { deliveryToasts, init, initialModel, type UpdateReturn, update } from "../src/update.ts"
+import { activityEntries } from "../src/view/detail.ts"
+import { itemKindLabel } from "../src/view/parts.ts"
 
 const NOW = 1_800_000_000_000
 const client = () => makeFakeClient({ now: () => NOW, simulate: false, delayScale: 0 })
@@ -260,6 +262,40 @@ describe("keyboard shortcuts", () => {
     expect(ret.model.jumpDialog.isOpen).toBe(true)
   })
 
+  test("⌘K starts with nothing highlighted, so the first ArrowDown lands on the first result", () => {
+    // A previous visit left the list open with row 2 highlighted (dialog dismissed under it).
+    const start = loaded()
+    const stale: Model = {
+      ...start,
+      jumpCombobox: {
+        ...start.jumpCombobox,
+        isOpen: true,
+        inputValue: "re",
+        maybeActiveItemIndex: Option.some(2),
+      },
+    }
+    const opened = update(stale, Message.PressedJumpShortcut()).model
+    expect(opened.jumpCombobox.isOpen).toBe(false)
+    expect(opened.jumpCombobox.inputValue).toBe("")
+    expect(opened.jumpCombobox.maybeActiveItemIndex).toEqual(Option.none())
+    // ArrowDown on a closed list opens it on the first enabled row.
+    const down = update(
+      opened,
+      Message.GotJumpComboboxMessage({
+        message: Combobox.Message.Opened({ maybeActiveItemIndex: Option.some(0) }),
+      }),
+    ).model
+    expect(down.jumpCombobox.maybeActiveItemIndex).toEqual(Option.some(0))
+    // Closing the dialog also forgets the highlight.
+    const closed = update(
+      down,
+      Message.GotJumpDialogMessage({ message: Dialog.Message.RequestedClose() }),
+    ).model
+    expect(closed.jumpDialog.isOpen).toBe(false)
+    expect(closed.jumpCombobox.isOpen).toBe(false)
+    expect(closed.jumpCombobox.maybeActiveItemIndex).toEqual(Option.none())
+  })
+
   test("⌘↵ on a review item sends the short reply", () => {
     const start = update(
       run(loaded(), Message.ClickedItem({ itemId: "i-receipts-review" })).model,
@@ -268,6 +304,48 @@ describe("keyboard shortcuts", () => {
     expect(names(update(start, Message.PressedSubmitShortcut()))).toEqual([])
     const typed = update(start, Message.UpdatedReply({ value: "ship it" })).model
     expect(names(update(typed, Message.PressedSubmitShortcut()))).toEqual(["SendReply"])
+  })
+})
+
+describe("cards and activity", () => {
+  test("question cards count their questions", () => {
+    const items = snapshot().items
+    const byId = (id: string) => items.find((i) => i.id === id) as Item
+    expect(itemKindLabel(byId("i-retry-questions"))).toBe("2 questions")
+    const one = { ...byId("i-retry-questions"), questionCount: 1 }
+    expect(itemKindLabel(one)).toBe("1 question")
+    const none: Item = { ...byId("i-retry-questions") }
+    delete (none as { questionCount?: number }).questionCount
+    expect(itemKindLabel(none)).toBe("Question")
+  })
+
+  test("the (this item) marker follows isSource, not the newest entry", () => {
+    // s-pos-sync: a SubagentStart came after the question that created the item.
+    const detail = detailOf("i-sync-snoozed")
+    expect(detail.timeline[0]?.isSource).toBeUndefined()
+    const source = detail.timeline.filter((e) => e.isSource === true)
+    expect(source.map((e) => e.text)).toEqual(["Asked about tombstone merge strategy"])
+    // An old source event is appended after the newest 8 lines.
+    const long = [
+      ...Array.from({ length: 10 }, (_, i) => ({
+        seq: 100 - i,
+        at: NOW,
+        hook: "PostToolUse",
+        agentId: null,
+        text: `line ${i}`,
+      })),
+      {
+        seq: 1,
+        at: NOW,
+        hook: "PreToolUse",
+        agentId: null,
+        text: "Asked 2 questions",
+        isSource: true,
+      },
+    ]
+    const shown = activityEntries(long)
+    expect(shown).toHaveLength(9)
+    expect(shown.at(-1)?.text).toBe("Asked 2 questions")
   })
 })
 

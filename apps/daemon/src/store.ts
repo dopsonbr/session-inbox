@@ -167,7 +167,7 @@ export const toAgent = (r: AgentRow): Agent => ({
   endedAt: r.ended_at,
 })
 
-export const toItem = (r: ItemRow, live: boolean): Item => ({
+export const toItem = (r: ItemRow, live: boolean, questionCount = 0): Item => ({
   id: r.id,
   sessionId: r.session_id,
   agentId: r.agent_id,
@@ -179,6 +179,7 @@ export const toItem = (r: ItemRow, live: boolean): Item => ({
   live,
   unread: r.unread === 1,
   snoozeUntil: r.snooze_until,
+  ...(r.kind === "question" && questionCount > 0 ? { questionCount } : {}),
   createdAt: r.created_at,
   updatedAt: r.updated_at,
 })
@@ -255,9 +256,19 @@ export class Store {
       )?.n === 1
     )
   }
+  questionCount(itemId: string): number {
+    return (
+      this.one<{ n: number }>("SELECT COUNT(*) AS n FROM questions WHERE item_id = ?", itemId)?.n ??
+      0
+    )
+  }
+  /** The contract `Item` for a row: live flag and question count looked up. */
+  itemView(r: ItemRow): Item {
+    return toItem(r, this.isLive(r.id), r.kind === "question" ? this.questionCount(r.id) : 0)
+  }
   itemOut(id: string): Item | null {
     const r = this.item(id)
-    return r ? toItem(r, this.isLive(id)) : null
+    return r ? this.itemView(r) : null
   }
   maxSeq(): number {
     return this.one<{ s: number | null }>("SELECT MAX(seq) AS s FROM events")?.s ?? 0

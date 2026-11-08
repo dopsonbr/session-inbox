@@ -4,10 +4,12 @@
  */
 import { Database } from "bun:sqlite"
 import m001 from "./migrations/001_init.sql" with { type: "text" }
+import m002 from "./migrations/002_review_group.sql" with { type: "text" }
 
 /** Numbered migrations, embedded so `bun build --compile` carries them. Append only. */
 export const MIGRATIONS: ReadonlyArray<{ version: number; sql: string }> = [
   { version: 1, sql: m001 },
+  { version: 2, sql: m002 },
 ]
 
 export const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0

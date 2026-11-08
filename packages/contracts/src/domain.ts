@@ -93,6 +93,8 @@ export const Item = Schema.Struct({
   live: Schema.Boolean,
   unread: Schema.Boolean,
   snoozeUntil: Schema.NullOr(Millis),
+  /** Question items: how many questions Claude asked (absent for an idle "waiting for input"). */
+  questionCount: Schema.optional(Schema.Number),
   createdAt: Millis,
   updatedAt: Millis,
 })
@@ -130,6 +132,8 @@ export const TimelineEntry = Schema.Struct({
   agentId: Schema.NullOr(Schema.String),
   /** One human-readable line, e.g. "Edited src/foo.ts" or "Ran bun test". */
   text: Schema.String,
+  /** True on the event that created (or last refreshed) the item this detail is for. */
+  isSource: Schema.optional(Schema.Boolean),
 })
 export type TimelineEntry = typeof TimelineEntry.Type
 

@@ -257,7 +257,9 @@ export const makeFakeClient = (options: FakeOptions = {}): FakeDaemon => {
             project,
             questions: extras?.questions ?? [],
             approval: extras?.approval ?? null,
-            timeline: [...(db.timelines[session.id] ?? [])].sort((a, b) => b.seq - a.seq),
+            timeline: [...(db.timelines[session.id] ?? [])]
+              .sort((a, b) => b.seq - a.seq)
+              .map((e) => (e.seq === extras?.sourceSeq ? { ...e, isSource: true } : e)),
             outbox: extras?.outbox ?? [],
             draft: extras?.draft ?? null,
             openUrl: extras?.openUrl ?? null,

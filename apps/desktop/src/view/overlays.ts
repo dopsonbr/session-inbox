@@ -60,7 +60,7 @@ const jumpCombobox = (model: Model, snapshot: Snapshot, h: H): Html =>
           session === undefined ? 0 : needsYouCountForProject(snapshot, session.projectId)
         return {
           className:
-            "flex min-h-8 cursor-pointer items-center gap-2 px-3 py-1.5 text-[13px] data-[active]:bg-accent",
+            "flex min-h-8 cursor-pointer items-center gap-2 px-3 py-1.5 text-[13px] data-[active]:bg-working-tint data-[active]:shadow-[inset_3px_0_0_var(--working)]",
           content: h.div(
             [h.Class("flex w-full items-center gap-2")],
             [
