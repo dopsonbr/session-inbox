@@ -28,6 +28,13 @@
         "vite": "8.3.6",
       },
     },
+    "apps/hook": {
+      "name": "@session-inbox/hook",
+      "version": "0.0.0",
+      "dependencies": {
+        "@session-inbox/contracts": "workspace:*",
+      },
+    },
     "packages/contracts": {
       "name": "@session-inbox/contracts",
       "version": "0.0.0",
@@ -132,6 +139,8 @@
     "@session-inbox/contracts": ["@session-inbox/contracts@workspace:packages/contracts"],
 
     "@session-inbox/desktop": ["@session-inbox/desktop@workspace:apps/desktop"],
+
+    "@session-inbox/hook": ["@session-inbox/hook@workspace:apps/hook"],
 
     "@tailwindcss/node": ["@tailwindcss/node@4.3.5", "", { "dependencies": { "@jridgewell/remapping": "^2.3.5", "enhanced-resolve": "^5.24.5", "jiti": "^2.7.0", "lightningcss": "1.33.0", "magic-string": "^1.1.0", "source-map-js": "^1.2.1", "tailwindcss": "4.3.5" } }, "sha512-yT53FzV4ke0cr/BguDxhWMpm5MJu1O2muzk+tKw6lKHjODAsYArBbWwFbJiaksfzFv1tpkO9QHGzmfs1hJT66g=="],
 
