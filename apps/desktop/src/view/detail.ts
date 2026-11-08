@@ -1,0 +1,775 @@
+import { Checkbox, Textarea } from "@foldkit/ui"
+import type {
+  Approval,
+  ItemDetail,
+  OutboxEntry,
+  Question,
+  Snapshot,
+} from "@session-inbox/contracts"
+import { Option } from "effect"
+import { childAttributes, type Html, type HtmlBuilder } from "foldkit/html"
+import { Message, type SnoozeAction } from "../message.ts"
+import type { AnswerDraft, Form, Model } from "../model.ts"
+import { areAnswersComplete, findAgent, findSession, formatAge, formatClock } from "../selectors.ts"
+import { QuestionRadioGroup, SnoozeMenu } from "../update.ts"
+import {
+  Icon,
+  itemBadge,
+  kbd,
+  runtimeLabel,
+  sessionStateLabel,
+  sessionTone,
+  toneText,
+} from "./parts.ts"
+
+type H = HtmlBuilder<Message>
+
+const sectionShell = (h: H, children: ReadonlyArray<Html>): Html =>
+  h.section(
+    [
+      h.AriaLabel("Session detail"),
+      h.Class("detail flex min-h-0 flex-col gap-4 overflow-y-auto bg-card px-6 pt-5 pb-6"),
+    ],
+    children,
+  )
+
+const muted = (h: H, text: string): Html =>
+  h.p([h.Class("text-[13px] text-muted-foreground")], [text])
+
+// HEADER
+
+const agentName = (snapshot: Option.Option<Snapshot>, detail: ItemDetail): Option.Option<string> =>
+  Option.flatMap(snapshot, (s) =>
+    Option.map(
+      Option.filter(findAgent(s, detail.item.agentId), (a) => a.parentAgentId !== null),
+      (a) => a.name,
+    ),
+  )
+
+const titleFor = (detail: ItemDetail): string => {
+  const { item, questions, approval } = detail
+  if (item.kind === "question") {
+    return questions.length === 0
+      ? "Claude is waiting for your input"
+      : `Claude has ${questions.length} question${questions.length === 1 ? "" : "s"} for you`
+  }
+  if (item.kind === "permission") {
+    return approval === null || approval.tool === "Bash"
+      ? "Claude wants to run a command"
+      : `Claude wants to use ${approval.tool}`
+  }
+  return item.kind === "failed" ? "Session stopped with errors" : "Ready for your review"
+}
+
+const SNOOZE_ITEMS: ReadonlyArray<SnoozeAction> = [
+  "snooze-15m",
+  "snooze-1h",
+  "snooze-tomorrow",
+  "dismiss",
+  "mute",
+]
+
+const snoozeLabel = (action: SnoozeAction, detail: ItemDetail): string =>
+  ({
+    "snooze-15m": "Snooze 15 minutes",
+    "snooze-1h": "Snooze 1 hour",
+    "snooze-tomorrow": "Snooze until tomorrow 9:00",
+    dismiss: "Dismiss",
+    mute: detail.project.muted ? `Unmute ${detail.project.name}` : `Mute ${detail.project.name}`,
+  })[action]
+
+const snoozeMenuView = (model: Model, detail: ItemDetail, h: H): Html =>
+  h.div(
+    [h.Class("relative")],
+    [
+      h.submodel({
+        slotId: model.snoozeMenu.id,
+        model: model.snoozeMenu,
+        view: SnoozeMenu.view,
+        viewInputs: {
+          items: SNOOZE_ITEMS,
+          anchor: { placement: "bottom-end", gap: 4, padding: 8 },
+          ariaLabel: "Snooze or dismiss",
+          itemToConfig: (action) => ({
+            className:
+              "flex min-h-8 cursor-pointer items-center px-3 text-[13px] text-popover-foreground data-[active]:bg-accent",
+            content: h.span([], [snoozeLabel(action, detail)]),
+          }),
+          itemGroupKey: (action) => (action.startsWith("snooze") ? "snooze" : "other"),
+          buttonContent: h.span(
+            [h.Class("inline-flex items-center gap-1.5")],
+            [Icon.clock(h), "Snooze", Icon.chevronDown(h, "size-3")],
+          ),
+          buttonAttributes: childAttributes([
+            h.Class("btn"),
+            h.DataAttribute("variant", "outline"),
+            h.DataAttribute("size", "lg"),
+          ]),
+          itemsAttributes: childAttributes([
+            h.Class(
+              "z-20 w-56 overflow-hidden rounded-lg border border-border bg-popover py-1 shadow-lg outline-none",
+            ),
+          ]),
+          separatorAttributes: childAttributes([h.Class("my-1 border-t border-border")]),
+          backdropAttributes: childAttributes([h.Class("fixed inset-0 z-10")]),
+        },
+        toParentMessage: (message) => Message.GotSnoozeMenuMessage({ message }),
+      }),
+    ],
+  )
+
+const detailHeader = (model: Model, detail: ItemDetail, h: H): Html => {
+  const crumbs = [
+    detail.project.name,
+    detail.session.title ?? "Untitled session",
+    ...Option.toArray(agentName(model.maybeSnapshot, detail)),
+  ]
+  const isOpening = model.submission._tag === "Sending" && model.submission.action === "open"
+  return h.div(
+    [h.Class("flex flex-wrap items-start gap-3")],
+    [
+      h.div(
+        [h.Class("min-w-60 flex-1")],
+        [
+          h.nav(
+            [h.AriaLabel("Breadcrumb"), h.Class("text-[13px] text-muted-foreground")],
+            [crumbs.join(" › ")],
+          ),
+          h.h1([h.Class("mt-1 text-[22px] font-bold tracking-tight")], [titleFor(detail)]),
+          h.div([h.Class("mt-1.5")], [itemBadge(h, detail.item)]),
+        ],
+      ),
+      h.div(
+        [h.Class("flex gap-2")],
+        [
+          snoozeMenuView(model, detail, h),
+          h.button(
+            [
+              h.Type("button"),
+              h.Class("btn"),
+              h.DataAttribute("size", "lg"),
+              h.Disabled(isOpening),
+              h.OnClick(Message.ClickedOpenInClaude()),
+            ],
+            [Icon.external(h), "Open in Claude"],
+          ),
+        ],
+      ),
+    ],
+  )
+}
+
+// CONTEXT STRIP
+
+const contextStrip = (model: Model, detail: ItemDetail, h: H): Html => {
+  const { session } = detail
+  const cell = (label: string, value: Html | string, mono = false) =>
+    h.div(
+      [h.Class("bg-sidebar px-3 py-2.5")],
+      [
+        h.dt(
+          [h.Class("text-[11px] font-semibold uppercase tracking-[0.06em] text-subtle-foreground")],
+          [label],
+        ),
+        h.dd(
+          [
+            h.Class(
+              `m-0 mt-0.5 truncate text-[14px] font-medium ${mono ? "font-mono text-[13px]" : ""}`,
+            ),
+          ],
+          [value],
+        ),
+      ],
+    )
+  return h.dl(
+    [
+      h.Class(
+        "m-0 grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-px overflow-hidden rounded-xl border border-border bg-border",
+      ),
+    ],
+    [
+      cell("Runs on", runtimeLabel(session)),
+      session.worktree !== null
+        ? cell("Worktree", session.worktree, true)
+        : cell("Branch", session.branch ?? "—", true),
+      cell(
+        "Session",
+        h.span([h.Class(toneText[sessionTone(session)])], [sessionStateLabel(session)]),
+      ),
+      cell("Last activity", `${formatAge(model.now, session.lastEventAt)} ago`),
+    ],
+  )
+}
+
+// QUESTION FORM
+
+const answerFor = (form: Form, idx: number): AnswerDraft =>
+  form.answers.find((a) => a.idx === idx) ?? { idx, selected: [], other: "" }
+
+const optionDescription = (
+  h: H,
+  description: string | undefined,
+  attrs: ReadonlyArray<never> | ReadonlyArray<unknown> = [],
+) =>
+  description === undefined
+    ? h.empty
+    : h.span(
+        [...(attrs as ReadonlyArray<never>), h.Class("text-xs font-normal opacity-75")],
+        [description],
+      )
+
+const singleChoice = (form: Form, question: Question, position: number, h: H): Html => {
+  const group = form.radioGroups[position]
+  const answer = answerFor(form, question.idx)
+  if (group === undefined) {
+    return h.empty
+  }
+  return h.submodel({
+    slotId: group.id,
+    model: group,
+    view: QuestionRadioGroup.view,
+    viewInputs: {
+      options: question.options.map((o) => o.label),
+      selectedValue: Option.fromNullishOr(answer.selected[0]),
+      ariaLabel: question.text,
+      orientation: "Horizontal",
+      hasOptionDescription: (_value, index) => question.options[index]?.description !== undefined,
+      toView: ({ group: groupAttrs, options }) =>
+        h.div(
+          [...groupAttrs, h.Class("flex flex-wrap gap-2")],
+          options.map((option) =>
+            h.div(
+              [...option.option, h.Class("choice")],
+              [
+                h.span([...option.label], [option.value]),
+                optionDescription(
+                  h,
+                  question.options[option.index]?.description,
+                  option.description,
+                ),
+              ],
+            ),
+          ),
+        ),
+    },
+    toParentMessage: (message) => Message.GotRadioGroupMessage({ idx: question.idx, message }),
+  })
+}
+
+const multiChoice = (form: Form, question: Question, h: H): Html => {
+  const answer = answerFor(form, question.idx)
+  return h.div(
+    [h.Class("flex flex-wrap gap-2")],
+    question.options.map((option, index) =>
+      Checkbox.view(
+        {
+          id: `q-${form.itemId}-${question.idx}-${index}`,
+          isChecked: answer.selected.includes(option.label),
+          onToggle: (isChecked) =>
+            Message.ToggledOption({ idx: question.idx, label: option.label, isChecked }),
+          hasDescription: option.description !== undefined,
+          toView: ({ checkbox, label, description }) =>
+            h.div(
+              [...checkbox, h.Class("choice")],
+              [
+                h.span(
+                  [
+                    h.AriaHidden(true),
+                    h.Class(
+                      "inline-flex size-4 items-center justify-center rounded border border-current",
+                    ),
+                  ],
+                  [answer.selected.includes(option.label) ? Icon.check(h, "size-3") : h.empty],
+                ),
+                h.span([...label], [option.label]),
+                option.description === undefined
+                  ? h.empty
+                  : h.span(
+                      [...description, h.Class("text-xs font-normal opacity-75")],
+                      [option.description],
+                    ),
+              ],
+            ),
+        },
+        h,
+      ),
+    ),
+  )
+}
+
+const questionFieldset = (form: Form, question: Question, position: number, h: H): Html => {
+  const answer = answerFor(form, question.idx)
+  const otherId = `q-${form.itemId}-${question.idx}-other`
+  return h.fieldset(
+    [h.Class("m-0 flex flex-col gap-2 border-none p-0")],
+    [
+      h.legend(
+        [h.Class("mb-2 p-0 text-[15px] font-semibold")],
+        [
+          `${position + 1}. ${question.text}`,
+          question.multi
+            ? h.span([h.Class("ml-2 text-xs font-normal text-subtle-foreground")], ["Pick any"])
+            : h.empty,
+        ],
+      ),
+      h.div(
+        [h.Class("flex flex-wrap items-center gap-2")],
+        [
+          question.multi
+            ? multiChoice(form, question, h)
+            : singleChoice(form, question, position, h),
+          h.label(
+            [h.For(otherId), h.Class("sr-only")],
+            [`Other answer to question ${position + 1}`],
+          ),
+          h.input([
+            h.Id(otherId),
+            h.Type("text"),
+            h.Class(
+              `input min-h-8 min-w-52 flex-1 ${answer.other.trim() !== "" ? "border-2 border-primary" : ""}`,
+            ),
+            h.Placeholder("Other…"),
+            h.Value(answer.other),
+            h.OnInput((value) => Message.UpdatedOther({ idx: question.idx, value })),
+          ]),
+        ],
+      ),
+    ],
+  )
+}
+
+const deliveryNote = (model: Model, detail: ItemDetail, h: H): Html => {
+  const target = Option.getOrElse(
+    agentName(model.maybeSnapshot, detail),
+    () => detail.session.title ?? "the session",
+  )
+  return h.span(
+    [h.Class("text-[13px] text-muted-foreground")],
+    detail.item.queue === "done"
+      ? [
+          "Answered. ",
+          h.strong([h.Class("font-semibold text-foreground")], [target]),
+          " has your answers.",
+        ]
+      : detail.item.live
+        ? [
+            "Your answers go straight to ",
+            h.strong([h.Class("font-semibold text-foreground")], [target]),
+            ". It's paused waiting for them.",
+          ]
+        : [
+            "Your answers go to ",
+            h.strong([h.Class("font-semibold text-foreground")], [target]),
+            " in one reply when the session is idle. The session picks up from there.",
+          ],
+  )
+}
+
+const questionForm = (model: Model, detail: ItemDetail, form: Form, h: H): Html => {
+  const isSending = model.submission._tag === "Sending" && model.submission.action === "answers"
+  const isComplete = areAnswersComplete(form)
+  const isClosed = detail.item.queue === "done"
+  return h.form(
+    [
+      h.AriaLabel("Answer Claude's questions"),
+      h.Class("flex flex-col gap-4 rounded-[14px] border-2 border-needs-strong p-4"),
+      h.OnSubmit(Message.SubmittedAnswers()),
+    ],
+    [
+      ...detail.questions.map((q, i) => questionFieldset(form, q, i, h)),
+      h.div(
+        [h.Class("flex flex-wrap items-center gap-3 border-t border-border pt-3.5")],
+        [
+          deliveryNote(model, detail, h),
+          h.button(
+            [
+              h.Type("submit"),
+              h.Class("btn ml-auto"),
+              h.DataAttribute("variant", "needs"),
+              h.DataAttribute("size", "lg"),
+              h.Disabled(!isComplete || isSending || isClosed),
+              h.AriaKeyshortcuts("Meta+Enter"),
+            ],
+            [isSending ? "Sending…" : "Send answers", kbd(h, "⌘↵")],
+          ),
+        ],
+      ),
+      isComplete || isClosed
+        ? h.empty
+        : h.p(
+            [h.Class("-mt-2 text-xs text-subtle-foreground")],
+            ["Answer every question to send."],
+          ),
+    ],
+  )
+}
+
+// APPROVAL CARD
+
+const commandPreview = (approval: Approval): { command: string; description: string | null } => {
+  const input = approval.input
+  if (input !== null && typeof input === "object") {
+    const record = input as Record<string, unknown>
+    const description = typeof record.description === "string" ? record.description : null
+    if (typeof record.command === "string") {
+      return { command: record.command, description }
+    }
+    if (typeof record.file_path === "string") {
+      return { command: record.file_path, description }
+    }
+    return { command: JSON.stringify(input, null, 2), description }
+  }
+  return { command: String(input), description: null }
+}
+
+const approvalCard = (model: Model, detail: ItemDetail, approval: Approval, h: H): Html => {
+  const { command, description } = commandPreview(approval)
+  const isSending = model.submission._tag === "Sending" && model.submission.action === "decision"
+  const isDecided = approval.decision !== null || detail.item.queue === "done"
+  const disabled = isSending || isDecided
+  const secondsLeft = Math.max(0, Math.round((approval.expiresAt - model.now) / 1000))
+  return h.section(
+    [
+      h.AriaLabel("Permission request"),
+      h.Class("flex flex-col gap-3 rounded-[14px] border-2 border-needs-strong p-4"),
+    ],
+    [
+      h.div(
+        [h.Class("flex items-center gap-2 text-[13px] text-muted-foreground")],
+        [
+          h.span([h.Class("font-semibold text-foreground")], [approval.tool]),
+          description === null ? h.empty : `· ${description}`,
+        ],
+      ),
+      h.pre(
+        [
+          h.Class(
+            "m-0 overflow-x-auto rounded-lg bg-code px-3 py-2 font-mono text-[13px] whitespace-pre-wrap",
+          ),
+        ],
+        [h.code([], [command])],
+      ),
+      h.p(
+        [h.Class("text-[13px] text-muted-foreground")],
+        [
+          isDecided
+            ? `Decided: ${approval.decision ?? "answered"}${approval.decidedAt === null ? "" : ` at ${formatClock(approval.decidedAt)}`}.`
+            : detail.item.live
+              ? `Claude is paused on this. If you don't answer${secondsLeft > 0 ? ` within about ${Math.max(1, Math.round(secondsLeft / 60))} min` : " soon"}, Claude's own prompt takes over.`
+              : "Claude's own prompt has taken over — deciding here may not reach it. Open it in Claude.",
+        ],
+      ),
+      h.div(
+        [h.Class("flex flex-wrap items-center gap-2")],
+        [
+          h.button(
+            [
+              h.Type("button"),
+              h.Class("btn"),
+              h.DataAttribute("size", "lg"),
+              h.Disabled(disabled),
+              h.AriaKeyshortcuts("Meta+Enter"),
+              h.OnClick(Message.ClickedDecision({ decision: "allow" })),
+            ],
+            ["Allow once", kbd(h, "⌘↵")],
+          ),
+          h.button(
+            [
+              h.Type("button"),
+              h.Class("btn"),
+              h.DataAttribute("variant", "outline"),
+              h.DataAttribute("size", "lg"),
+              h.Disabled(disabled),
+              h.Title("Adds an allow rule to this project's .claude/settings.local.json"),
+              h.OnClick(Message.ClickedDecision({ decision: "allow-always" })),
+            ],
+            ["Always allow"],
+          ),
+          h.button(
+            [
+              h.Type("button"),
+              h.Class("btn ml-auto"),
+              h.DataAttribute("variant", "danger-outline"),
+              h.DataAttribute("size", "lg"),
+              h.Disabled(disabled),
+              h.AriaKeyshortcuts("Meta+Backspace"),
+              h.OnClick(Message.ClickedDecision({ decision: "deny" })),
+            ],
+            ["Deny", kbd(h, "⌘⌫")],
+          ),
+        ],
+      ),
+      h.p(
+        [h.Class("text-xs text-subtle-foreground")],
+        ["Always allow adds a rule to this project's .claude/settings.local.json."],
+      ),
+    ],
+  )
+}
+
+// SHORT REPLY
+
+const replyForm = (model: Model, detail: ItemDetail, form: Form, h: H): Html => {
+  const isSending = model.submission._tag === "Sending" && model.submission.action === "reply"
+  return h.form(
+    [
+      h.AriaLabel("Reply to Claude"),
+      h.Class("flex flex-col gap-2"),
+      h.OnSubmit(Message.SubmittedReply()),
+    ],
+    [
+      Textarea.view(
+        {
+          id: `reply-${detail.item.id}`,
+          value: form.reply,
+          rows: 3,
+          placeholder:
+            detail.item.kind === "failed"
+              ? "e.g. Fix the parser tests, then stop"
+              : "e.g. Looks good — open the PR",
+          hasDescription: true,
+          onInput: (value) => Message.UpdatedReply({ value }),
+          toView: ({ textarea, label, description }) =>
+            h.div(
+              [h.Class("flex flex-col gap-1.5")],
+              [
+                h.label([...label, h.Class("text-[14px] font-semibold")], ["Short reply"]),
+                h.textarea([...textarea, h.Class("textarea min-h-20 text-[13px]")]),
+                h.p(
+                  [...description, h.Class("text-xs text-subtle-foreground")],
+                  [
+                    "Sent with claude --resume when the session is idle. For anything bigger, open it in Claude.",
+                  ],
+                ),
+              ],
+            ),
+        },
+        h,
+      ),
+      h.div(
+        [h.Class("flex justify-end")],
+        [
+          h.button(
+            [
+              h.Type("submit"),
+              h.Class("btn"),
+              h.DataAttribute("size", "lg"),
+              h.Disabled(form.reply.trim() === "" || isSending),
+              h.AriaKeyshortcuts("Meta+Enter"),
+            ],
+            [Icon.send(h), isSending ? "Sending…" : "Send reply", kbd(h, "⌘↵")],
+          ),
+        ],
+      ),
+    ],
+  )
+}
+
+// DELIVERY
+
+const OUTBOX_LABEL: Record<OutboxEntry["state"], { word: string; tone: string }> = {
+  queued: { word: "Queued", tone: "text-subtle-foreground" },
+  sending: { word: "Sending", tone: "text-working" },
+  delivered: { word: "Delivered", tone: "text-ready" },
+  failed: { word: "Failed", tone: "text-failed" },
+}
+
+const outboxIcon = (h: H, state: OutboxEntry["state"]): Html =>
+  state === "delivered"
+    ? Icon.check(h)
+    : state === "failed"
+      ? Icon.alert(h)
+      : state === "sending"
+        ? Icon.send(h)
+        : Icon.clock(h)
+
+const deliveryView = (model: Model, detail: ItemDetail, h: H): Html => {
+  if (detail.outbox.length === 0 && !detail.item.unconfirmed && detail.item.state !== "answered") {
+    return h.empty
+  }
+  return h.section(
+    [h.AriaLabel("Delivery"), h.Class("flex flex-col gap-2 rounded-xl border border-border p-3")],
+    [
+      h.h2([h.Class("text-[13px] font-semibold")], ["Delivery"]),
+      h.ul(
+        [h.Class("flex flex-col gap-1.5"), h.AriaLive("polite")],
+        [
+          ...detail.outbox.map((entry) =>
+            h.keyed("li")(
+              entry.id,
+              [h.Class("flex items-start gap-2 text-[13px]")],
+              [
+                h.span(
+                  [
+                    h.Class(
+                      `inline-flex w-24 shrink-0 items-center gap-1 font-semibold ${OUTBOX_LABEL[entry.state].tone}`,
+                    ),
+                  ],
+                  [outboxIcon(h, entry.state), OUTBOX_LABEL[entry.state].word],
+                ),
+                h.span([h.Class("min-w-0 flex-1 truncate text-muted-foreground")], [entry.body]),
+                h.span(
+                  [h.Class("shrink-0 text-xs text-subtle-foreground")],
+                  [formatAge(model.now, entry.createdAt)],
+                ),
+                entry.lastError === null
+                  ? h.empty
+                  : h.span([h.Class("text-xs text-failed")], [entry.lastError]),
+              ],
+            ),
+          ),
+          ...(detail.outbox.length === 0 && detail.item.state === "answered"
+            ? [
+                h.li(
+                  [h.Class("flex items-center gap-2 text-[13px] text-ready")],
+                  [Icon.check(h), "Sent to the live session"],
+                ),
+              ]
+            : []),
+          ...(detail.item.unconfirmed
+            ? [
+                h.li(
+                  [h.Class("flex items-center gap-2 text-[13px] text-needs")],
+                  [
+                    Icon.alert(h),
+                    "Unconfirmed — no event from the session since. Check it in Claude.",
+                  ],
+                ),
+              ]
+            : []),
+        ],
+      ),
+    ],
+  )
+}
+
+// ACTIVITY
+
+const activityView = (model: Model, detail: ItemDetail, h: H): Html => {
+  const entries = detail.timeline.slice(0, 8)
+  const oldest = entries[entries.length - 1]
+  const minutes =
+    oldest === undefined ? 0 : Math.max(1, Math.round((model.now - oldest.at) / 60_000))
+  return h.section(
+    [h.AriaLabel("Activity"), h.Class("flex flex-col gap-2.5")],
+    [
+      h.div(
+        [h.Class("flex items-center")],
+        [
+          h.h2(
+            [h.Class("text-[14px] font-semibold")],
+            [entries.length === 0 ? "No activity yet" : `Since you left · ${minutes} min`],
+          ),
+          h.button(
+            [
+              h.Type("button"),
+              h.Class(
+                "ml-auto cursor-pointer text-[13px] text-working underline-offset-2 hover:underline",
+              ),
+              h.OnClick(Message.ClickedOpenInClaude()),
+            ],
+            ["Full transcript in Claude"],
+          ),
+        ],
+      ),
+      h.ol(
+        [h.Class("m-0 flex list-none flex-col p-0 text-[14px]")],
+        entries.map((entry, index) => {
+          const isLatest = index === 0 && detail.item.queue === "needs-you"
+          return h.keyed("li")(
+            String(entry.seq),
+            [h.Class("grid min-h-8 grid-cols-[56px_14px_1fr] items-center gap-2.5")],
+            [
+              h.span(
+                [h.Class("text-xs text-subtle-foreground tabular-nums")],
+                [formatClock(entry.at)],
+              ),
+              h.span([
+                h.AriaHidden(true),
+                h.Class(
+                  isLatest
+                    ? "size-2.5 rounded-full bg-needs-strong"
+                    : "box-border size-2.5 rounded-full border-2 border-subtle-foreground/60",
+                ),
+              ]),
+              h.span(
+                [h.Class(isLatest ? "font-semibold" : "text-muted-foreground")],
+                [entry.text, isLatest ? " (this item)" : ""],
+              ),
+            ],
+          )
+        }),
+      ),
+    ],
+  )
+}
+
+// DETAIL
+
+const loadedView = (model: Model, detail: ItemDetail, h: H): ReadonlyArray<Html> => {
+  const form = Option.getOrUndefined(
+    Option.filter(model.maybeForm, (f) => f.itemId === detail.item.id),
+  )
+  const action =
+    form === undefined
+      ? h.empty
+      : detail.item.kind === "question" && detail.questions.length > 0
+        ? questionForm(model, detail, form, h)
+        : detail.approval !== null
+          ? approvalCard(model, detail, detail.approval, h)
+          : replyForm(model, detail, form, h)
+  return [
+    detailHeader(model, detail, h),
+    contextStrip(model, detail, h),
+    action,
+    deliveryView(model, detail, h),
+    activityView(model, detail, h),
+  ]
+}
+
+const sessionOnlyView = (model: Model, sessionId: string, h: H): ReadonlyArray<Html> =>
+  Option.match(
+    Option.flatMap(model.maybeSnapshot, (s) => findSession(s, sessionId)),
+    {
+      onNone: () => [muted(h, "Session not found.")],
+      onSome: (session) => [
+        h.div(
+          [],
+          [
+            h.h1(
+              [h.Class("text-[22px] font-bold tracking-tight")],
+              [session.title ?? "Untitled session"],
+            ),
+            h.p(
+              [h.Class(`mt-1 text-[13px] ${toneText[sessionTone(session)]}`)],
+              [`${sessionStateLabel(session)} · ${runtimeLabel(session)}`],
+            ),
+          ],
+        ),
+        muted(
+          h,
+          "Nothing here needs you. Routine progress stays quiet; you'll see this session again when it asks, stops or fails.",
+        ),
+      ],
+    },
+  )
+
+export const detailView = (model: Model, h: H): Html =>
+  sectionShell(
+    h,
+    (() => {
+      if (model.detail._tag === "Loaded") {
+        return loadedView(model, model.detail.detail, h)
+      }
+      if (model.detail._tag === "Loading") {
+        return [muted(h, "Loading…")]
+      }
+      if (model.detail._tag === "Failed") {
+        return [muted(h, `Couldn't load this item: ${model.detail.error}`)]
+      }
+      return Option.match(model.maybeSelectedSessionId, {
+        onSome: (sessionId) => sessionOnlyView(model, sessionId, h),
+        onNone: () => [muted(h, "Pick an item from the queue.")],
+      })
+    })(),
+  )

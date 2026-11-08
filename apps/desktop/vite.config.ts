@@ -36,11 +36,7 @@ export default defineConfig({
       "/v1": {
         target: fallbackTarget,
         changeOrigin: true,
-        // Re-read connection.json per request so a restarted daemon (new port/token) just works.
-        router: () => {
-          const connection = readConnection()
-          return connection === null ? fallbackTarget : `http://127.0.0.1:${connection.httpPort}`
-        },
+        // The port is read once at startup (restart Vite if the daemon moves); the token per request.
         configure: (proxy) => {
           proxy.on("proxyReq", (proxyReq) => {
             const connection = readConnection()

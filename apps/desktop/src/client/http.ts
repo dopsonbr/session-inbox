@@ -44,7 +44,11 @@ export const makeHttpClient = (config: HttpClientConfig): DaemonClientShape => {
   const headers = (extra: Record<string, string> = {}): Record<string, string> =>
     config.token === "" ? extra : { ...extra, authorization: `Bearer ${config.token}` }
 
-  const request = (method: string, path: string, body?: unknown): Effect.Effect<unknown, DaemonError> =>
+  const request = (
+    method: string,
+    path: string,
+    body?: unknown,
+  ): Effect.Effect<unknown, DaemonError> =>
     Effect.tryPromise({
       try: async (signal) => {
         const response = await doFetch(`${base}${path}`, {
@@ -74,7 +78,8 @@ export const makeHttpClient = (config: HttpClientConfig): DaemonClientShape => {
         Effect.flatMap((json) =>
           Schema.decodeUnknownEffect(schema)(json).pipe(
             Effect.mapError(
-              (issue) => new DaemonError({ message: `Bad response: ${issue.message}`, status: null }),
+              (issue) =>
+                new DaemonError({ message: `Bad response: ${issue.message}`, status: null }),
             ),
           ),
         ),
@@ -133,8 +138,7 @@ export const makeHttpClient = (config: HttpClientConfig): DaemonClientShape => {
     decision: (itemId, body) =>
       decoded(ActionResponse)(request("POST", Routes.decision(itemId), body)),
     reply: (itemId, body) => decoded(ActionResponse)(request("POST", Routes.reply(itemId), body)),
-    snooze: (itemId, body) =>
-      decoded(ActionResponse)(request("POST", Routes.snooze(itemId), body)),
+    snooze: (itemId, body) => decoded(ActionResponse)(request("POST", Routes.snooze(itemId), body)),
     dismiss: (itemId) => decoded(ActionResponse)(request("POST", Routes.dismiss(itemId), {})),
     draft: (itemId, body) => Effect.asVoid(request("PUT", Routes.draft(itemId), body)),
     read: (itemId) => Effect.asVoid(request("POST", Routes.read(itemId), {})),

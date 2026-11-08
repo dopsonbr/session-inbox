@@ -1,0 +1,334 @@
+import { describe, expect, test } from "bun:test"
+import { RadioGroup } from "@foldkit/ui"
+import type { Item, ItemDetail, Snapshot, StreamMessage } from "@session-inbox/contracts"
+import { Effect, Option } from "effect"
+import { given, message, model, story } from "foldkit/story"
+import { makeFakeClient } from "../src/client/fake.ts"
+import { Message } from "../src/message.ts"
+import type { Model } from "../src/model.ts"
+import { deliveryToasts, init, initialModel, type UpdateReturn, update } from "../src/update.ts"
+
+const NOW = 1_800_000_000_000
+const client = () => makeFakeClient({ now: () => NOW, simulate: false, delayScale: 0 })
+const snapshot = (): Snapshot => Effect.runSync(client().snapshot)
+const detailOf = (itemId: string): ItemDetail => Effect.runSync(client().itemDetail(itemId))
+
+const argsOf = <A>(ret: UpdateReturn): A => {
+  const command = ret.commands?.at(0) as unknown as { args: A } | undefined
+  if (command === undefined) {
+    throw new Error("expected a command")
+  }
+  return command.args
+}
+const names = (ret: UpdateReturn) => (ret.commands ?? []).map((c) => c.name)
+const run = (start: Model, ...messages: ReadonlyArray<Message>): UpdateReturn =>
+  messages.reduce<UpdateReturn>((acc, m) => update(acc.model, m), { model: start })
+
+const fresh = (initialItem: string | null = null): Model =>
+  initialModel({
+    view: "full",
+    now: NOW,
+    maybeInitialItemId: initialItem === null ? Option.none() : Option.some(initialItem),
+  })
+
+const loaded = (): Model =>
+  update(fresh(), Message.SucceededFetchSnapshot({ snapshot: snapshot() })).model
+
+const delta = (
+  items: ReadonlyArray<Item>,
+  seq: number,
+  counts = snapshot().counts,
+): StreamMessage => ({
+  _tag: "delta",
+  seq,
+  projects: [],
+  sessions: [],
+  agents: [],
+  items,
+  counts,
+})
+
+describe("init and snapshot", () => {
+  test("init fetches the snapshot, and the deep-linked item", () => {
+    expect(names(init({ view: "full", now: NOW, maybeInitialItemId: Option.none() }))).toEqual([
+      "FetchSnapshot",
+    ])
+    expect(
+      names(init({ view: "full", now: NOW, maybeInitialItemId: Option.some("i-hooks-failed") })),
+    ).toEqual(["FetchSnapshot", "FetchItemDetail"])
+  })
+
+  test("snapshot load keeps daemon order, starts the stream epoch, auto-selects the first Needs-you item", () => {
+    const s = snapshot()
+    const ret = update(fresh(), Message.SucceededFetchSnapshot({ snapshot: s }))
+    expect(ret.model.itemOrder).toEqual(s.items.map((i) => i.id))
+    expect(ret.model.streamEpoch).toBe(1)
+    expect(ret.model.connection._tag).toBe("Live")
+    expect(ret.model.maybeSelectedItemId).toEqual(Option.some("i-retry-questions"))
+    expect(names(ret)).toContain("FetchItemDetail")
+    expect(ret.model.expandedNodes).toContain("p:p-orderup")
+  })
+
+  test("a failed snapshot marks the daemon offline and schedules a retry", () => {
+    const ret = update(fresh(), Message.FailedFetchSnapshot({ error: "ECONNREFUSED" }))
+    expect(ret.model.connection).toEqual({ _tag: "Offline", error: "ECONNREFUSED" })
+    expect(names(ret)).toEqual(["WaitBeforeSnapshotRetry"])
+  })
+})
+
+describe("stream", () => {
+  test("delta merge keeps selection and order; new items append; counts come from the daemon", () => {
+    const start = run(loaded(), Message.ClickedItem({ itemId: "i-hooks-failed" })).model
+    const s = snapshot()
+    const updated: Item = { ...(s.items[1] as Item), summary: "changed" }
+    const added: Item = { ...(s.items[0] as Item), id: "i-new", createdAt: NOW + 1 }
+    const counts = { needsYou: 4, working: 3, review: 2, snoozed: 1 }
+    const ret = update(
+      start,
+      Message.ReceivedStreamMessage({ message: delta([added, updated], 500, counts) }),
+    )
+    const next = Option.getOrThrow(ret.model.maybeSnapshot)
+    expect(ret.model.itemOrder).toEqual([...s.items.map((i) => i.id), "i-new"])
+    expect(next.items.find((i) => i.id === updated.id)?.summary).toBe("changed")
+    expect(next.counts).toEqual(counts)
+    expect(next.seq).toBe(500)
+    expect(ret.model.maybeSelectedItemId).toEqual(Option.some("i-hooks-failed"))
+    expect(names(ret)).toEqual([])
+  })
+
+  test("a delta touching the selected item refetches its detail", () => {
+    const start = loaded()
+    const selected = snapshot().items[0] as Item
+    const ret = update(
+      start,
+      Message.ReceivedStreamMessage({ message: delta([{ ...selected, live: false }], 600) }),
+    )
+    expect(names(ret)).toEqual(["FetchItemDetail"])
+  })
+
+  test("reset → refetch snapshot; the new snapshot bumps the epoch so the stream restarts", () => {
+    const start = loaded()
+    const reset = update(
+      start,
+      Message.ReceivedStreamMessage({ message: { _tag: "reset", seq: 900 } }),
+    )
+    expect(names(reset)).toEqual(["FetchSnapshot"])
+    const reloaded = update(reset.model, Message.SucceededFetchSnapshot({ snapshot: snapshot() }))
+    expect(reloaded.model.streamEpoch).toBe(start.streamEpoch + 1)
+  })
+
+  test("disconnect shows offline; hello shows live", () => {
+    const off = update(loaded(), Message.DisconnectedStream({ error: "closed" }))
+    expect(off.model.connection._tag).toBe("Offline")
+    const on = update(
+      off.model,
+      Message.ReceivedStreamMessage({ message: { _tag: "hello", seq: 1 } }),
+    )
+    expect(on.model.connection._tag).toBe("Live")
+  })
+
+  test("ignores deltas before the first snapshot", () => {
+    const ret = update(fresh(), Message.ReceivedStreamMessage({ message: delta([], 1) }))
+    expect(Option.isNone(ret.model.maybeSnapshot)).toBe(true)
+  })
+})
+
+const withQuestionDetail = (): Model =>
+  update(loaded(), Message.SucceededFetchItemDetail({ detail: detailOf("i-retry-questions") }))
+    .model
+
+describe("answer form", () => {
+  test("loading detail builds one answer and radio group per question and marks it read", () => {
+    const ret = update(
+      loaded(),
+      Message.SucceededFetchItemDetail({ detail: detailOf("i-retry-questions") }),
+    )
+    const form = Option.getOrThrow(ret.model.maybeForm)
+    expect(form.answers.map((a) => a.idx)).toEqual([0, 1])
+    expect(form.radioGroups).toHaveLength(2)
+    expect(names(ret)).toContain("MarkRead")
+  })
+
+  test("radio selection, other text, and submit", () => {
+    const start = withQuestionDetail()
+    const picked = update(
+      start,
+      Message.GotRadioGroupMessage({
+        idx: 0,
+        message: RadioGroup.Message.SelectedOption({ index: 0, value: "Only *Usom* tests" }),
+      }),
+    )
+    expect(names(picked)).toContain("WaitBeforeDraftSave")
+    expect(Option.getOrThrow(picked.model.maybeForm).answers[0]?.selected).toEqual([
+      "Only *Usom* tests",
+    ])
+
+    // Not complete yet: question 2 unanswered → submit does nothing.
+    expect(names(update(picked.model, Message.SubmittedAnswers()))).toEqual([])
+
+    const other = update(
+      picked.model,
+      Message.UpdatedOther({ idx: 1, value: "1, but only for idempotent GETs" }),
+    )
+    const submitted = update(other.model, Message.PressedSubmitShortcut())
+    expect(names(submitted)).toEqual(["SubmitAnswers"])
+    expect(submitted.model.submission).toEqual({ _tag: "Sending", action: "answers" })
+    const args = argsOf<{ answers: unknown }>(submitted)
+    expect(args.answers).toEqual([
+      { idx: 0, selected: ["Only *Usom* tests"] },
+      { idx: 1, selected: [], other: "1, but only for idempotent GETs" },
+    ])
+    // Double submit while sending is ignored.
+    expect(names(update(submitted.model, Message.SubmittedAnswers()))).toEqual([])
+  })
+
+  test("typing an 'other' answer on a single-choice question replaces the picked option", () => {
+    const start = withQuestionDetail()
+    const picked = update(
+      start,
+      Message.GotRadioGroupMessage({
+        idx: 1,
+        message: RadioGroup.Message.SelectedOption({ index: 1, value: "3" }),
+      }),
+    ).model
+    const typed = update(picked, Message.UpdatedOther({ idx: 1, value: "4" })).model
+    expect(Option.getOrThrow(typed.maybeForm).answers[1]).toEqual({
+      idx: 1,
+      selected: [],
+      other: "4",
+    })
+  })
+
+  test("draft saves are debounced: only the latest version is PUT", () => {
+    const a = update(withQuestionDetail(), Message.UpdatedOther({ idx: 0, value: "a" }))
+    const b = update(a.model, Message.UpdatedOther({ idx: 0, value: "ab" }))
+    expect(
+      names(
+        update(b.model, Message.CompletedWaitBeforeDraftSave({ version: a.model.draftVersion })),
+      ),
+    ).toEqual([])
+    expect(
+      names(
+        update(b.model, Message.CompletedWaitBeforeDraftSave({ version: b.model.draftVersion })),
+      ),
+    ).toEqual(["SaveDraft"])
+  })
+
+  test("a daemon-held draft restores the form", () => {
+    const detail = {
+      ...detailOf("i-retry-questions"),
+      draft: { answers: [{ idx: 1, selected: ["3"], other: "" }], reply: "" },
+    }
+    const ret = update(loaded(), Message.SucceededFetchItemDetail({ detail }))
+    expect(Option.getOrThrow(ret.model.maybeForm).answers[1]?.selected).toEqual(["3"])
+  })
+
+  test("a refetch of the same item keeps in-progress input", () => {
+    const typed = update(
+      withQuestionDetail(),
+      Message.UpdatedOther({ idx: 0, value: "mine" }),
+    ).model
+    const refetched = update(
+      typed,
+      Message.SucceededFetchItemDetail({ detail: detailOf("i-retry-questions") }),
+    ).model
+    expect(Option.getOrThrow(refetched.maybeForm).answers[0]?.other).toBe("mine")
+  })
+})
+
+describe("keyboard shortcuts", () => {
+  const permission = () =>
+    update(
+      run(loaded(), Message.ClickedItem({ itemId: "i-ravelo-migrate" })).model,
+      Message.SucceededFetchItemDetail({ detail: detailOf("i-ravelo-migrate") }),
+    ).model
+
+  test("⌘↵ on a permission allows once; ⌘⌫ denies", () => {
+    const allow = update(permission(), Message.PressedSubmitShortcut())
+    expect(names(allow)).toEqual(["SendDecision"])
+    expect(argsOf<{ decision: string }>(allow).decision).toBe("allow")
+    const deny = update(permission(), Message.PressedDenyShortcut())
+    expect(argsOf<{ decision: string }>(deny).decision).toBe("deny")
+  })
+
+  test("⌘⌫ does nothing on a question", () => {
+    expect(names(update(withQuestionDetail(), Message.PressedDenyShortcut()))).toEqual([])
+  })
+
+  test("⌘K opens the jump dialog", () => {
+    const ret = update(loaded(), Message.PressedJumpShortcut())
+    expect(ret.model.jumpDialog.isOpen).toBe(true)
+  })
+
+  test("⌘↵ on a review item sends the short reply", () => {
+    const start = update(
+      run(loaded(), Message.ClickedItem({ itemId: "i-receipts-review" })).model,
+      Message.SucceededFetchItemDetail({ detail: detailOf("i-receipts-review") }),
+    ).model
+    expect(names(update(start, Message.PressedSubmitShortcut()))).toEqual([])
+    const typed = update(start, Message.UpdatedReply({ value: "ship it" })).model
+    expect(names(update(typed, Message.PressedSubmitShortcut()))).toEqual(["SendReply"])
+  })
+})
+
+describe("selection and tree", () => {
+  test("clicking an item selects it and writes the hash", () => {
+    const ret = update(loaded(), Message.ClickedItem({ itemId: "i-hooks-failed" }))
+    expect(names(ret)).toEqual(["FetchItemDetail", "SetHash"])
+    expect(ret.model.detail).toEqual({ _tag: "Loading", itemId: "i-hooks-failed" })
+  })
+
+  test("a hash change (deep link / notification click) selects without rewriting the hash", () => {
+    const ret = update(loaded(), Message.ChangedHash({ hash: "#/item/i-docs-review" }))
+    expect(ret.model.maybeSelectedItemId).toEqual(Option.some("i-docs-review"))
+    expect(names(ret)).toEqual(["FetchItemDetail"])
+  })
+
+  test("tree keys move focus, expand and collapse", () => {
+    const start = loaded()
+    const down = update(start, Message.PressedTreeKey({ nodeId: "p:p-orderup", key: "ArrowDown" }))
+    expect(down.model.maybeFocusedNode).toEqual(Option.some("s:s-retry"))
+    expect(names(down)).toEqual(["FocusTreeNode"])
+    const expand = update(start, Message.PressedTreeKey({ nodeId: "p:p-pos", key: "ArrowRight" }))
+    expect(expand.model.expandedNodes).toContain("p:p-pos")
+    const collapse = update(
+      expand.model,
+      Message.PressedTreeKey({ nodeId: "p:p-pos", key: "ArrowLeft" }),
+    )
+    expect(collapse.model.expandedNodes).not.toContain("p:p-pos")
+  })
+
+  test("a session with nothing open selects the session, not an item", () => {
+    const ret = update(loaded(), Message.ClickedSession({ sessionId: "s-delivery" }))
+    expect(ret.model.maybeSelectedItemId).toEqual(Option.none())
+    expect(ret.model.maybeSelectedSessionId).toEqual(Option.some("s-delivery"))
+  })
+
+  test("story: queue tab selection is local view state", () => {
+    story(
+      update,
+      given(loaded()),
+      message(Message.SelectedQueueTab({ tab: "review" })),
+      model((m: Model) => {
+        expect(m.queueTab).toBe("review")
+      }),
+    )
+  })
+})
+
+describe("delivery toasts", () => {
+  test("only transitions to delivered/failed produce toasts", () => {
+    const entry = { id: "o1", body: "x", attempts: 1, lastError: null, createdAt: NOW }
+    expect(
+      deliveryToasts(
+        [{ ...entry, state: "sending" }],
+        [{ ...entry, state: "delivered" }],
+        "test-runner",
+      ),
+    ).toHaveLength(1)
+    expect(
+      deliveryToasts([{ ...entry, state: "delivered" }], [{ ...entry, state: "delivered" }], "x"),
+    ).toHaveLength(0)
+    expect(deliveryToasts([], [{ ...entry, state: "delivered" }], "x")).toHaveLength(0)
+  })
+})
