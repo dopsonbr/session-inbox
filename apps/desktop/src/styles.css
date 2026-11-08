@@ -1,0 +1,194 @@
+@import "tailwindcss";
+/* Basecoat CSS only (never its JS) — U-006. Nova theme, tokens overridden below. */
+@import "basecoat-css/nova";
+
+@source "./";
+
+/* Basecoat keys dark mode off `.dark`; we follow the system instead (U-007). */
+@custom-variant dark (@media (prefers-color-scheme: dark));
+
+/*
+ * Token overrides. Neutral warm surfaces from the InboxDesktop mockup plus four
+ * status hues. Every text/background pair below is >= 4.5:1 in its theme.
+ */
+:root {
+  --radius: 0.625rem;
+  --background: #f7f6f2;
+  --foreground: #18181b;
+  --card: #ffffff;
+  --card-foreground: #18181b;
+  --popover: #ffffff;
+  --popover-foreground: #18181b;
+  --primary: #18181b;
+  --primary-foreground: #ffffff;
+  --secondary: #f1efe8;
+  --secondary-foreground: #18181b;
+  --muted: #f1efe8;
+  --muted-foreground: #52514b;
+  --accent: #efede6;
+  --accent-foreground: #18181b;
+  --destructive: #b91c1c;
+  --border: #e7e4db;
+  --input: #dedbd2;
+  --ring: #1d4ed8;
+  --sidebar: #fbfaf7;
+  --sidebar-foreground: #18181b;
+  --sidebar-border: #e7e4db;
+
+  /* app tokens */
+  --subtle-foreground: #5f5e57;
+  --needs: #9a3412;
+  --needs-strong: #c2410c;
+  --needs-strong-foreground: #ffffff;
+  --needs-tint: #fdf4ec;
+  --working: #1d4ed8;
+  --working-tint: #eff4ff;
+  --ready: #15803d;
+  --ready-tint: #effaf2;
+  --failed: #991b1b;
+  --failed-strong: #b91c1c;
+  --failed-tint: #fdf1f1;
+  --code-bg: #f1efe8;
+  --rail: #e7e4db;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #121211;
+    --foreground: #f4f3ee;
+    --card: #1b1b19;
+    --card-foreground: #f4f3ee;
+    --popover: #222220;
+    --popover-foreground: #f4f3ee;
+    --primary: #f4f3ee;
+    --primary-foreground: #18181b;
+    --secondary: #262623;
+    --secondary-foreground: #f4f3ee;
+    --muted: #262623;
+    --muted-foreground: #bdbbb2;
+    --accent: #2c2c29;
+    --accent-foreground: #f4f3ee;
+    --destructive: #f87171;
+    --border: #2f2e2a;
+    --input: #3b3a35;
+    --ring: #93c5fd;
+    --sidebar: #161615;
+    --sidebar-foreground: #f4f3ee;
+    --sidebar-border: #2f2e2a;
+
+    --subtle-foreground: #a9a79e;
+    --needs: #fdba74;
+    --needs-strong: #ea580c;
+    --needs-strong-foreground: #1a0d05;
+    --needs-tint: #2b1b10;
+    --working: #93c5fd;
+    --working-tint: #15213a;
+    --ready: #86efac;
+    --ready-tint: #11271a;
+    --failed: #fca5a5;
+    --failed-strong: #f87171;
+    --failed-tint: #2d1414;
+    --code-bg: #262623;
+    --rail: #2f2e2a;
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  --color-subtle-foreground: var(--subtle-foreground);
+  --color-needs: var(--needs);
+  --color-needs-strong: var(--needs-strong);
+  --color-needs-strong-foreground: var(--needs-strong-foreground);
+  --color-needs-tint: var(--needs-tint);
+  --color-working: var(--working);
+  --color-working-tint: var(--working-tint);
+  --color-ready: var(--ready);
+  --color-ready-tint: var(--ready-tint);
+  --color-failed: var(--failed);
+  --color-failed-strong: var(--failed-strong);
+  --color-failed-tint: var(--failed-tint);
+  --color-code: var(--code-bg);
+  --color-rail: var(--rail);
+}
+
+@layer base {
+  html {
+    font-size: 13px;
+    scroll-behavior: auto;
+  }
+  body {
+    margin: 0;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  [tabindex="-1"]:focus {
+    outline: none;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+}
+
+/* Three-pane shell from the InboxDesktop mockup; collapses below 1100 / 720 px. */
+.shell {
+  display: grid;
+  grid-template-columns: 288px minmax(300px, 0.85fr) minmax(0, 1.5fr);
+}
+@media (max-width: 1100px) {
+  .shell {
+    grid-template-columns: 240px minmax(0, 1fr);
+    overflow-y: auto;
+  }
+  .shell > .detail {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--border);
+  }
+}
+@media (max-width: 720px) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+}
+
+@layer components {
+  /* Basecoat's .btn sizes are 32px (default) which matches our row height. */
+  .btn[data-variant="needs"] {
+    background: var(--needs-strong);
+    color: var(--needs-strong-foreground);
+  }
+  .btn[data-variant="needs"]:hover {
+    filter: brightness(1.06);
+  }
+  .btn[data-variant="danger-outline"] {
+    border-color: var(--input);
+    background: var(--card);
+    color: var(--failed);
+  }
+  .btn[data-variant="danger-outline"]:hover {
+    background: var(--failed-tint);
+  }
+  .choice {
+    @apply inline-flex min-h-8 cursor-pointer items-center gap-2 rounded-lg border border-input bg-card px-3 text-[13px] text-foreground select-none;
+  }
+  .choice:hover {
+    background: var(--accent);
+  }
+  .choice[data-checked] {
+    @apply border-primary bg-primary font-semibold text-primary-foreground;
+  }
+  .choice:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
