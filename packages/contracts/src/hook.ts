@@ -29,6 +29,11 @@ export const HookBase = Schema.Struct({
   cwd: Schema.optional(Schema.String),
   permission_mode: Schema.optional(Schema.String),
   hook_event_name: Schema.String,
+  /** Turn id (spike P-002). */
+  prompt_id: Schema.optional(Schema.String),
+  /** Set when the event comes from inside a subagent (spike P-002). */
+  agent_id: Schema.optional(Schema.String),
+  agent_type: Schema.optional(Schema.String),
 })
 export type HookBase = typeof HookBase.Type
 
@@ -46,6 +51,7 @@ export const PostToolUsePayload = Schema.Struct({
   tool_input: Schema.Unknown,
   tool_response: Schema.optional(Schema.Unknown),
   tool_use_id: Schema.optional(Schema.String),
+  duration_ms: Schema.optional(Schema.Number),
 })
 export type PostToolUsePayload = typeof PostToolUsePayload.Type
 
@@ -67,6 +73,7 @@ export const SessionStartPayload = Schema.Struct({
   ...HookBase.fields,
   source: Schema.optional(Schema.String),
   model: Schema.optional(Schema.String),
+  session_title: Schema.optional(Schema.String),
 })
 export type SessionStartPayload = typeof SessionStartPayload.Type
 
@@ -76,12 +83,18 @@ export const SubagentPayload = Schema.Struct({
   agent_type: Schema.optional(Schema.String),
   agent_transcript_path: Schema.optional(Schema.String),
   stop_hook_active: Schema.optional(Schema.Boolean),
+  last_assistant_message: Schema.optional(Schema.String),
+  background_tasks: Schema.optional(Schema.Unknown),
+  session_crons: Schema.optional(Schema.Unknown),
 })
 export type SubagentPayload = typeof SubagentPayload.Type
 
 export const StopPayload = Schema.Struct({
   ...HookBase.fields,
   stop_hook_active: Schema.optional(Schema.Boolean),
+  last_assistant_message: Schema.optional(Schema.String),
+  background_tasks: Schema.optional(Schema.Unknown),
+  session_crons: Schema.optional(Schema.Unknown),
 })
 export type StopPayload = typeof StopPayload.Type
 

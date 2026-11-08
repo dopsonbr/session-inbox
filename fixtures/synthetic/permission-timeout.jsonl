@@ -1,0 +1,4 @@
+{"event":"SessionStart","payload":{"session_id":"33333333-3333-4333-8333-333333333333","cwd":"/work/agent-kit","hook_event_name":"SessionStart","source":"startup"},"env":{"entrypoint":"cli","hostSessionId":null,"claudePid":3}}
+{"event":"PreToolUse","payload":{"session_id":"33333333-3333-4333-8333-333333333333","cwd":"/work/agent-kit","permission_mode":"default","hook_event_name":"PreToolUse","tool_name":"Write","tool_use_id":"tu_w1","tool_input":{"file_path":"/work/agent-kit/src/parser.ts","content":"x"}},"env":{"entrypoint":"cli","hostSessionId":null,"claudePid":3}}
+{"$":"advance","ms":121000}
+{"$":"tick"}

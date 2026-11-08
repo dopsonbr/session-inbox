@@ -1,0 +1,8 @@
+{"event":"SessionStart","payload":{"session_id":"44444444-4444-4444-8444-444444444444","cwd":"/work/simple-offline-pos","hook_event_name":"SessionStart","source":"startup"},"env":{"entrypoint":"cli","hostSessionId":null,"claudePid":4}}
+{"event":"UserPromptSubmit","payload":{"session_id":"44444444-4444-4444-8444-444444444444","cwd":"/work/simple-offline-pos","permission_mode":"default","hook_event_name":"UserPromptSubmit","prompt":"Fix the receipt rounding"},"env":{"entrypoint":"cli","hostSessionId":null,"claudePid":4}}
+{"event":"PostToolUse","payload":{"session_id":"44444444-4444-4444-8444-444444444444","cwd":"/work/simple-offline-pos","permission_mode":"default","hook_event_name":"PostToolUse","tool_name":"Edit","tool_input":{"file_path":"src/receipt.ts"},"tool_response":{}},"env":{"entrypoint":"cli","hostSessionId":null,"claudePid":4}}
+{"event":"Stop","payload":{"session_id":"44444444-4444-4444-8444-444444444444","cwd":"/work/simple-offline-pos","permission_mode":"default","hook_event_name":"Stop","stop_hook_active":false,"last_assistant_message":"Fixed rounding in receipt totals. All 42 tests pass."},"env":{"entrypoint":"cli","hostSessionId":null,"claudePid":4}}
+{"event":"Notification","payload":{"session_id":"44444444-4444-4444-8444-444444444444","cwd":"/work/simple-offline-pos","hook_event_name":"Notification","notification_type":"idle_prompt","message":"Claude is waiting for your input"},"env":{"entrypoint":"cli","hostSessionId":null,"claudePid":4}}
+{"$":"tick"}
+{"$":"advance","ms":31000}
+{"$":"tick"}
