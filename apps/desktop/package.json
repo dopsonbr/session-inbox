@@ -1,0 +1,27 @@
+{
+  "name": "@session-inbox/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --bun vite",
+    "dev:mock": "SESSION_INBOX_CLIENT=fake bun --bun vite",
+    "build": "bun --bun vite build",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@effect/platform-browser": "4.1.2",
+    "@foldkit/ui": "0.170.0",
+    "@session-inbox/contracts": "workspace:*",
+    "basecoat-css": "1.1.0",
+    "effect": "4.1.2",
+    "foldkit": "0.170.0"
+  },
+  "devDependencies": {
+    "@foldkit/vite-plugin": "0.29.0",
+    "@tailwindcss/vite": "4.3.5",
+    "tailwindcss": "4.3.5",
+    "vite": "8.3.6"
+  }
+}
