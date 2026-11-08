@@ -645,8 +645,18 @@ const deliveryView = (model: Model, detail: ItemDetail, h: H): Html => {
 
 // ACTIVITY
 
+/** The newest 8 lines, plus the item's source event when it is older than those (U-021). */
+export const activityEntries = (
+  timeline: ItemDetail["timeline"],
+  limit = 8,
+): ItemDetail["timeline"] => {
+  const recent = timeline.slice(0, limit)
+  const source = timeline.find((e) => e.isSource === true)
+  return source === undefined || recent.includes(source) ? recent : [...recent, source]
+}
+
 const activityView = (model: Model, detail: ItemDetail, h: H): Html => {
-  const entries = detail.timeline.slice(0, 8)
+  const entries = activityEntries(detail.timeline)
   const oldest = entries[entries.length - 1]
   const minutes =
     oldest === undefined ? 0 : Math.max(1, Math.round((model.now - oldest.at) / 60_000))
@@ -674,8 +684,8 @@ const activityView = (model: Model, detail: ItemDetail, h: H): Html => {
       ),
       h.ol(
         [h.Class("m-0 flex list-none flex-col p-0 text-[14px]")],
-        entries.map((entry, index) => {
-          const isLatest = index === 0 && detail.item.queue === "needs-you"
+        entries.map((entry) => {
+          const isLatest = entry.isSource === true
           return h.keyed("li")(
             String(entry.seq),
             [h.Class("grid min-h-8 grid-cols-[56px_14px_1fr] items-center gap-2.5")],

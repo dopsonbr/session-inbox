@@ -65,6 +65,9 @@ export const SessionCombobox = Combobox.create<string>()
 export const SnoozeMenu = Menu.create<SnoozeAction>()
 export const QuestionRadioGroup = RadioGroup.create<string>()
 
+/** Closed, empty, nothing highlighted: the first ArrowDown lands on the first result (U-020). */
+const freshJumpCombobox = (): Combobox.Model => Combobox.init({ id: "jump-combobox" })
+
 export const initialModel = (flags: Flags): Model => ({
   view: flags.view,
   now: flags.now,
@@ -88,7 +91,7 @@ export const initialModel = (flags: Flags): Model => ({
     id: "jump-dialog",
     focusSelector: `#${Combobox.inputId("jump-combobox")}`,
   }),
-  jumpCombobox: Combobox.init({ id: "jump-combobox" }),
+  jumpCombobox: freshJumpCombobox(),
   snoozeMenu: Menu.init({ id: "snooze-menu" }),
   toasts: Toast.init({ id: "toasts", defaultDuration: "4 seconds" }),
 })
@@ -545,9 +548,16 @@ const handleSnoozeSelection = (model: Model, action: SnoozeAction): UpdateReturn
   })
 
 const openJumpDialog = (model: Model): UpdateReturn => {
+  // A combobox left open (dialog dismissed while its list was showing) kept its old
+  // highlight, so the next ArrowDown moved on from that row. Start every open from scratch.
+  const wasOpen = model.jumpDialog.isOpen
   const opened = lift(
     Dialog.open(model.jumpDialog),
-    (jumpDialog) => modifyFields(model, { jumpDialog: () => jumpDialog }),
+    (jumpDialog) =>
+      modifyFields(model, {
+        jumpDialog: () => jumpDialog,
+        jumpCombobox: (c) => (wasOpen ? c : freshJumpCombobox()),
+      }),
     (message) => Message.GotJumpDialogMessage({ message }),
   )
   return { model: opened.model, commands: opened.commands }
@@ -813,7 +823,13 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         (jumpDialog) => modifyFields(model, { jumpDialog: () => jumpDialog }),
         (child) => Message.GotJumpDialogMessage({ message: child }),
       )
-      return { model: lifted.model, commands: lifted.commands }
+      const closed = lifted.outMessage?._tag === "Closed"
+      return {
+        model: closed
+          ? modifyFields(lifted.model, { jumpCombobox: () => freshJumpCombobox() })
+          : lifted.model,
+        commands: lifted.commands,
+      }
     },
 
     GotJumpComboboxMessage: ({ message: comboboxMessage }) => {
@@ -831,7 +847,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         (jumpDialog) =>
           modifyFields(lifted.model, {
             jumpDialog: () => jumpDialog,
-            jumpCombobox: (c) => ({ ...c, inputValue: "" }),
+            jumpCombobox: () => freshJumpCombobox(),
           }),
         (child) => Message.GotJumpDialogMessage({ message: child }),
       )

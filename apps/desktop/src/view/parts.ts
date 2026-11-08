@@ -80,6 +80,10 @@ export const itemTone = (item: Item): Tone => {
   return item.kind === "review" ? "ready" : "needs"
 }
 
+/** "2 questions", "1 question"; plain "Question" when the daemon gave no count. */
+export const questionLabel = (count: number | undefined): string =>
+  count === undefined || count < 1 ? "Question" : count === 1 ? "1 question" : `${count} questions`
+
 export const itemKindLabel = (item: Item): string => {
   if (item.queue === "snoozed") {
     return "Snoozed"
@@ -88,7 +92,7 @@ export const itemKindLabel = (item: Item): string => {
     return "Answered"
   }
   if (item.kind === "question") {
-    return "Question"
+    return questionLabel(item.questionCount)
   }
   if (item.kind === "permission") {
     return "Permission"

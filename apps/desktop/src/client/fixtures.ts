@@ -21,6 +21,8 @@ export type ItemExtras = {
   outbox: ReadonlyArray<OutboxEntry>
   draft: unknown
   openUrl: string | null
+  /** Seq of the timeline entry that created the item (the fake marks it `isSource`). */
+  sourceSeq?: number
 }
 
 export type Fixtures = {
@@ -166,7 +168,7 @@ export const makeFixtures = (now: number): Fixtures => {
       "needs-you",
       "Which tests to run · retry budget for 5xx",
       2,
-      { live: true },
+      { live: true, questionCount: 2 },
     ),
     item(
       "i-ravelo-migrate",
@@ -215,7 +217,7 @@ export const makeFixtures = (now: number): Fixtures => {
       "snoozed",
       "Tombstone merge strategy",
       20,
-      { snoozeUntil: now + 45 * MIN, unread: false },
+      { snoozeUntil: now + 45 * MIN, unread: false, questionCount: 1 },
     ),
   ]
 
@@ -325,6 +327,18 @@ export const makeFixtures = (now: number): Fixtures => {
       entry(20, "PreToolUse", "Asked about tombstone merge strategy", "a-sync-scout"),
       entry(2, "SubagentStart", "test-runner started", "a-sync-tests"),
     ],
+  }
+
+  // Each item's source is the last PreToolUse/Stop in its session (what the daemon's
+  // `source_seq` points at), so later activity like s-pos-sync's SubagentStart isn't it.
+  for (const it of items) {
+    const source = [...(timelines[it.sessionId] ?? [])]
+      .reverse()
+      .find((e) => e.hook === "PreToolUse" || e.hook === "Stop")
+    const current = extras[it.id]
+    if (source !== undefined && current !== undefined) {
+      extras[it.id] = { ...current, sourceSeq: source.seq }
+    }
   }
 
   return { projects, sessions, agents, items, extras, timelines }

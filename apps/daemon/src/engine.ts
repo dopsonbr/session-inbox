@@ -197,6 +197,35 @@ export const openUrlFor = (session: Session): string | null => {
 export const resumeCommandFor = (session: Session): string =>
   `${session.cwd ? `cd ${JSON.stringify(session.cwd)} && ` : ""}claude --resume ${session.id}`
 
+/** One timeline line for a stored event (activity hooks, plus the source events of items). */
+const timelineText = (hook: string, p: Record<string, unknown>): string => {
+  switch (hook) {
+    case "PostToolUse":
+      return toolLine(String(p.tool_name ?? "tool"), p.tool_input)
+    case "PreToolUse": {
+      const tool = String(p.tool_name ?? "tool")
+      if (tool === "AskUserQuestion") {
+        const qs = (p.tool_input as { questions?: unknown } | null)?.questions
+        const n = Array.isArray(qs) ? qs.length : 0
+        return n === 1 ? "Asked 1 question" : n > 1 ? `Asked ${n} questions` : "Asked a question"
+      }
+      return permissionSummary(tool, p.tool_input)
+    }
+    case "Notification":
+      return firstLine(typeof p.message === "string" ? p.message : null) ?? "Needs your input"
+    case "SubagentStart":
+      return `Started ${String(p.agent_type ?? "a subagent")}`
+    case "SubagentStop":
+      return `${String(p.agent_type ?? "Subagent")} finished`
+    case "UserPromptSubmit":
+      return `Prompt: ${provisionalTitle(String(p.prompt ?? "")) ?? ""}`
+    case "SessionEnd":
+      return "Session ended"
+    default:
+      return "Stopped"
+  }
+}
+
 export class Engine {
   readonly store: Store
   readonly hub: StreamHub
@@ -206,7 +235,6 @@ export class Engine {
   private readonly inflight = new Set<Promise<unknown>>()
   private readonly sendingSessions = new Set<string>()
   private lastBadge = -1
-  private reviewGroup: { firstAt: number; itemIds: string[] } | null = null
 
   constructor(readonly deps: EngineDeps) {
     this.store = new Store(deps.db)
@@ -294,7 +322,7 @@ export class Engine {
         items: pick(
           c.items,
           (id) => this.store.item(id),
-          (r) => toItem(r, this.store.isLive(r.id)),
+          (r) => this.store.itemView(r),
         ),
         counts,
       })
@@ -1383,6 +1411,13 @@ export class Engine {
         .all<{ item_id: string }>("SELECT item_id FROM approvals WHERE live = 1")
         .map((r) => r.item_id),
     )
+    const qn = new Map(
+      this.store
+        .all<{ item_id: string; n: number }>(
+          "SELECT item_id, COUNT(*) AS n FROM questions GROUP BY item_id",
+        )
+        .map((r) => [r.item_id, r.n] as const),
+    )
     return {
       seq: this.store.maxSeq(),
       projects: this.store
@@ -1394,7 +1429,9 @@ export class Engine {
         .all<AgentRow>("SELECT * FROM agents ORDER BY started_at")
         .filter((a) => sids.has(a.session_id))
         .map(toAgent),
-      items: items.filter((i) => sids.has(i.session_id)).map((i) => toItem(i, live.has(i.id))),
+      items: items
+        .filter((i) => sids.has(i.session_id))
+        .map((i) => toItem(i, live.has(i.id), qn.get(i.id) ?? 0)),
       counts: this.store.counts(),
     }
   }
@@ -1411,12 +1448,12 @@ export class Engine {
     )
     const session = toSession(s)
     return {
-      item: toItem(r, a?.live === 1),
+      item: toItem(r, a?.live === 1, this.store.questionCount(itemId)),
       session,
       project: toProject(p),
       questions: this.store.questions(itemId).map(toQuestion),
       approval: a ? toApproval(a) : null,
-      timeline: this.timeline(r.session_id),
+      timeline: this.timeline(r.session_id, 50, r.source_seq),
       outbox: this.store
         .all<OutboxRow>("SELECT * FROM outbox WHERE item_id = ? ORDER BY created_at", itemId)
         .map(toOutbox),
@@ -1425,7 +1462,12 @@ export class Engine {
     }
   }
 
-  timeline(sessionId: string, limit = 50): TimelineEntry[] {
+  /**
+   * Last `limit` activity lines, newest first. With `sourceSeq`, the event that created the
+   * item is always included (even a PreToolUse/Notification that isn't activity, or one older
+   * than the window) and flagged `isSource` (D-030).
+   */
+  timeline(sessionId: string, limit = 50, sourceSeq: number | null = null): TimelineEntry[] {
     const rows = this.store.all<EventRow>(
       `SELECT * FROM events WHERE session_id = ? AND decode_error IS NULL
          AND hook IN ('PostToolUse','SubagentStart','SubagentStop','UserPromptSubmit','Stop')
@@ -1433,26 +1475,27 @@ export class Engine {
       sessionId,
       limit,
     )
+    if (sourceSeq !== null && !rows.some((e) => e.seq === sourceSeq)) {
+      const src = this.store.one<EventRow>(
+        "SELECT * FROM events WHERE seq = ? AND session_id = ? AND decode_error IS NULL",
+        sourceSeq,
+        sessionId,
+      )
+      if (src) {
+        rows.push(src)
+        rows.sort((a, b) => b.seq - a.seq)
+      }
+    }
     return rows.map((e) => {
       const p = JSON.parse(e.payload_json) as Record<string, unknown>
-      let text: string
-      switch (e.hook) {
-        case "PostToolUse":
-          text = toolLine(String(p.tool_name ?? "tool"), p.tool_input)
-          break
-        case "SubagentStart":
-          text = `Started ${String(p.agent_type ?? "a subagent")}`
-          break
-        case "SubagentStop":
-          text = `${String(p.agent_type ?? "Subagent")} finished`
-          break
-        case "UserPromptSubmit":
-          text = `Prompt: ${provisionalTitle(String(p.prompt ?? "")) ?? ""}`
-          break
-        default:
-          text = "Stopped"
+      const entry: TimelineEntry = {
+        seq: e.seq,
+        at: e.received_at,
+        hook: e.hook,
+        agentId: e.agent_id,
+        text: timelineText(e.hook, p),
       }
-      return { seq: e.seq, at: e.received_at, hook: e.hook, agentId: e.agent_id, text }
+      return e.seq === sourceSeq ? { ...entry, isSource: true } : entry
     })
   }
 
@@ -1497,8 +1540,12 @@ export class Engine {
   private queueNotification(c: Changes, item: ItemRow) {
     if (this.isMuted(item)) return
     if (item.kind === "review") {
-      if (!this.reviewGroup) this.reviewGroup = { firstAt: this.now(), itemIds: [] }
-      this.reviewGroup.itemIds.push(item.id)
+      // Persisted so a restart inside the window still sends the group (D-031).
+      this.store.run(
+        "INSERT OR IGNORE INTO review_group (item_id, added_at) VALUES (?, ?)",
+        item.id,
+        this.now(),
+      )
       return
     }
     const id = this.insertNotification(item, this.notificationContent(item))
@@ -1522,21 +1569,27 @@ export class Engine {
   }
 
   private flushReviewGroup() {
-    const g = this.reviewGroup
-    if (!g || this.now() - g.firstAt < this.settings["notifications.reviewGroupMs"]) return
-    this.reviewGroup = null
-    const open = g.itemIds
-      .map((id) => this.store.item(id))
-      .filter((r): r is ItemRow => r !== null && r.state === "open")
-    const last = open[open.length - 1]
-    if (!last) return
-    const base = this.notificationContent(last)
-    const content =
-      open.length === 1
-        ? base
-        : { ...base, title: "Claude", body: `${open.length} sessions ready to review` }
-    const id = this.insertNotification(last, content)
-    this.dispatch(id)
+    const g = this.store.one<{ firstAt: number | null }>(
+      "SELECT MIN(added_at) AS firstAt FROM review_group",
+    )
+    if (g?.firstAt == null || this.now() - g.firstAt < this.settings["notifications.reviewGroupMs"])
+      return
+    const id = this.deps.db.transaction(() => {
+      const open = this.store.all<ItemRow>(
+        `SELECT i.* FROM review_group g JOIN attention_items i ON i.id = g.item_id
+             WHERE i.state = 'open' ORDER BY g.added_at, g.rowid`,
+      )
+      this.store.run("DELETE FROM review_group")
+      const last = open[open.length - 1]
+      if (!last) return null
+      const base = this.notificationContent(last)
+      const content =
+        open.length === 1
+          ? base
+          : { ...base, title: "Claude", body: `${open.length} sessions ready to review` }
+      return this.insertNotification(last, content)
+    })()
+    if (id) this.dispatch(id)
   }
 
   private dispatch(notificationId: string) {
@@ -1782,5 +1835,7 @@ export class Engine {
   /** After a restart: rows that were mid-send go back to the queue. Holds/snoozes recover via tick(). */
   recover() {
     this.store.run("UPDATE outbox SET state = 'queued' WHERE state = 'sending'")
+    // A review group whose window closed while we were down goes out now (D-031).
+    this.flushReviewGroup()
   }
 }

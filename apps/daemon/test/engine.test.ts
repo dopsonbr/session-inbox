@@ -159,6 +159,65 @@ describe("engine behaviours", () => {
     expect(h.notifier.posted).toEqual([{ title: "Claude", body: "3 sessions ready to review" }])
   })
 
+  test("a pending review group survives a restart and still goes out once", async () => {
+    const file = join(mkdtempSync(join(tmpdir(), "inboxd-db-")), "inbox.db")
+    const a = makeHarness({ dbFile: file })
+    await a.engine.ingest("Stop", envelope("Stop", { ...base, last_assistant_message: "Done." }))
+    a.clock.advance(10_000)
+    a.engine.tick()
+    expect(a.notifier.posted).toHaveLength(0)
+    a.engine.deps.db.close()
+    const b = makeHarness({ dbFile: file })
+    b.clock.t = a.clock.t
+    b.engine.recover()
+    expect(b.notifier.posted).toHaveLength(0) // window still open
+    b.clock.advance(20_000)
+    b.engine.tick()
+    await b.engine.idle()
+    expect(b.notifier.posted).toHaveLength(1)
+    expect(b.notifier.posted[0]?.body).toBe("Done.")
+    b.clock.advance(60_000)
+    b.engine.tick()
+    await b.engine.idle()
+    expect(b.notifier.posted).toHaveLength(1)
+  })
+
+  test("question items carry questionCount; detail timeline marks the source event", async () => {
+    const h = makeHarness()
+    await h.engine.ingest(
+      "PostToolUse",
+      envelope("PostToolUse", { ...base, tool_name: "Bash", tool_input: { command: "ls" } }),
+    )
+    await h.engine.ingest(
+      "PreToolUse",
+      envelope("PreToolUse", {
+        ...base,
+        tool_name: "AskUserQuestion",
+        tool_use_id: "t1",
+        tool_input: {
+          questions: [
+            { question: "A?", options: [{ label: "x" }, { label: "y" }] },
+            { question: "B?", options: [{ label: "x" }, { label: "y" }] },
+          ],
+        },
+      }),
+    )
+    const item = h.engine.snapshot().items[0]
+    expect(item?.questionCount).toBe(2)
+    const detail = h.engine.itemDetail(item?.id ?? "")
+    expect(detail.item.questionCount).toBe(2)
+    expect(detail.timeline.map((e) => [e.text, e.isSource ?? false])).toEqual([
+      ["Asked 2 questions", true],
+      ["Ran ls", false],
+    ])
+    // Review items aren't questions: no count.
+    await h.engine.ingest("Stop", envelope("Stop", { session_id: "s2", cwd: "/w/2" }))
+    const review = h.engine.snapshot().items.find((i) => i.kind === "review")
+    expect(review?.questionCount).toBeUndefined()
+    const rd = h.engine.itemDetail(review?.id ?? "")
+    expect(rd.timeline.filter((e) => e.isSource).map((e) => e.hook)).toEqual(["Stop"])
+  })
+
   test("muted project: no hold, no notification", async () => {
     const h = makeHarness()
     await h.engine.ingest("SessionStart", envelope("SessionStart", base))
