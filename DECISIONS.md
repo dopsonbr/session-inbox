@@ -21,6 +21,17 @@ entries with your section's prefix (G, C, D, H, U, S, P) and the next free numbe
 - G-008 — Work happens on short-lived branches per area (worktrees), merged to `main` often. User instruction: commit and merge frequently.
 - G-009 — Testing is light and layered: pure unit tests (`bun test`) for domain transitions and UI update functions; fixture replay of real hook JSON against in-memory SQLite; a `scripts/smoke.ts` end-to-end run (daemon + hook binary + fake Claude payloads) that needs no Claude account. User asked for light ways to verify while building.
 - G-010 — Delegation: Opus 5.5 (medium) for the daemon and the Foldkit UI (design-heavy, unfamiliar APIs); Sonnet 5.5 (medium) for the hook CLI, ops/install scripts, the Phase 0 spike and the Tauri shell (well-specified, mechanical). User instruction.
+- G-011 — The daemon serves the built UI same-origin at `http://127.0.0.1:<port>/` and injects the bearer token into `<meta name="session-inbox-token">` (only after a Host-header check against DNS rebinding). The Tauri windows just load that URL, and so does a plain browser, so the UI needs no Tauri APIs and can be tested in any browser. The UI always calls relative `/v1/...`; in dev a proxy adds the header.
+- G-012 — The shell, not the webview, consumes the daemon stream for native work: a Rust SSE client (`?client=shell`) posts notifications and sets the tray badge. Notifications then don't depend on a webview being alive, and the UI stays shell-agnostic.
+- G-013 — The daemon itself opens "Open in Claude" URLs (`open <url>`); the shell needs no opener plugin. For CLI sessions with no URL, it copies `cd <cwd> && claude --resume <id>` to the clipboard.
+- G-014 — Hold a PreToolUse only when Claude itself would have asked (permission_mode `default`, tool in the hold matcher, no matching allow rule in user/project/local settings, project not muted). AskUserQuestion is always held. Otherwise the inbox would add friction where Claude adds none.
+- G-015 — Answering a pending AskUserQuestion goes back through its held PreToolUse hook (`allow` + `updatedInput.answers`, or `deny` + reason as a fallback the spike picks). `--resume -p` is only for idle/waiting sessions (free-text replies, non-live questions).
+- G-016 — "Always allow" writes to `<project>/.claude/settings.local.json` `permissions.allow`, the same scope Claude's own "don't ask again for this project" uses. The user answered yes to writing Claude's settings; project scope keeps the blast radius small.
+- G-017 — Session titles: the first prompt right away, then a 3–6 word title from `claude -p --model haiku` run with `SESSION_INBOX_INTERNAL=1` and hooks disabled so it's never ingested. The user answered "yes" to both options in the doc, so we do both: instant fallback, better title moments later.
+- G-018 — Without a connected shell, the daemon falls back to `osascript` notifications (no actions) so "window closed ⇒ one notification within 2 s" holds even before the Tauri app runs.
+- G-019 — Project = the main worktree root (via `git rev-parse --git-common-dir`). A session in a linked worktree records it in `session.worktree`, so all of a repo's worktrees group under one project.
+- G-020 — `scripts/install.ts` is a dry run by default. It touches `~/.claude/settings.json` and launchd only with `--yes`, backs up first, and merges idempotently. Installing hooks globally changes every Claude session on the machine, so it's an explicit step.
+- G-021 — Quiet hours are out of scope for v1. The user said not to worry about them.
 
 ## Contracts
 
