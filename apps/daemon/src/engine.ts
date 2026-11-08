@@ -1344,6 +1344,11 @@ export class Engine {
   async notificationActed(id: string, action: NotificationAction): Promise<ActionResponse> {
     const n = this.store.notification(id)
     if (!n) throw notFound("notification")
+    // Decide first: a rejected decision (e.g. 409, no approval) must not mark the notification acted.
+    const decided =
+      action === "allow" || action === "deny"
+        ? await this.decide(n.item_id, action, `notif:${id}:${action}`, "notification")
+        : null
     this.tx((c) => {
       const item = this.store.item(n.item_id)
       this.appendEvent(c, {
@@ -1363,8 +1368,7 @@ export class Engine {
         c.items.add(item.id)
       }
     })
-    if (action === "allow" || action === "deny")
-      return this.decide(n.item_id, action, `notif:${id}:${action}`, "notification")
+    if (decided) return decided
     if (action === "open") await this.open(n.item_id)
     return this.respond(n.item_id)
   }

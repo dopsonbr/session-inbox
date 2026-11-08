@@ -82,6 +82,7 @@ entries with your section's prefix (G, C, D, H, U, S, P) and the next free numbe
 - D-029 — Fixture replay: `test/replay.ts` reads `fixtures/synthetic/*.jsonl` and `fixtures/recorded/*.jsonl` (`{event, payload, env}` per line). Synthetic files may add control lines `{"$": "advance"|"tick"|"decide"|"answer"|"snooze"}`; expectations live in `fixtures.test.ts`. Recorded files must replay with zero decode failures and no notifications.
 - D-030 — Item detail timeline always includes the item's `source_seq` event (even a PreToolUse/Notification/SessionEnd, which aren't activity lines, or one older than the 50-line window), flagged `isSource` (C-011). Lines: AskUserQuestion → "Asked N questions", other PreToolUse → the permission summary ("Wants to run …"), Notification → its first line. `source_seq` follows a dedupe refresh, so the marker is the latest event that (re)raised the item.
 - D-031 — Pending review-notification group is persisted in a `review_group(item_id, added_at)` table (migration 002) instead of memory; the window opened at `MIN(added_at)`. `tick()` flushes it once the window has passed (rows deleted and notification inserted in one transaction), and `recover()` flushes on startup if the window closed while the daemon was down. Supersedes the "in-memory only" part of D-018.
+- D-032 — `POST /v1/notifications/:id/acted` with allow/deny decides first and records the notification as acted only if the decision succeeded. Found live: a rejected Allow on a review notification had already marked it acted.
 
 ## Hook & Ops
 

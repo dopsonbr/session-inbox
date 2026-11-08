@@ -159,6 +159,25 @@ describe("engine behaviours", () => {
     expect(h.notifier.posted).toEqual([{ title: "Claude", body: "3 sessions ready to review" }])
   })
 
+  test("a rejected Allow from a notification leaves it un-acted", async () => {
+    const h = makeHarness()
+    await h.engine.ingest("Stop", envelope("Stop", base))
+    h.clock.advance(31_000)
+    h.engine.tick()
+    await h.engine.idle()
+    const row = h.engine.deps.db.query("SELECT id, state FROM notifications").get() as {
+      id: string
+      state: string
+    }
+    expect(row).toBeTruthy()
+    // A review item has no approval: the decision is a conflict…
+    await expect(h.engine.notificationActed(row.id, "allow")).rejects.toThrow()
+    // …so the notification keeps its state and no action is recorded.
+    expect(
+      h.engine.deps.db.query("SELECT state, action FROM notifications WHERE id = ?").get(row.id),
+    ).toEqual({ state: row.state, action: null })
+  })
+
   test("a pending review group survives a restart and still goes out once", async () => {
     const file = join(mkdtempSync(join(tmpdir(), "inboxd-db-")), "inbox.db")
     const a = makeHarness({ dbFile: file })
