@@ -33,10 +33,12 @@ const cleanup = () => {
   daemon.kill("SIGTERM")
   rmSync(home, { recursive: true, force: true })
 }
-process.on("SIGINT", () => {
-  cleanup()
-  process.exit(0)
-})
+for (const sig of ["SIGINT", "SIGTERM"] as const) {
+  process.on(sig, () => {
+    cleanup()
+    process.exit(0)
+  })
+}
 
 let conn: Connection | null = null
 for (let i = 0; i < 100 && !conn; i++) {
