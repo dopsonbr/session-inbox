@@ -2,7 +2,10 @@
   "name": "session-inbox",
   "private": true,
   "type": "module",
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "test": "bun test",
     "typecheck": "bun run --filter '*' typecheck",

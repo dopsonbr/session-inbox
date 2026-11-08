@@ -1,0 +1,25 @@
+[package]
+name = "session-inbox-shell"
+version = "0.1.0"
+edition = "2021"
+description = "Session Inbox native shell: menu bar, notifications, deep links"
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "=2.7.4", features = [] }
+
+[dependencies]
+tauri = { version = "=2.12.4", features = ["tray-icon", "image-png"] }
+tauri-plugin-autostart = "=2.7.0"
+tauri-plugin-deep-link = "=2.6.3"
+tauri-plugin-global-shortcut = "=2.4.1"
+mac-notification-sys = "=0.6.15"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+ureq = { version = "=3.5.1", features = ["json"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

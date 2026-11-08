@@ -1,7 +1,20 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.6.6/schema.json",
-  "files": { "includes": ["**", "!**/node_modules", "!**/dist", "!**/target", "!**/src-tauri/gen", "!fixtures/**/*.json"] },
+  "files": {
+    "includes": [
+      "**",
+      "!**/node_modules",
+      "!**/dist",
+      "!**/target",
+      "!**/src-tauri/gen",
+      "!fixtures/**/*.json",
+      "!fixtures/**/*.jsonl",
+      "!docs/mockups",
+      "!docs/**/*.md",
+      "!.claude"
+    ]
+  },
   "formatter": { "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },
   "javascript": { "formatter": { "semicolons": "asNeeded", "quoteStyle": "double" } },
-  "linter": { "enabled": true, "rules": { "recommended": true } }
+  "linter": { "enabled": true, "rules": { "preset": "recommended" } }
 }

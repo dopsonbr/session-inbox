@@ -5,3 +5,4 @@ target/
 .DS_Store
 .dev/
 apps/desktop/src-tauri/gen/
+.claude/worktrees/
