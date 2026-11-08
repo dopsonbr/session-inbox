@@ -32,6 +32,7 @@ entries with your section's prefix (G, C, D, H, U, S, P) and the next free numbe
 - G-019 — Project = the main worktree root (via `git rev-parse --git-common-dir`). A session in a linked worktree records it in `session.worktree`, so all of a repo's worktrees group under one project.
 - G-020 — `scripts/install.ts` is a dry run by default. It touches `~/.claude/settings.json` and launchd only with `--yes`, backs up first, and merges idempotently. Installing hooks globally changes every Claude session on the machine, so it's an explicit step.
 - G-021 — Quiet hours are out of scope for v1. The user said not to worry about them.
+- G-022 — `scripts/smoke.ts` also drives the real `inbox-hook` process: a held Write denied from the HTTP API, and fail-open against a home with no daemon. That covers the hook↔daemon seam the unit tests can't, and still needs no Claude account.
 
 ## Contracts
 

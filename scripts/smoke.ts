@@ -200,6 +200,64 @@ const main = async () => {
     "hook got allow + updatedInput.answers",
   )
 
+  // Scenario 3: the real inbox-hook process holds a Write, and Deny from the UI blocks it.
+  const runHook = (event: string, payload: Record<string, unknown>, hookHome = home) => {
+    const p = Bun.spawn(["bun", join(repo, "apps/hook/src/main.ts"), event], {
+      env: { ...process.env, SESSION_INBOX_HOME: hookHome, SESSION_INBOX_INTERNAL: "" },
+      stdin: new Blob([
+        JSON.stringify({
+          session_id: sid,
+          cwd: project,
+          hook_event_name: event,
+          permission_mode: "default",
+          ...payload,
+        }),
+      ]),
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    return (async () => ({
+      code: await p.exited,
+      out: (await new Response(p.stdout).text()).trim(),
+    }))()
+  }
+  const before = messages.filter((m) => m._tag === "notify").length
+  const held = runHook("PreToolUse", {
+    tool_name: "Write",
+    tool_use_id: "t3",
+    tool_input: { file_path: join(project, "x.txt"), content: "hi" },
+  })
+  const wNote = await waitFor(
+    () => messages.filter((m) => m._tag === "notify")[before] ?? null,
+    "write notify",
+  )
+  const wItem = wNote._tag === "notify" ? wNote.notification.itemId : ""
+  check(
+    (await api(`/v1/items/${wItem}/decision`, { idempotencyKey: "smoke-3", decision: "deny" })).ok,
+    "deny accepted while inbox-hook waits",
+  )
+  const hr = await held
+  const out = JSON.parse(hr.out || "{}") as {
+    hookSpecificOutput?: { permissionDecision?: string }
+  }
+  check(
+    hr.code === 0 && out.hookSpecificOutput?.permissionDecision === "deny",
+    "inbox-hook printed a deny decision and exited 0",
+  )
+
+  // Scenario 4: fail open — no daemon at that home ⇒ exit 0, no output, fast.
+  const t0 = performance.now()
+  const open = await runHook(
+    "PreToolUse",
+    { tool_name: "Bash", tool_input: { command: "ls" } },
+    join(home, "nowhere"),
+  )
+  const ms = Math.round(performance.now() - t0)
+  check(
+    open.code === 0 && open.out === "" && ms < 1500,
+    `inbox-hook fails open with no daemon (${ms} ms incl. bun startup)`,
+  )
+
   // Routine activity: nothing.
   await hook("PostToolUse", {
     tool_name: "Read",
@@ -212,11 +270,11 @@ const main = async () => {
     sessions: { title: string | null }[]
   }
   const notifies = messages.filter((m) => m._tag === "notify").length
-  check(notifies === 2, `exactly 2 notifications pushed to the shell (got ${notifies})`)
-  check(snap.items.length === 2, `2 items (got ${snap.items.length})`)
+  check(notifies === 3, `exactly 3 notifications pushed to the shell (got ${notifies})`)
+  check(snap.items.length === 3, `3 items (got ${snap.items.length})`)
   check(
     snap.items.every((i) => i.state === "resolved" || i.state === "answered"),
-    "both items answered/resolved",
+    "all items answered/resolved",
   )
   check(
     snap.sessions[0]?.title === "Smoke test the inbox",
