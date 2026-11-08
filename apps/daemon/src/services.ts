@@ -86,7 +86,15 @@ export const LiveGit: GitShape = {
     if (!existsSync(cwd)) return fallback
     try {
       const rp = await run(
-        ["git", "-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel"],
+        [
+          "git",
+          "-C",
+          cwd,
+          "rev-parse",
+          "--path-format=absolute",
+          "--git-common-dir",
+          "--show-toplevel",
+        ],
         { timeoutMs: 3000 },
       )
       if (rp.code !== 0) return fallback
@@ -157,7 +165,8 @@ export const LiveOpener: OpenerShape = {
 }
 
 const line = (level: string, msg: string, data?: unknown) => {
-  const extra = data === undefined ? "" : ` ${data instanceof Error ? data.message : JSON.stringify(data)}`
+  const extra =
+    data === undefined ? "" : ` ${data instanceof Error ? data.message : JSON.stringify(data)}`
   process.stderr.write(`${new Date().toISOString()} ${level} ${msg}${extra}\n`)
 }
 export const StderrLogger: LoggerShape = {

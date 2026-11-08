@@ -67,7 +67,8 @@ export const encodeLiveAnswers = (
     const base = toolInput && typeof toolInput === "object" ? toolInput : {}
     return { decision: "allow", updatedInput: { ...base, answers: map } }
   }
-  return { decision: "deny", reason: formatAnswersReply(questions, answers) }
+  const parts = questions.map((q) => `${q.text} → ${map[q.text] ?? "(no answer)"}`)
+  return { decision: "deny", reason: `The user answered via Session Inbox: ${parts.join("; ")}` }
 }
 
 /** One human-readable reply for the outbox (non-live questions) or a deny reason. */

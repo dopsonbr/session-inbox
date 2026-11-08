@@ -14,14 +14,14 @@ import {
   type AttentionKind,
   type Decision,
   decodeHookPayload,
-  HookEnvelope,
   type HookDecision,
   type HookEnv,
+  HookEnvelope,
   HookEvent,
   type HookIngestResponse,
   type ItemDetail,
-  NotificationPayload,
   type NotificationAction,
+  NotificationPayload,
   type NotifyPayload,
   PostToolUsePayload,
   PreToolUsePayload,
@@ -43,12 +43,19 @@ import {
 } from "./domain/lifecycle.ts"
 import { allowAlwaysRule, appendAllowRule, ruleVerdict } from "./domain/permissions.ts"
 import {
+  type AnswerMode,
   encodeLiveAnswers,
   formatAnswersReply,
   parseQuestions,
   validateAnswers,
 } from "./domain/questions.ts"
-import { lastTurnErrored, permissionSummary, provisionalTitle, toolLine } from "./domain/text.ts"
+import {
+  firstLine,
+  lastTurnErrored,
+  permissionSummary,
+  provisionalTitle,
+  toolLine,
+} from "./domain/text.ts"
 import type {
   ClaudeCliShape,
   ClockShape,
@@ -116,9 +123,25 @@ class Changes {
 }
 
 /** Normal SessionEnd reasons; anything else is "abnormal" ⇒ failed. TODO-SPIKE: confirm. */
-const NORMAL_END_REASONS = new Set(["clear", "logout", "prompt_input_exit", "other", "resume", "compact"])
+const NORMAL_END_REASONS = new Set([
+  "clear",
+  "logout",
+  "prompt_input_exit",
+  "other",
+  "resume",
+  "compact",
+])
 /** Events that show the session moved on: they supersede stale items. */
-const ACTIVITY = new Set(["UserPromptSubmit", "PreToolUse", "PostToolUse", "SubagentStart", "SubagentStop"])
+const ACTIVITY = new Set([
+  "UserPromptSubmit",
+  "PreToolUse",
+  "PostToolUse",
+  "SubagentStart",
+  "SubagentStop",
+])
+
+const PERMISSION_NOTIFICATIONS = new Set(["permission_prompt", "worker_permission_prompt"])
+const INPUT_NOTIFICATIONS = new Set(["idle_prompt", "agent_needs_input"])
 
 const mainAgentId = (sessionId: string) => `${sessionId}:main`
 const subAgentId = (sessionId: string, agentId: string) => `${sessionId}:${agentId}`
@@ -155,13 +178,19 @@ type Payload = Record<string, unknown> & {
   hook_event_name: string
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const LOCAL_ID = /^local_[A-Za-z0-9-]{1,64}$/
+
 /**
- * THE place "Open in Claude" URLs are computed.
- * TODO-SPIKE: the Claude desktop deep-link format is unproven; this is a placeholder.
+ * THE place "Open in Claude" URLs are computed (spike P-006, static evidence):
+ * desktop id → continue that exact session; CLI uuid → import/resume it in the
+ * desktop app; otherwise a new session in the folder.
  */
 export const openUrlFor = (session: Session): string | null => {
-  if (session.runtime === "desktop")
-    return `claude://code/session/${encodeURIComponent(session.hostSessionId ?? session.id)}`
+  if (session.hostSessionId && LOCAL_ID.test(session.hostSessionId))
+    return `claude://code/continue?session=${encodeURIComponent(session.hostSessionId)}`
+  if (UUID.test(session.id)) return `claude://resume?session=${encodeURIComponent(session.id)}`
+  if (session.cwd) return `claude://code/new?folder=${encodeURIComponent(session.cwd)}`
   return null
 }
 
@@ -320,7 +349,12 @@ export class Engine {
     return next
   }
 
-  private dedupeKey(sessionId: string, agentId: string | null, kind: AttentionKind, extra?: string) {
+  private dedupeKey(
+    sessionId: string,
+    agentId: string | null,
+    kind: AttentionKind,
+    extra?: string,
+  ) {
     return `${sessionId}|${agentId ?? "-"}|${kind}${extra ? `|${extra}` : ""}`
   }
 
@@ -386,7 +420,9 @@ export class Engine {
   async ingest(eventParam: string, body: unknown): Promise<HookIngestResponse> {
     const store = (hook: string, payload: unknown, env: unknown, decodeError: string | null) => {
       const sid =
-        payload && typeof payload === "object" && typeof (payload as Payload).session_id === "string"
+        payload &&
+        typeof payload === "object" &&
+        typeof (payload as Payload).session_id === "string"
           ? (payload as Payload).session_id
           : null
       return this.tx((c) => {
@@ -427,7 +463,12 @@ export class Engine {
       return this.tx((c) => this.applyHook(c, event, payload, envelope.env, git))
     } catch (e) {
       this.deps.log.error(`applying ${event} failed; stored raw`, e)
-      return store(event, envelope.payload, envelope.env, `apply: ${e instanceof Error ? e.message : e}`)
+      return store(
+        event,
+        envelope.payload,
+        envelope.env,
+        `apply: ${e instanceof Error ? e.message : e}`,
+      )
     }
   }
 
@@ -467,12 +508,14 @@ export class Engine {
       )
     } else {
       this.store.run(
-        `UPDATE sessions SET project_id = ?, runtime = COALESCE(?, runtime),
+        `UPDATE sessions SET project_id = ?,
+           runtime = CASE WHEN runtime = 'unknown' AND ? IN ('desktop','cli') THEN ? ELSE runtime END,
            host_session_id = COALESCE(?, host_session_id), cwd = COALESCE(?, cwd),
            branch = COALESCE(?, branch), worktree = CASE WHEN ? THEN ? ELSE worktree END,
            transcript_path = COALESCE(?, transcript_path), permission_mode = COALESCE(?, permission_mode),
            last_event_at = ? WHERE id = ?`,
         projectId,
+        runtime,
         runtime,
         env.hostSessionId,
         p.cwd ?? null,
@@ -517,7 +560,12 @@ export class Engine {
     c.agents.add(agentId)
   }
 
-  private ensureSubagent(c: Changes, sessionId: string, rawAgentId: string, type: string | undefined) {
+  private ensureSubagent(
+    c: Changes,
+    sessionId: string,
+    rawAgentId: string,
+    type: string | undefined,
+  ) {
     const id = subAgentId(sessionId, rawAgentId)
     const existing = this.store.agent(id)
     if (!existing) {
@@ -557,23 +605,41 @@ export class Engine {
       env,
     })
 
+    // AskUserQuestion answered through the hook: check the answers really landed (P-004).
+    const unlanded =
+      event === "PostToolUse" && p.tool_name === "AskUserQuestion"
+        ? this.checkAnswersLanded(c, session, p)
+        : null
     // Confirmation: a later hook event shows an answer/decision landed.
-    if (event !== "Notification") this.confirmAnswered(c, sid, seq)
+    if (event !== "Notification") this.confirmAnswered(c, sid, seq, unlanded)
     // Activity supersedes stale items (review always; failed on a new prompt).
     if (ACTIVITY.has(event)) this.supersedeStale(c, sid, event === "UserPromptSubmit")
 
     let requestId: string | null = null
     switch (event) {
-      case "SessionStart":
+      case "SessionStart": {
         if (session.state === "ended") this.setSessionState(c, sid, "idle")
+        const t = typeof p.session_title === "string" ? provisionalTitle(p.session_title) : null
+        if (t && session.title_source !== "claude") {
+          this.store.run(
+            "UPDATE sessions SET title = ?, title_source = 'claude' WHERE id = ?",
+            t,
+            sid,
+          )
+        }
         break
+      }
       case "UserPromptSubmit": {
         this.setSessionState(c, sid, "running")
         this.setAgentState(c, mainAgentId(sid), "running")
         if (session.title === null) {
           const t = provisionalTitle(String(p.prompt ?? ""))
           if (t) {
-            this.store.run("UPDATE sessions SET title = ?, title_source = 'prompt' WHERE id = ?", t, sid)
+            this.store.run(
+              "UPDATE sessions SET title = ?, title_source = 'prompt' WHERE id = ?",
+              t,
+              sid,
+            )
             if (this.settings["titles.generate"]) {
               const prompt = String(p.prompt)
               c.after.push(() => this.generateTitle(sid, prompt))
@@ -603,7 +669,11 @@ export class Engine {
       case "Stop": {
         this.releaseLiveHolds(c, sid)
         this.setSessionState(c, sid, "idle")
-        const errored = lastTurnErrored(p.transcript_path ?? session.transcript_path)
+        const lastMessage =
+          typeof p.last_assistant_message === "string" ? p.last_assistant_message : null
+        const errored =
+          (lastMessage !== null && /^API Error/i.test(lastMessage.trim())) ||
+          lastTurnErrored(p.transcript_path ?? session.transcript_path)
         this.setAgentState(c, mainAgentId(sid), errored ? "failed" : "done")
         const main = mainAgentId(sid)
         if (errored) {
@@ -612,7 +682,7 @@ export class Engine {
             agentId: main,
             kind: "failed",
             dedupeKey: this.dedupeKey(sid, main, "failed"),
-            summary: "Stopped with errors",
+            summary: firstLine(lastMessage) ?? "Stopped with errors",
           })
           if (created) this.queueNotification(c, row)
         } else {
@@ -621,7 +691,7 @@ export class Engine {
             agentId: main,
             kind: "review",
             dedupeKey: this.dedupeKey(sid, main, "review"),
-            summary: "Ready to review",
+            summary: firstLine(lastMessage) ?? "Ready to review",
           })
           if (created) this.queueNotification(c, row)
         }
@@ -655,7 +725,56 @@ export class Engine {
     return { seq: c.seq, requestId }
   }
 
-  private confirmAnswered(c: Changes, sessionId: string, seq: number) {
+  /**
+   * Compare PostToolUse(AskUserQuestion).tool_response.answers with what we sent in
+   * updatedInput. On a mismatch, switch this runtime to denyWithReason (persisted)
+   * and flag the item unconfirmed. Returns the mismatched item id, if any.
+   */
+  private checkAnswersLanded(c: Changes, session: SessionRow, p: Payload): string | null {
+    const toolUseId = typeof p.tool_use_id === "string" ? p.tool_use_id : null
+    const a = this.store.one<ApprovalRow>(
+      `SELECT a.* FROM approvals a JOIN attention_items i ON i.id = a.item_id
+         WHERE i.session_id = ? AND a.tool = 'AskUserQuestion' AND a.updated_input_json IS NOT NULL
+           AND (? IS NULL OR a.tool_use_id IS NULL OR a.tool_use_id = ?)
+         ORDER BY a.decided_at DESC LIMIT 1`,
+      session.id,
+      toolUseId,
+      toolUseId,
+    )
+    if (!a?.updated_input_json) return null
+    const sent =
+      (JSON.parse(a.updated_input_json) as { answers?: Record<string, string> }).answers ?? {}
+    const resp = p.tool_response as { answers?: Record<string, unknown> } | null | undefined
+    const got = resp && typeof resp === "object" ? (resp.answers ?? {}) : {}
+    const landed = Object.entries(sent).every(([q, ans]) => got[q] === ans)
+    if (landed) return null
+    const runtime = session.runtime
+    this.deps.log.warn(
+      `AskUserQuestion answers did not land via updatedInput; ${runtime} → denyWithReason`,
+    )
+    this.setAnswerMode(runtime, "denyWithReason")
+    const item = this.store.item(a.item_id)
+    if (item?.state === "answered") this.apply(c, item, { _tag: "MarkUnconfirmed" })
+    return a.item_id
+  }
+
+  answerModeFor(runtime: string): AnswerMode {
+    return (
+      this.settings["questions.answerModeByRuntime"][runtime] ??
+      this.settings["questions.answerMode"]
+    )
+  }
+
+  private setAnswerMode(runtime: string, mode: AnswerMode) {
+    const byRuntime = { ...this.settings["questions.answerModeByRuntime"], [runtime]: mode }
+    this.settings["questions.answerModeByRuntime"] = byRuntime
+    this.store.run(
+      "INSERT INTO settings (key, value_json) VALUES ('questions.answerModeByRuntime', ?) ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json",
+      JSON.stringify(byRuntime),
+    )
+  }
+
+  private confirmAnswered(c: Changes, sessionId: string, seq: number, except: string | null) {
     const rows = this.store.all<ItemRow>(
       `SELECT * FROM attention_items i WHERE session_id = ? AND state = 'answered'
          AND COALESCE(answered_seq, 0) < ?
@@ -663,11 +782,13 @@ export class Engine {
       sessionId,
       seq,
     )
-    for (const r of rows) this.apply(c, r, { _tag: "Confirm" })
+    for (const r of rows) if (r.id !== except) this.apply(c, r, { _tag: "Confirm" })
   }
 
   private supersedeStale(c: Changes, sessionId: string, includeFailed: boolean) {
-    const kinds = includeFailed ? "('review','question','permission','failed')" : "('review','question','permission')"
+    const kinds = includeFailed
+      ? "('review','question','permission','failed')"
+      : "('review','question','permission')"
     const rows = this.store.all<ItemRow>(
       `SELECT * FROM attention_items i WHERE session_id = ? AND state IN ('open','snoozed') AND kind IN ${kinds}
          AND NOT EXISTS (SELECT 1 FROM approvals a WHERE a.item_id = i.id AND a.live = 1)`,
@@ -679,10 +800,10 @@ export class Engine {
   private onNotification(c: Changes, session: SessionRow, agentId: string, p: Payload) {
     const type = typeof p.notification_type === "string" ? p.notification_type : ""
     const message = typeof p.message === "string" ? p.message : ""
-    const isPermission = type === "permission_prompt" || /permission/i.test(message)
-    const isInput =
-      type === "idle_prompt" || type === "elicitation_dialog" || /waiting for your input|needs your input/i.test(message)
-    if (!isPermission && !isInput) return // e.g. auth_success: timeline only
+    // Spike P-003: classify by notification_type only; unknown types are never an alert.
+    const isPermission = PERMISSION_NOTIFICATIONS.has(type)
+    const isInput = INPUT_NOTIFICATIONS.has(type)
+    if (!isPermission && !isInput) return
 
     this.setSessionState(c, session.id, "waiting")
     if (isPermission) {
@@ -720,7 +841,11 @@ export class Engine {
     if (created) this.queueNotification(c, row)
   }
 
-  private shouldHold(session: SessionRow, project: { muted: number; root_path: string }, p: Payload) {
+  private shouldHold(
+    session: SessionRow,
+    project: { muted: number; root_path: string },
+    p: Payload,
+  ) {
     const tool = String(p.tool_name)
     if (project.muted === 1) return false
     if (tool === "AskUserQuestion") return true
@@ -732,7 +857,9 @@ export class Engine {
       if (
         cmd &&
         !SHELL_META.test(cmd) &&
-        this.settings["holds.safeBashPrefixes"].some((pre) => cmd === pre || cmd.startsWith(`${pre} `))
+        this.settings["holds.safeBashPrefixes"].some(
+          (pre) => cmd === pre || cmd.startsWith(`${pre} `),
+        )
       )
         return false
     }
@@ -742,7 +869,12 @@ export class Engine {
     return ruleVerdict(this.deps.claudeConfigDir, dirs, tool, p.tool_input) === "none"
   }
 
-  private onPreToolUse(c: Changes, session: SessionRow, agentId: string, p: Payload): string | null {
+  private onPreToolUse(
+    c: Changes,
+    session: SessionRow,
+    agentId: string,
+    p: Payload,
+  ): string | null {
     const tool = String(p.tool_name)
     const project = this.store.project(session.project_id)
     if (!project) return null
@@ -982,7 +1114,11 @@ export class Engine {
       this.apply(c, fresh, { _tag: "Answer", at: this.now() })
     else c.items.add(item.id)
     this.setSessionState(c, item.session_id, decision === "ask" ? "waiting" : "running")
-    this.setAgentState(c, item.agent_id ?? mainAgentId(item.session_id), decision === "ask" ? "waiting" : "running")
+    this.setAgentState(
+      c,
+      item.agent_id ?? mainAgentId(item.session_id),
+      decision === "ask" ? "waiting" : "running",
+    )
     this.clearNotifications(item.id)
     c.after.push(() => this.wake(a.hook_request_id))
   }
@@ -994,7 +1130,12 @@ export class Engine {
     )
   }
 
-  decide(itemId: string, decision: Decision, idempotencyKey: string | null, source = "ui"): ActionResponse {
+  decide(
+    itemId: string,
+    decision: Decision,
+    idempotencyKey: string | null,
+    source = "ui",
+  ): ActionResponse {
     return this.tx((c) =>
       this.idempotent(idempotencyKey, "decision", itemId, () => {
         const item = this.requireItem(itemId)
@@ -1005,7 +1146,10 @@ export class Engine {
   }
 
   answers(itemId: string, idempotencyKey: string, answers: ReadonlyArray<Answer>): ActionResponse {
-    const existing = this.store.one<OutboxRow>("SELECT * FROM outbox WHERE idempotency_key = ?", idempotencyKey)
+    const existing = this.store.one<OutboxRow>(
+      "SELECT * FROM outbox WHERE idempotency_key = ?",
+      idempotencyKey,
+    )
     if (existing) return this.respond(existing.item_id ?? itemId)
     const result = this.tx((c) =>
       this.idempotent(idempotencyKey, "answers", itemId, () => {
@@ -1014,7 +1158,8 @@ export class Engine {
         const questions = this.store.questions(itemId).map(toQuestion)
         const invalid = validateAnswers(questions, answers)
         if (invalid) throw badRequest(invalid)
-        if (item.state !== "open" && item.state !== "snoozed") throw conflict(`item is ${item.state}`)
+        if (item.state !== "open" && item.state !== "snoozed")
+          throw conflict(`item is ${item.state}`)
         for (const a of answers)
           this.store.run(
             "UPDATE questions SET answer_json = ? WHERE item_id = ? AND idx = ?",
@@ -1026,7 +1171,7 @@ export class Engine {
         if (this.store.isLive(itemId)) {
           const a = this.store.approval(itemId) as ApprovalRow
           const enc = encodeLiveAnswers(
-            this.settings["questions.answerMode"],
+            this.answerModeFor(this.store.session(item.session_id)?.runtime ?? "unknown"),
             JSON.parse(a.input_json),
             questions,
             answers,
@@ -1055,7 +1200,10 @@ export class Engine {
   reply(itemId: string, idempotencyKey: string, body: string): ActionResponse {
     const text = body.trim()
     if (!text) throw badRequest("empty reply")
-    const existing = this.store.one<OutboxRow>("SELECT * FROM outbox WHERE idempotency_key = ?", idempotencyKey)
+    const existing = this.store.one<OutboxRow>(
+      "SELECT * FROM outbox WHERE idempotency_key = ?",
+      idempotencyKey,
+    )
     if (existing) return this.respond(existing.item_id ?? itemId)
     const result = this.tx((c) =>
       this.idempotent(idempotencyKey, "reply", itemId, () => {
@@ -1086,8 +1234,13 @@ export class Engine {
     return this.tx((c) => {
       const item = this.requireItem(itemId)
       if (until <= this.now()) throw badRequest("until must be in the future")
-      this.appendEvent(c, { sessionId: item.session_id, hook: "daemon:snooze", payload: { itemId, until } })
-      if (!this.apply(c, item, { _tag: "Snooze", until })) throw conflict(`cannot snooze a ${item.state} item`)
+      this.appendEvent(c, {
+        sessionId: item.session_id,
+        hook: "daemon:snooze",
+        payload: { itemId, until },
+      })
+      if (!this.apply(c, item, { _tag: "Snooze", until }))
+        throw conflict(`cannot snooze a ${item.state} item`)
       return this.respond(itemId)
     })
   }
@@ -1095,10 +1248,15 @@ export class Engine {
   dismiss(itemId: string): ActionResponse {
     return this.tx((c) => {
       const item = this.requireItem(itemId)
-      this.appendEvent(c, { sessionId: item.session_id, hook: "daemon:dismiss", payload: { itemId } })
+      this.appendEvent(c, {
+        sessionId: item.session_id,
+        hook: "daemon:dismiss",
+        payload: { itemId },
+      })
       if (this.store.isLive(itemId)) this.decideIn(c, item, "ask", "dismiss")
       const fresh = this.store.item(itemId) as ItemRow
-      if (!this.apply(c, fresh, { _tag: "Dismiss" })) throw conflict(`cannot dismiss a ${fresh.state} item`)
+      if (!this.apply(c, fresh, { _tag: "Dismiss" }))
+        throw conflict(`cannot dismiss a ${fresh.state} item`)
       this.clearNotifications(itemId)
       return this.respond(itemId)
     })
@@ -1108,7 +1266,11 @@ export class Engine {
     return this.tx((c) => {
       const item = this.requireItem(itemId)
       if (item.unread === 1) {
-        this.appendEvent(c, { sessionId: item.session_id, hook: "daemon:read", payload: { itemId } })
+        this.appendEvent(c, {
+          sessionId: item.session_id,
+          hook: "daemon:read",
+          payload: { itemId },
+        })
         this.store.run("UPDATE attention_items SET unread = 0 WHERE id = ?", itemId)
         c.items.add(itemId)
       }
@@ -1141,8 +1303,10 @@ export class Engine {
     const session = toSession(s)
     const url = openUrlFor(session)
     try {
+      // Anything but an exact desktop session also gets the terminal command on the clipboard.
+      if (session.runtime !== "desktop" || !session.hostSessionId)
+        await this.deps.opener.copy(resumeCommandFor(session))
       if (url) await this.deps.opener.open(url)
-      else await this.deps.opener.copy(resumeCommandFor(session))
     } catch (e) {
       this.deps.log.warn("open in Claude failed", e)
     }
@@ -1171,7 +1335,8 @@ export class Engine {
         c.items.add(item.id)
       }
     })
-    if (action === "allow" || action === "deny") return this.decide(n.item_id, action, `notif:${id}:${action}`, "notification")
+    if (action === "allow" || action === "deny")
+      return this.decide(n.item_id, action, `notif:${id}:${action}`, "notification")
     if (action === "open") await this.open(n.item_id)
     return this.respond(n.item_id)
   }
@@ -1214,7 +1379,9 @@ export class Engine {
     const sids = new Set(sessions.map((s) => s.id))
     const pids = new Set(sessions.map((s) => s.project_id))
     const live = new Set(
-      this.store.all<{ item_id: string }>("SELECT item_id FROM approvals WHERE live = 1").map((r) => r.item_id),
+      this.store
+        .all<{ item_id: string }>("SELECT item_id FROM approvals WHERE live = 1")
+        .map((r) => r.item_id),
     )
     return {
       seq: this.store.maxSeq(),
@@ -1238,7 +1405,10 @@ export class Engine {
     const p = s ? this.store.project(s.project_id) : null
     if (!s || !p) throw notFound("session")
     const a = this.store.approval(itemId)
-    const draft = this.store.one<{ body_json: string }>("SELECT body_json FROM drafts WHERE item_id = ?", itemId)
+    const draft = this.store.one<{ body_json: string }>(
+      "SELECT body_json FROM drafts WHERE item_id = ?",
+      itemId,
+    )
     const session = toSession(s)
     return {
       item: toItem(r, a?.live === 1),
@@ -1308,7 +1478,13 @@ export class Engine {
             : (item.summary ?? "Ready to review")
     const live = this.store.isLive(item.id)
     const actions: NotificationAction[] =
-      kind === "question" ? ["answer", "open"] : kind === "permission" ? (live ? ["allow", "deny", "open"] : ["open"]) : ["open"]
+      kind === "question"
+        ? ["answer", "open"]
+        : kind === "permission"
+          ? live
+            ? ["allow", "deny", "open"]
+            : ["open"]
+          : ["open"]
     return { itemId: item.id, title, body, actions, critical: kind === "permission" }
   }
 
@@ -1356,14 +1532,16 @@ export class Engine {
     if (!last) return
     const base = this.notificationContent(last)
     const content =
-      open.length === 1 ? base : { ...base, title: "Claude", body: `${open.length} sessions ready to review` }
+      open.length === 1
+        ? base
+        : { ...base, title: "Claude", body: `${open.length} sessions ready to review` }
     const id = this.insertNotification(last, content)
     this.dispatch(id)
   }
 
   private dispatch(notificationId: string) {
     const n = this.store.notification(notificationId)
-    if (!n || n.state !== "pending") return
+    if (n?.state !== "pending") return
     const payload: NotifyPayload = {
       id: n.id,
       itemId: n.item_id,
@@ -1390,7 +1568,10 @@ export class Engine {
     this.track(
       this.deps.notifier.fallback(n.title, n.body).catch((e) => {
         this.deps.log.warn("fallback notification failed", e)
-        this.store.run("UPDATE notifications SET state = 'pending', channel = NULL WHERE id = ? AND state = 'posted'", n.id)
+        this.store.run(
+          "UPDATE notifications SET state = 'pending', channel = NULL WHERE id = ? AND state = 'posted'",
+          n.id,
+        )
       }),
     )
   }
@@ -1417,7 +1598,11 @@ export class Engine {
           if (!title) return
           this.tx((c) => {
             this.appendEvent(c, { sessionId, hook: "daemon:title", payload: { title } })
-            this.store.run("UPDATE sessions SET title = ?, title_source = 'generated' WHERE id = ?", title, sessionId)
+            this.store.run(
+              "UPDATE sessions SET title = ?, title_source = 'generated' WHERE id = ?",
+              title,
+              sessionId,
+            )
             c.sessions.add(sessionId)
           })
         })
@@ -1462,8 +1647,15 @@ export class Engine {
           s.id,
         )
         if ((held?.n ?? 0) > 0) return null
-        this.appendEvent(c, { sessionId: s.id, hook: "daemon:outbox-sending", payload: { id: row.id } })
-        this.store.run("UPDATE outbox SET state = 'sending', attempts = attempts + 1 WHERE id = ?", row.id)
+        this.appendEvent(c, {
+          sessionId: s.id,
+          hook: "daemon:outbox-sending",
+          payload: { id: row.id },
+        })
+        this.store.run(
+          "UPDATE outbox SET state = 'sending', attempts = attempts + 1 WHERE id = ?",
+          row.id,
+        )
         if (row.item_id) c.items.add(row.item_id)
         return s
       })
@@ -1483,7 +1675,10 @@ export class Engine {
       this.sendingSessions.delete(row.session_id)
     }
     this.tx((c) => {
-      const fresh = this.store.one<OutboxRow>("SELECT * FROM outbox WHERE id = ?", row.id) as OutboxRow
+      const fresh = this.store.one<OutboxRow>(
+        "SELECT * FROM outbox WHERE id = ?",
+        row.id,
+      ) as OutboxRow
       this.appendEvent(c, {
         sessionId: s.id,
         hook: error ? "daemon:outbox-failed" : "daemon:outbox-delivered",
@@ -1491,7 +1686,11 @@ export class Engine {
       })
       if (row.item_id) c.items.add(row.item_id)
       if (!error) {
-        this.store.run("UPDATE outbox SET state = 'delivered', delivered_at = ?, last_error = NULL WHERE id = ?", this.now(), row.id)
+        this.store.run(
+          "UPDATE outbox SET state = 'delivered', delivered_at = ?, last_error = NULL WHERE id = ?",
+          this.now(),
+          row.id,
+        )
         // Re-base the confirmation window on delivery.
         if (row.item_id)
           this.store.run(
@@ -1503,7 +1702,11 @@ export class Engine {
       }
       this.deps.log.warn(`outbox ${row.id} attempt ${fresh.attempts} failed`, error)
       if (fresh.attempts >= this.settings["outbox.maxAttempts"]) {
-        this.store.run("UPDATE outbox SET state = 'failed', last_error = ? WHERE id = ?", error, row.id)
+        this.store.run(
+          "UPDATE outbox SET state = 'failed', last_error = ? WHERE id = ?",
+          error,
+          row.id,
+        )
       } else {
         const backoff = this.settings["outbox.backoffMs"] * 2 ** (fresh.attempts - 1)
         this.store.run(
@@ -1529,7 +1732,11 @@ export class Engine {
     )) {
       this.tx((c) => {
         const item = this.store.item(a.item_id)
-        this.appendEvent(c, { sessionId: item?.session_id ?? null, hook: "daemon:hold-expired", payload: { itemId: a.item_id } })
+        this.appendEvent(c, {
+          sessionId: item?.session_id ?? null,
+          hook: "daemon:hold-expired",
+          payload: { itemId: a.item_id },
+        })
         this.expireHold(c, a)
         if (item) this.setSessionState(c, item.session_id, "waiting")
       })
@@ -1539,7 +1746,11 @@ export class Engine {
       now,
     )) {
       this.tx((c) => {
-        this.appendEvent(c, { sessionId: r.session_id, hook: "daemon:wake", payload: { itemId: r.id } })
+        this.appendEvent(c, {
+          sessionId: r.session_id,
+          hook: "daemon:wake",
+          payload: { itemId: r.id },
+        })
         if (this.apply(c, r, { _tag: "Wake", now })) {
           this.store.run("UPDATE attention_items SET unread = 1 WHERE id = ?", r.id)
           const fresh = this.store.item(r.id) as ItemRow
@@ -1556,7 +1767,11 @@ export class Engine {
       now - this.settings["items.confirmWindowMs"],
     )) {
       this.tx((c) => {
-        this.appendEvent(c, { sessionId: r.session_id, hook: "daemon:unconfirmed", payload: { itemId: r.id } })
+        this.appendEvent(c, {
+          sessionId: r.session_id,
+          hook: "daemon:unconfirmed",
+          payload: { itemId: r.id },
+        })
         this.apply(c, r, { _tag: "MarkUnconfirmed" })
       })
     }

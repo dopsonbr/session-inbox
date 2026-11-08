@@ -15,8 +15,8 @@ import type {
   OutboxEntry,
   OutboxState,
   Project,
-  Queue,
   Question,
+  Queue,
   Runtime,
   Session,
   SessionState,
@@ -269,7 +269,9 @@ export class Store {
         "SELECT COUNT(*) AS n FROM attention_items WHERE state = 'open' AND kind != 'review'",
       ),
       working: q("SELECT COUNT(*) AS n FROM sessions WHERE state = 'running'"),
-      review: q("SELECT COUNT(*) AS n FROM attention_items WHERE state = 'open' AND kind = 'review'"),
+      review: q(
+        "SELECT COUNT(*) AS n FROM attention_items WHERE state = 'open' AND kind = 'review'",
+      ),
       snoozed: q("SELECT COUNT(*) AS n FROM attention_items WHERE state = 'snoozed'"),
     }
   }

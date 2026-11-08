@@ -3,9 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/main.ts --dev --home ../../.dev/home",
+    "start": "bun src/main.ts",
+    "build": "bun build --compile --minify src/main.ts --outfile dist/inboxd",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p ."
+  },
   "dependencies": {
     "@effect/platform-bun": "4.1.2",
-    "@effect/sql-sqlite-bun": "4.1.2",
     "@session-inbox/contracts": "workspace:*",
     "effect": "4.1.2"
   }

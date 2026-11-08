@@ -16,6 +16,8 @@ export interface Settings {
   "holds.safeBashPrefixes": string[]
   /** How answers to a live AskUserQuestion travel back through the hook. */
   "questions.answerMode": AnswerMode
+  /** Per-runtime override, written automatically when updatedInput answers don't land (P-004). */
+  "questions.answerModeByRuntime": Record<string, AnswerMode>
   /** osascript fallback when no shell is connected. */
   "notifications.fallback": boolean
   /** Review (clean stop) notifications are coalesced within this window. */
@@ -30,8 +32,21 @@ export const DEFAULT_SETTINGS: Settings = {
   "titles.generate": true,
   "holds.tools": ["Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "WebFetch"],
   "holds.budgetMs": 120_000,
-  "holds.safeBashPrefixes": ["ls", "pwd", "echo", "cat", "head", "tail", "wc", "which", "git status", "git diff", "git log"],
+  "holds.safeBashPrefixes": [
+    "ls",
+    "pwd",
+    "echo",
+    "cat",
+    "head",
+    "tail",
+    "wc",
+    "which",
+    "git status",
+    "git diff",
+    "git log",
+  ],
   "questions.answerMode": "updatedInput",
+  "questions.answerModeByRuntime": {},
   "notifications.fallback": true,
   "notifications.reviewGroupMs": 30_000,
   "items.confirmWindowMs": 5 * 60_000,

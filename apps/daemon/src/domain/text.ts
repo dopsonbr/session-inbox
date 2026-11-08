@@ -28,6 +28,16 @@ export const cleanGeneratedTitle = (out: string): string | null => {
   return words >= 1 && words <= 10 ? t : null
 }
 
+/** First non-empty line, shortened; null for empty input. */
+export const firstLine = (s: string | null | undefined, n = 100): string | null => {
+  const line = s
+    ?.split("\n")
+    .map((l) => l.trim())
+    .find((l) => l.length > 0)
+  if (!line) return null
+  return line.length > n ? `${line.slice(0, n - 1)}…` : line
+}
+
 const short = (s: string, n = 80) => {
   const one = s.replace(/\s+/g, " ").trim()
   return one.length > n ? `${one.slice(0, n - 1)}…` : one
@@ -43,7 +53,10 @@ export const permissionSummary = (tool: string, input: unknown): string => {
   const cmd = field(input, "command")
   if (tool === "Bash" && cmd) return `Wants to run ${short(cmd)}`
   const file = field(input, "file_path") ?? field(input, "notebook_path")
-  if (file && (tool === "Write" || tool === "Edit" || tool === "MultiEdit" || tool === "NotebookEdit"))
+  if (
+    file &&
+    (tool === "Write" || tool === "Edit" || tool === "MultiEdit" || tool === "NotebookEdit")
+  )
     return `Wants to ${tool === "Write" ? "write" : "edit"} ${short(file)}`
   const url = field(input, "url")
   if (tool === "WebFetch" && url) return `Wants to fetch ${short(url)}`
