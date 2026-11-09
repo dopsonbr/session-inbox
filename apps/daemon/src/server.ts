@@ -67,6 +67,9 @@ export interface ServerContext {
   readonly engine: Engine
   readonly token: string
   readonly uiDir: string
+  readonly channel: string
+  /** Page title for this channel (e.g. "Session Inbox Beta"). */
+  readonly title: string
   /** Set once the TCP listener knows its port. */
   port: number
 }
@@ -78,6 +81,8 @@ export const health = (ctx: ServerContext): Health => ({
   pid: process.pid,
   startedAt: ctx.engine.startedAt,
   shellConnected: ctx.engine.hub.shellConnected,
+  channel: ctx.channel,
+  build: BUILD,
 })
 
 // ---------------------------------------------------------------------------
@@ -176,14 +181,20 @@ const PLACEHOLDER = `<!doctype html><html><head><meta charset="utf-8">${TOKEN_ME
 /** Tolerates the self-closing form Vite emits (`content="" />`). */
 const TOKEN_META_RE = /<meta\s+name="session-inbox-token"\s+content=""\s*\/?>/
 
-export const injectToken = (html: string, token: string) =>
-  html.replace(TOKEN_META_RE, `<meta name="session-inbox-token" content="${token}">`)
+export const injectToken = (html: string, token: string, title?: string) => {
+  const out = html.replace(TOKEN_META_RE, `<meta name="session-inbox-token" content="${token}">`)
+  return title ? out.replace(/<title>[^<]*<\/title>/, `<title>${title}</title>`) : out
+}
+
+declare const SESSION_INBOX_BUILD: string | undefined
+/** Set by `bun build --define` in scripts/build.ts; "dev" when run from source. */
+export const BUILD: string = typeof SESSION_INBOX_BUILD === "string" ? SESSION_INBOX_BUILD : "dev"
 
 const serveStatic = async (ctx: ServerContext, url: URL): Promise<Response> => {
   const index = join(ctx.uiDir, "index.html")
   const html = async () => {
     const text = existsSync(index) ? await Bun.file(index).text() : PLACEHOLDER
-    return new Response(injectToken(text, ctx.token), {
+    return new Response(injectToken(text, ctx.token, ctx.title), {
       headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
     })
   }

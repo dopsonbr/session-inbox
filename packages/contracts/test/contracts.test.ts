@@ -38,3 +38,14 @@ describe("contracts", () => {
     expect(Routes.stream(5, "ui")).toBe("/v1/stream?client=ui&since=5")
   })
 })
+
+describe("channels", () => {
+  test("an installed hook finds its home from its own path", async () => {
+    const { homeOfExecutable, CHANNELS } = await import("../src/paths.ts")
+    expect(homeOfExecutable(`${CHANNELS.beta.home}/bin/inbox-hook`)).toBe(CHANNELS.beta.home)
+    expect(homeOfExecutable("/opt/homebrew/bin/bun")).toBeNull()
+    expect(homeOfExecutable("/x/inbox-hook")).toBeNull()
+    expect(CHANNELS.ga.home).not.toBe(CHANNELS.beta.home)
+    expect(CHANNELS.ga.label).not.toBe(CHANNELS.beta.label)
+  })
+})

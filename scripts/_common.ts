@@ -2,12 +2,27 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { Settings } from "../apps/hook/src/settings.ts"
-
-export const LABEL = "com.sessioninbox.inboxd"
+import { CHANNELS, type Channel, isChannel } from "../packages/contracts/src/paths.ts"
 
 export const defaultSettingsPath = () => join(process.env.HOME ?? "", ".claude", "settings.json")
-export const plistPath = () =>
-  join(process.env.HOME ?? "", "Library", "LaunchAgents", `${LABEL}.plist`)
+export const plistPath = (label: string) =>
+  join(process.env.HOME ?? "", "Library", "LaunchAgents", `${label}.plist`)
+
+export const parseChannel = (v: string | undefined): Channel => {
+  const c = v ?? "ga"
+  if (!isChannel(c)) throw new Error(`--channel must be ga or beta, not ${c}`)
+  return c
+}
+/** The other channels' default homes: their hooks are left alone (H-014). */
+export const otherHomes = (channel: Channel): string[] =>
+  (Object.keys(CHANNELS) as Channel[]).filter((c) => c !== channel).map((c) => CHANNELS[c].home)
+
+export const xmlEscape = (s: string) =>
+  s
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
 export const uid = () => process.getuid?.() ?? 501
 
 export const parseSettings = (text: string | null, path: string): Settings => {

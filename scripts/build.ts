@@ -10,8 +10,19 @@ const targets = [
   { name: "inboxd", entry: "apps/daemon/src/main.ts", flags: ["--minify"] },
 ]
 
+/** "<short sha>[-dirty]" of the checkout, so two installed channels can be told apart. */
+export const buildStamp = (): string => {
+  const git = (...a: string[]) =>
+    Bun.spawnSync(["git", ...a], { cwd: root })
+      .stdout.toString()
+      .trim()
+  const sha = git("rev-parse", "--short", "HEAD") || "unknown"
+  return git("status", "--porcelain") ? `${sha}-dirty` : sha
+}
+
 export const build = async (): Promise<string[]> => {
   mkdirSync(dist, { recursive: true })
+  const define = ["--define", `SESSION_INBOX_BUILD=${JSON.stringify(buildStamp())}`]
   const built: string[] = []
   for (const t of targets) {
     if (!existsSync(join(root, t.entry))) {
@@ -20,7 +31,16 @@ export const build = async (): Promise<string[]> => {
     }
     const outfile = join(dist, t.name)
     const p = Bun.spawnSync(
-      ["bun", "build", "--compile", ...t.flags, join(root, t.entry), "--outfile", outfile],
+      [
+        "bun",
+        "build",
+        "--compile",
+        ...t.flags,
+        ...define,
+        join(root, t.entry),
+        "--outfile",
+        outfile,
+      ],
       { cwd: root, stdout: "inherit", stderr: "inherit" },
     )
     if (p.exitCode !== 0) throw new Error(`build failed: ${t.name}`)

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
   buildHooks,
+  hookHome,
   isOurs,
   mergeHooks,
   type Settings,
@@ -66,6 +67,26 @@ describe("settings merge", () => {
     expect(isOurs("/x/bin/inbox-hook Stop")).toBe(true)
     expect(isOurs("/x/bin/other-inbox-hook Stop")).toBe(false)
     expect(isOurs("echo inbox-hook")).toBe(false)
+  })
+
+  test("hookHome reads the home out of quoted and bare commands", () => {
+    expect(hookHome(`"${HOME}/bin/inbox-hook" Stop`)).toBe(HOME)
+    expect(hookHome("/x/bin/inbox-hook Stop")).toBe("/x")
+    expect(hookHome("/x/inbox-hook Stop")).toBeNull()
+    expect(hookHome("say done")).toBeNull()
+  })
+
+  test("two channels side by side: each merge and unmerge leaves the other alone", () => {
+    const BETA = "/Users/me/Library/Application Support/SessionInbox-beta"
+    const ga = mergeHooks(existing, HOME, [BETA])
+    const both = mergeHooks(ga, BETA, [HOME])
+    expect(both.hooks?.PreToolUse).toHaveLength(3)
+    expect(JSON.stringify(both)).toContain(`${BETA}/bin/inbox-hook`)
+    expect(JSON.stringify(both)).toContain(`"${HOME}/bin/inbox-hook`)
+    expect(mergeHooks(both, BETA, [HOME])).toEqual(both)
+    expect(mergeHooks(both, HOME, [BETA])).toEqual(both)
+    expect(unmergeHooks(both, [HOME])).toEqual(ga)
+    expect(unmergeHooks(unmergeHooks(both, [HOME]), [BETA])).toEqual(existing)
   })
 
   test("ops snippet matches buildHooks", () => {

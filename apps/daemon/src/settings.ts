@@ -8,6 +8,11 @@ import type { AnswerMode } from "./domain/questions.ts"
 export interface Settings {
   /** Generate a 3–6 word title with `claude -p --model haiku`. */
   "titles.generate": boolean
+  /**
+   * Hold hooks at all. Off for a channel installed beside another that holds (H-016):
+   * two daemons holding the same call would each wait for their own answer.
+   */
+  "holds.enabled": boolean
   /** Tools whose PreToolUse may be held (when Claude itself would ask). */
   "holds.tools": string[]
   /** How long a held hook waits for a decision before falling back to `ask`. */
@@ -30,6 +35,7 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   "titles.generate": true,
+  "holds.enabled": true,
   "holds.tools": ["Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "WebFetch"],
   "holds.budgetMs": 120_000,
   "holds.safeBashPrefixes": [
@@ -54,8 +60,12 @@ export const DEFAULT_SETTINGS: Settings = {
   "outbox.backoffMs": 5_000,
 }
 
-export const loadSettings = (db: Database, overrides: Partial<Settings> = {}): Settings => {
-  const out: Record<string, unknown> = { ...DEFAULT_SETTINGS }
+export const loadSettings = (
+  db: Database,
+  overrides: Partial<Settings> = {},
+  defaults: Partial<Settings> = {},
+): Settings => {
+  const out: Record<string, unknown> = { ...DEFAULT_SETTINGS, ...defaults }
   const rows = db.query("SELECT key, value_json FROM settings").all() as {
     key: string
     value_json: string

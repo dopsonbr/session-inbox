@@ -253,6 +253,27 @@ describe("engine behaviours", () => {
     expect(h.notifier.posted).toHaveLength(0)
   })
 
+  test("holds.enabled false (observer channel): nothing is held, items still appear", async () => {
+    const h = makeHarness({ settings: { "holds.enabled": false } })
+    const bash = await h.engine.ingest(
+      "PreToolUse",
+      envelope("PreToolUse", { ...base, tool_name: "Bash", tool_input: { command: "rm x" } }),
+    )
+    expect(bash.requestId).toBeNull()
+    const ask = await h.engine.ingest(
+      "PreToolUse",
+      envelope("PreToolUse", {
+        ...base,
+        tool_name: "AskUserQuestion",
+        tool_use_id: "q1",
+        tool_input: { questions: [{ question: "A?", options: [{ label: "x" }] }] },
+      }),
+    )
+    expect(ask.requestId).toBeNull()
+    const items = h.engine.snapshot().items
+    expect(items.map((i) => [i.kind, i.live])).toEqual([["question", false]])
+  })
+
   test("answered item without a confirming event becomes unconfirmed after 5 min", async () => {
     const h = makeHarness()
     const r = await h.engine.ingest(

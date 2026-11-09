@@ -48,6 +48,7 @@ entries with your section's prefix (G, C, D, H, U, S, P) and the next free numbe
 - C-009 — `hook.ts` gains optional payload fields from the spike (P-002): `prompt_id`, `agent_id`, `agent_type` on `HookBase`; `duration_ms` on PostToolUse; `session_title` on SessionStart; `last_assistant_message`, `background_tasks`, `session_crons` on Stop and SubagentStop. Additive only; all optional because they are absent on some events/versions.
 - C-010 — `Item.questionCount` (optional number): set by the daemon on question items that have question rows (AskUserQuestion), absent otherwise (an idle "waiting for input" question has none). Lets cards say "2 questions" without fetching detail. Additive.
 - C-011 — `TimelineEntry.isSource` (optional boolean) rather than `ItemDetail.sourceSeq`: the daemon already decides which event made the item and must also inject that event into the timeline when it isn't an activity line, so flagging the entry keeps the UI a plain renderer. Additive.
+- C-012 — `Health` and `Connection` gain optional `channel` and `build` so tools and the shell can tell two installs apart. Additive.
 
 ## Daemon
 
@@ -83,6 +84,7 @@ entries with your section's prefix (G, C, D, H, U, S, P) and the next free numbe
 - D-030 — Item detail timeline always includes the item's `source_seq` event (even a PreToolUse/Notification/SessionEnd, which aren't activity lines, or one older than the 50-line window), flagged `isSource` (C-011). Lines: AskUserQuestion → "Asked N questions", other PreToolUse → the permission summary ("Wants to run …"), Notification → its first line. `source_seq` follows a dedupe refresh, so the marker is the latest event that (re)raised the item.
 - D-031 — Pending review-notification group is persisted in a `review_group(item_id, added_at)` table (migration 002) instead of memory; the window opened at `MIN(added_at)`. `tick()` flushes it once the window has passed (rows deleted and notification inserted in one transaction), and `recover()` flushes on startup if the window closed while the daemon was down. Supersedes the "in-memory only" part of D-018.
 - D-032 — `POST /v1/notifications/:id/acted` with allow/deny decides first and records the notification as acted only if the decision succeeded. Found live: a rejected Allow on a review notification had already marked it acted.
+- D-033 — The daemon takes `--channel`/`SESSION_INBOX_CHANNEL` and swaps the served page's `<title>` for the channel's ("Session Inbox Beta"), so side-by-side windows and tabs are distinguishable. Compiled binaries carry a build stamp (`<sha>[-dirty]`, via `bun build --define`) shown in health, connection.json and the startup log; source runs say `dev`.
 
 ## Hook & Ops
 
@@ -99,6 +101,10 @@ entries with your section's prefix (G, C, D, H, U, S, P) and the next free numbe
 - H-011 — Tests run the hook as a subprocess against a fake daemon on a Unix socket under `/tmp/sih-XXXX`, for both `bun src/main.ts` and a freshly compiled binary. The install-script test runs `--yes` only with `--settings <tmp> --home <tmp> --no-launchd`.
 - H-012 — The installer ships the built UI to `<home>/ui`, and the plist sets `SESSION_INBOX_UI_DIR` to it. The compiled daemon can't locate the repo, so without this it served only the placeholder page.
 - H-013 — The plist sets PATH to the directory of `claude` (resolved at install time) plus Homebrew and the system dirs. launchd's default PATH has no `~/.local/bin`, so outbox replies and title generation would fail with "claude not found".
+- H-014 — Two install channels, GA and beta, live side by side: GA is the everyday install from `main`; beta is installed from a working checkout with `install.ts --channel beta`. Each has its own home (`SessionInbox` / `SessionInbox-beta`), launchd label (`…inboxd` / `…inboxd.beta`), random port and menu-bar app. Both hook into `~/.claude/settings.json`, so both see every session; merge/unmerge take a `keep` list of the other channel's home and never touch its commands (a moved home of the same channel is still replaced).
+- H-015 — The installed hook finds its daemon from its own path (`<home>/bin/inbox-hook` → `<home>`) when `SESSION_INBOX_HOME` is unset. Claude doesn't pass our env to hooks, so before this any `--home` install silently talked to the default home.
+- H-016 — Only one channel holds hooks. Two daemons holding the same PreToolUse would each wait for their own answer. A channel installed while the other's hooks are present becomes an observer: plist `SESSION_INBOX_SETTINGS` defaults `holds.enabled=false` and `notifications.fallback=false` (settings rows still win). `install.ts --holds` overrides; `scripts/channels.ts holds <ga|beta>` flips both by writing rows and restarting the daemons. An observer still shows questions and permission prompts (not live).
+- H-017 — `install.ts --app` builds the channel's menu-bar app and installs it into `~/Applications/<title>.app` (user-owned, so no sudo, and a stable path for the login item), quitting a running copy first. `scripts/channels.ts` prints status for both channels (launchd, hooks, holds, build, app, counts, URL).
 
 ## UI
 

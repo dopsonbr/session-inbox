@@ -126,6 +126,10 @@ export const Health = Schema.Struct({
   pid: Schema.Number,
   startedAt: Schema.Number,
   shellConnected: Schema.Boolean,
+  /** Install channel ("ga" | "beta"), C-012. */
+  channel: Schema.optional(Schema.String),
+  /** Build stamp: git commit (+ "-dirty") of the compiled daemon, or "dev". */
+  build: Schema.optional(Schema.String),
 })
 export type Health = typeof Health.Type
 
@@ -168,5 +172,7 @@ export const Connection = Schema.Struct({
   token: Schema.String,
   pid: Schema.Number,
   version: Schema.String,
+  channel: Schema.optional(Schema.String),
+  build: Schema.optional(Schema.String),
 })
 export type Connection = typeof Connection.Type

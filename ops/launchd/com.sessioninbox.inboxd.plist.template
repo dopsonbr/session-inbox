@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.sessioninbox.inboxd</string>
+  <string>{{LABEL}}</string>
   <key>ProgramArguments</key>
   <array>
     <string>{{HOME}}/bin/inboxd</string>
@@ -16,6 +16,10 @@
     <string>{{HOME}}/ui</string>
     <key>PATH</key>
     <string>{{PATH}}</string>
+    <key>SESSION_INBOX_CHANNEL</key>
+    <string>{{CHANNEL}}</string>
+    <key>SESSION_INBOX_SETTINGS</key>
+    <string>{{SETTINGS}}</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>

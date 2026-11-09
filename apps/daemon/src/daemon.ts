@@ -8,11 +8,11 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync }
 import { homedir } from "node:os"
 import { join, resolve } from "node:path"
 import type { Connection } from "@session-inbox/contracts"
-import { paths } from "@session-inbox/contracts/paths"
+import { CHANNELS, type Channel, paths } from "@session-inbox/contracts/paths"
 import { Effect, Schedule } from "effect"
 import { openDb } from "./db/db.ts"
 import { Engine } from "./engine.ts"
-import { hookHandler, type ServerContext, uiHandler, VERSION } from "./server.ts"
+import { BUILD, hookHandler, type ServerContext, uiHandler, VERSION } from "./server.ts"
 import {
   ClaudeCli,
   type ClaudeCliShape,
@@ -36,6 +36,9 @@ export interface DaemonOptions {
   readonly uiDir: string
   readonly claudeConfigDir: string
   readonly settings?: Partial<Settings>
+  /** Defaults that DB rows override (from SESSION_INBOX_SETTINGS; H-016). */
+  readonly settingDefaults?: Partial<Settings>
+  readonly channel?: Channel
 }
 
 export interface DaemonServices {
@@ -82,11 +85,19 @@ export const startDaemon = async (
   const p = paths(opts.home)
   mkdirSync(p.home, { recursive: true, mode: 0o700 })
   const db = openDb(p.db)
-  const settings = loadSettings(db, opts.settings)
+  const settings = loadSettings(db, opts.settings, opts.settingDefaults)
   const engine = new Engine({ db, ...svc, claudeConfigDir: opts.claudeConfigDir, settings })
   engine.recover()
   const token = loadToken(p.home)
-  const ctx: ServerContext = { engine, token, uiDir: resolve(opts.uiDir), port: 0 }
+  const channel = opts.channel ?? "ga"
+  const ctx: ServerContext = {
+    engine,
+    token,
+    uiDir: resolve(opts.uiDir),
+    channel,
+    title: CHANNELS[channel].title,
+    port: 0,
+  }
 
   if (existsSync(p.socket)) rmSync(p.socket)
   // idleTimeout 0: decision long-polls last up to 110 s (Bun's types omit it for unix; runtime honours it).
@@ -108,9 +119,11 @@ export const startDaemon = async (
     token,
     pid: process.pid,
     version: VERSION,
+    channel,
+    build: BUILD,
   }
   writeSecret(p.connection, `${JSON.stringify(conn, null, 2)}\n`)
-  svc.log.info(`inboxd ${VERSION} listening`, {
+  svc.log.info(`inboxd ${VERSION} (${channel}, ${BUILD}) listening`, {
     socket: p.socket,
     http: `http://127.0.0.1:${port}/`,
   })

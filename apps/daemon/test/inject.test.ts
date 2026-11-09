@@ -11,3 +11,12 @@ test("injects the token into both the plain and the self-closing meta tag", () =
     )
   }
 })
+
+test("replaces the page title when a channel title is given", () => {
+  const html =
+    '<head><meta name="session-inbox-token" content="" /><title>Session Inbox</title></head>'
+  expect(injectToken(html, "t", "Session Inbox Beta")).toBe(
+    '<head><meta name="session-inbox-token" content="t"><title>Session Inbox Beta</title></head>',
+  )
+  expect(injectToken(html, "t")).toContain("<title>Session Inbox</title>")
+})

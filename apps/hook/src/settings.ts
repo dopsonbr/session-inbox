@@ -52,24 +52,59 @@ export const buildHooks = (home: string): Record<string, HookGroup[]> =>
 export const isOurs = (command: unknown): boolean =>
   typeof command === "string" && /^\s*"?[^"]*\/inbox-hook"?(\s|$)/.test(command)
 
-const hasOurs = (g: HookGroup) => Array.isArray(g.hooks) && g.hooks.some((h) => isOurs(h?.command))
+/** The Session Inbox home a hook command points at (`<home>/bin/inbox-hook`), if any. */
+export const hookHome = (command: unknown): string | null => {
+  if (typeof command !== "string") return null
+  const m = /^\s*(?:"([^"]*)\/bin\/inbox-hook"|(\S*)\/bin\/inbox-hook)(\s|$)/.exec(command)
+  return m ? (m[1] ?? m[2] ?? null) : null
+}
 
-const stripOurs = (g: HookGroup): HookGroup => ({
-  ...g,
-  hooks: g.hooks.filter((h) => !isOurs(h?.command)),
-})
+type Mine = (command: unknown) => boolean
+
+/**
+ * Ours = any inbox-hook command except those pointing at a home in `keep` (another
+ * channel installed side by side, H-014). A moved home of the same channel is replaced.
+ */
+const mineExcept =
+  (keep: readonly string[]): Mine =>
+  (command) => {
+    if (!isOurs(command)) return false
+    const h = hookHome(command)
+    return h === null || !keep.includes(h)
+  }
+
+const hasMine = (mine: Mine) => (g: HookGroup) =>
+  Array.isArray(g.hooks) && g.hooks.some((h) => mine(h?.command))
+
+const stripMine =
+  (mine: Mine) =>
+  (g: HookGroup): HookGroup => ({
+    ...g,
+    hooks: g.hooks.filter((h) => !mine(h?.command)),
+  })
 
 /** Strip our commands; drop only groups that held ours and are now empty. */
-const pruneOurs = (groups: HookGroup[]): HookGroup[] =>
-  groups.flatMap((g) => {
-    if (!hasOurs(g)) return [g]
-    const stripped = stripOurs(g)
-    return stripped.hooks.length > 0 ? [stripped] : []
-  })
+const pruneMine =
+  (mine: Mine) =>
+  (groups: HookGroup[]): HookGroup[] =>
+    groups.flatMap((g) => {
+      if (!hasMine(mine)(g)) return [g]
+      const stripped = stripMine(mine)(g)
+      return stripped.hooks.length > 0 ? [stripped] : []
+    })
 
 const clone = <T>(v: T): T => structuredClone(v)
 
-export const mergeHooks = (input: Settings, home: string): Settings => {
+export const mergeHooks = (
+  input: Settings,
+  home: string,
+  keep: readonly string[] = [],
+): Settings => {
+  const mine = mineExcept(keep.filter((k) => k !== home))
+  const hasOurs = hasMine(mine)
+  const stripOurs = stripMine(mine)
+  const pruneOurs = pruneMine(mine)
+  const isOurs = mine
   const settings = clone(input)
   const hooks: Record<string, HookGroup[]> = { ...(settings.hooks ?? {}) }
   const wanted = buildHooks(home)
@@ -117,7 +152,10 @@ export const mergeHooks = (input: Settings, home: string): Settings => {
   return settings
 }
 
-export const unmergeHooks = (input: Settings): Settings => {
+export const unmergeHooks = (input: Settings, keep: readonly string[] = []): Settings => {
+  const mine = mineExcept(keep)
+  const hasOurs = hasMine(mine)
+  const pruneOurs = pruneMine(mine)
   const settings = clone(input)
   if (!settings.hooks || typeof settings.hooks !== "object") return settings
   const hooks: Record<string, HookGroup[]> = {}

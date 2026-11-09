@@ -11,7 +11,7 @@
  */
 import { appendFileSync, mkdirSync } from "node:fs"
 import { dirname, join } from "node:path"
-import { INTERNAL_ENV, paths } from "@session-inbox/contracts/paths"
+import { homeOfExecutable, INTERNAL_ENV, paths } from "@session-inbox/contracts/paths"
 
 const INGEST_TIMEOUT_MS = 500
 const MAX_WAIT_S = 110
@@ -76,6 +76,7 @@ export const run = async (
   argv: string[],
   env: Record<string, string | undefined>,
   readStdin: () => Promise<string>,
+  execPath: string = process.execPath,
 ): Promise<string | null> => {
   if (env[INTERNAL_ENV]) return null
 
@@ -100,7 +101,7 @@ export const run = async (
     hostSessionId: env.CLAUDE_CODE_HOST_SESSION_ID ?? null,
     claudePid: claudePid(env),
   }
-  const p = paths(env.SESSION_INBOX_HOME || undefined)
+  const p = paths(env.SESSION_INBOX_HOME || homeOfExecutable(execPath) || undefined)
 
   if (recordMode) {
     const file = out ?? join(p.fixtures, `${new Date().toISOString().slice(0, 10)}.jsonl`)

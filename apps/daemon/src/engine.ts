@@ -876,6 +876,7 @@ export class Engine {
   ) {
     const tool = String(p.tool_name)
     if (project.muted === 1) return false
+    if (!this.settings["holds.enabled"]) return false
     if (tool === "AskUserQuestion") return true
     if (!this.settings["holds.tools"].includes(tool)) return false
     const mode = p.permission_mode ?? "default"
