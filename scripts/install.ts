@@ -162,13 +162,20 @@ if (!values["no-launchd"]) {
     writeFileSync(target, plist)
     say(`wrote ${target}`)
     Bun.spawnSync(["launchctl", "bootout", `${domain}/${label}`], { stderr: "ignore" })
-    for (const args of [
-      ["bootstrap", domain, target],
-      ["kickstart", "-k", `${domain}/${label}`],
-    ]) {
-      const p = Bun.spawnSync(["launchctl", ...args])
-      say(`launchctl ${args.join(" ")} -> exit ${p.exitCode}`)
+    // bootout returns before the service is gone; bootstrap then fails with exit 5 (H-018).
+    const loaded = () =>
+      Bun.spawnSync(["launchctl", "print", `${domain}/${label}`], {
+        stdout: "ignore",
+        stderr: "ignore",
+      }).exitCode === 0
+    for (let i = 0; i < 50 && loaded(); i++) await Bun.sleep(100)
+    let code = -1
+    for (let attempt = 0; attempt < 5 && code !== 0; attempt++) {
+      if (attempt > 0) await Bun.sleep(500)
+      code = Bun.spawnSync(["launchctl", "bootstrap", domain, target]).exitCode
     }
+    say(`launchctl bootstrap ${domain} ${target} -> exit ${code}`)
+    if (code !== 0) throw new Error("launchctl bootstrap failed; see `launchctl print` and the log")
   }
 }
 

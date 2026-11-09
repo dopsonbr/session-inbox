@@ -105,6 +105,7 @@ entries with your section's prefix (G, C, D, H, U, S, P) and the next free numbe
 - H-015 — The installed hook finds its daemon from its own path (`<home>/bin/inbox-hook` → `<home>`) when `SESSION_INBOX_HOME` is unset. Claude doesn't pass our env to hooks, so before this any `--home` install silently talked to the default home.
 - H-016 — Only one channel holds hooks. Two daemons holding the same PreToolUse would each wait for their own answer. A channel installed while the other's hooks are present becomes an observer: plist `SESSION_INBOX_SETTINGS` defaults `holds.enabled=false` and `notifications.fallback=false` (settings rows still win). `install.ts --holds` overrides; `scripts/channels.ts holds <ga|beta>` flips both by writing rows and restarting the daemons. An observer still shows questions and permission prompts (not live).
 - H-017 — `install.ts --app` builds the channel's menu-bar app and installs it into `~/Applications/<title>.app` (user-owned, so no sudo, and a stable path for the login item), quitting a running copy first. `scripts/channels.ts` prints status for both channels (launchd, hooks, holds, build, app, counts, URL).
+- H-018 — The installer waits for `launchctl bootout` to finish (polling `launchctl print`) and retries `bootstrap` before giving up, and no longer kickstarts afterwards (RunAtLoad starts it). Found on the real reinstall: an immediate bootstrap failed with exit 5 and left the agent unloaded.
 
 ## UI
 
