@@ -3,7 +3,7 @@
  *   bun scripts/channels.ts               status of both channels
  *   bun scripts/channels.ts holds <ga|beta>   that channel holds hooks; the other observes
  *   bun scripts/channels.ts open <ga|beta>    open that channel's inbox in the browser
- * `holds` writes `holds.enabled` / `notifications.fallback` rows (they beat the plist
+ * `holds` writes `holds.enabled` rows (they beat the plist
  * defaults) and restarts both daemons so they re-read settings.
  */
 import { Database } from "bun:sqlite"
@@ -120,7 +120,6 @@ const setHolds = (holder: Channel) => {
     d.exec("PRAGMA busy_timeout = 2000")
     const put = d.prepare("INSERT OR REPLACE INTO settings (key, value_json) VALUES (?, ?)")
     put.run("holds.enabled", JSON.stringify(on))
-    put.run("notifications.fallback", JSON.stringify(on))
     d.close()
     const k = Bun.spawnSync(["launchctl", "kickstart", "-k", `gui/${uid()}/${CHANNELS[c].label}`])
     console.log(`${c}: holds ${on ? "on" : "off"}; restart -> exit ${k.exitCode}`)

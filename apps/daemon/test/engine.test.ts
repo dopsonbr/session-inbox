@@ -253,6 +253,33 @@ describe("engine behaviours", () => {
     expect(h.notifier.posted).toHaveLength(0)
   })
 
+  test("a lapsed AskUserQuestion hold's permission prompt doesn't open a second item", async () => {
+    const h = makeHarness()
+    const r = await h.engine.ingest(
+      "PreToolUse",
+      envelope("PreToolUse", {
+        ...base,
+        tool_name: "AskUserQuestion",
+        tool_use_id: "q1",
+        tool_input: { questions: [{ question: "A?", options: [{ label: "x" }, { label: "y" }] }] },
+      }),
+    )
+    h.clock.advance(120_001)
+    h.engine.tick()
+    expect((await h.engine.waitDecision(r.requestId ?? "", 0)).decision).toBe("ask")
+    h.clock.advance(6_000)
+    await h.engine.ingest(
+      "Notification",
+      envelope("Notification", {
+        ...base,
+        notification_type: "permission_prompt",
+        message: "Claude needs your permission to use AskUserQuestion",
+      }),
+    )
+    const items = h.engine.snapshot().items
+    expect(items.map((i) => [i.kind, i.state])).toEqual([["question", "open"]])
+  })
+
   test("holds.enabled false (observer channel): nothing is held, items still appear", async () => {
     const h = makeHarness({ settings: { "holds.enabled": false } })
     const bash = await h.engine.ingest(
@@ -260,6 +287,9 @@ describe("engine behaviours", () => {
       envelope("PreToolUse", { ...base, tool_name: "Bash", tool_input: { command: "rm x" } }),
     )
     expect(bash.requestId).toBeNull()
+    expect(h.engine.snapshot().items.map((i) => [i.kind, i.live])).toEqual([["permission", false]])
+    h.engine.tick()
+    expect(h.notifier.posted).toHaveLength(1)
     const ask = await h.engine.ingest(
       "PreToolUse",
       envelope("PreToolUse", {
@@ -270,8 +300,12 @@ describe("engine behaviours", () => {
       }),
     )
     expect(ask.requestId).toBeNull()
+    // The next tool call superseded the permission item, as it would in a real session.
     const items = h.engine.snapshot().items
-    expect(items.map((i) => [i.kind, i.live])).toEqual([["question", false]])
+    expect(items.map((i) => [i.kind, i.state, i.live])).toEqual([
+      ["permission", "resolved", false],
+      ["question", "open", false],
+    ])
   })
 
   test("answered item without a confirming event becomes unconfirmed after 5 min", async () => {

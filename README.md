@@ -72,7 +72,7 @@ bun scripts/install.ts --channel beta --yes --app   # → ~/Applications/Session
 bun scripts/channels.ts                               # status of both: running, build, holds, URL
 ```
 
-Beta has its own data (`~/Library/Application Support/SessionInbox-beta`), launchd agent (`com.sessioninbox.inboxd.beta`), port, app, `sessioninbox-beta://` links and ⌘⌥⇧I. Both channels see every session. Only one may **hold** tool calls (otherwise each would wait for its own answer), so a channel installed beside another starts as an observer: it shows everything but never holds and sends no fallback notifications. To swap roles:
+Beta has its own data (`~/Library/Application Support/SessionInbox-beta`), launchd agent (`com.sessioninbox.inboxd.beta`), port, app, `sessioninbox-beta://` links and ⌘⌥⇧I. Both channels see every session. Only one may **hold** tool calls (otherwise each would wait for its own answer), so a channel installed beside another starts as an observer: it shows the same items and notifies too, but never holds (its permission items aren't answerable; answer in the channel that holds). To swap roles:
 
 ```bash
 bun scripts/channels.ts holds beta   # beta holds, GA observes (holds ga to switch back)

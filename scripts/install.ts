@@ -80,10 +80,11 @@ const otherInstalled = Object.values(currentSettings.hooks ?? {}).some(
     ),
 )
 const observer = otherInstalled && !values.holds
-const settingDefaults = observer ? { "holds.enabled": false, "notifications.fallback": false } : {}
+// Observers still notify, so both apps can be compared (user's call, H-016).
+const settingDefaults = observer ? { "holds.enabled": false } : {}
 if (observer)
   say(
-    "another channel's hooks are installed: this one observes (no holds, no fallback notifications).\n" +
+    "another channel's hooks are installed: this one observes (shows and notifies, never holds).\n" +
       "  switch which channel holds with: bun scripts/channels.ts holds <ga|beta>",
   )
 

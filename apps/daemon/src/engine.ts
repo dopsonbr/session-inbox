@@ -835,9 +835,10 @@ export class Engine {
 
     this.setSessionState(c, session.id, "waiting")
     if (isPermission) {
-      // Already tracked: a live hold, or one that just lapsed into Claude's own prompt.
+      // Already tracked: a live hold, or one that just lapsed into Claude's own prompt. A lapsed
+      // AskUserQuestion hold also reaches us as a permission prompt (D-034).
       const recent = this.store.one<{ n: number }>(
-        `SELECT COUNT(*) AS n FROM attention_items WHERE session_id = ? AND kind = 'permission'
+        `SELECT COUNT(*) AS n FROM attention_items WHERE session_id = ? AND kind IN ('permission','question')
            AND (state IN ('open','snoozed') OR updated_at > ?)`,
         session.id,
         this.now() - 30_000,
@@ -869,14 +870,10 @@ export class Engine {
     if (created) this.queueNotification(c, row)
   }
 
-  private shouldHold(
-    session: SessionRow,
-    project: { muted: number; root_path: string },
-    p: Payload,
-  ) {
+  /** Would Claude ask here? Holding also needs `holds.enabled` (an observer channel only shows it). */
+  private wouldAsk(session: SessionRow, project: { muted: number; root_path: string }, p: Payload) {
     const tool = String(p.tool_name)
     if (project.muted === 1) return false
-    if (!this.settings["holds.enabled"]) return false
     if (tool === "AskUserQuestion") return true
     if (!this.settings["holds.tools"].includes(tool)) return false
     const mode = p.permission_mode ?? "default"
@@ -909,8 +906,10 @@ export class Engine {
     if (!project) return null
     const toolUseId = typeof p.tool_use_id === "string" ? p.tool_use_id : null
     const isQuestion = tool === "AskUserQuestion"
-    const hold = this.shouldHold(session, project, p)
-    if (!isQuestion && !hold) return null
+    const asks = this.wouldAsk(session, project, p)
+    // Observer channel (H-016): same item, not live; another channel's daemon holds the hook.
+    const hold = asks && this.settings["holds.enabled"]
+    if (!isQuestion && !asks) return null
 
     const questions = isQuestion ? parseQuestions(p.tool_input) : []
     const summary = isQuestion
