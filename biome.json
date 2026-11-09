@@ -10,7 +10,7 @@
       "!fixtures/**/*.json",
       "!fixtures/**/*.jsonl",
       "!docs/mockups",
-      "!docs/**/*.md",
+      "!**/*.md",
       "!.claude"
     ]
   },
