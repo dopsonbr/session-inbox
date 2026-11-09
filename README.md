@@ -54,14 +54,32 @@ That command does four things:
 3. Loads the launchd agent `com.sessioninbox.inboxd`.
 4. Merges the hooks into `~/.claude/settings.json`. It backs the file up first, keeps everything else in it, and re-running it changes nothing.
 
-Then build and open the menu-bar app:
+Add `--app` to also build the menu-bar app, install it as `~/Applications/Session Inbox.app` and open it (the first Rust build takes a few minutes):
 
 ```bash
-bun scripts/build-shell.ts       # prints the path to "Session Inbox.app"
-open "apps/desktop/src-tauri/target/release/bundle/macos/Session Inbox.app"
+bun scripts/install.ts --yes --app
 ```
 
 New Claude sessions pick up the hooks. Restart any session that's already open.
+
+### GA and beta side by side
+
+Install a second, **beta** channel from a working branch to compare it with the GA install from `main`:
+
+```bash
+git switch my-branch
+bun scripts/install.ts --channel beta --yes --app   # → ~/Applications/Session Inbox Beta.app
+bun scripts/channels.ts                               # status of both: running, build, holds, URL
+```
+
+Beta has its own data (`~/Library/Application Support/SessionInbox-beta`), launchd agent (`com.sessioninbox.inboxd.beta`), port, app, `sessioninbox-beta://` links and ⌘⌥⇧I. Both channels see every session. Only one may **hold** tool calls (otherwise each would wait for its own answer), so a channel installed beside another starts as an observer: it shows everything but never holds and sends no fallback notifications. To swap roles:
+
+```bash
+bun scripts/channels.ts holds beta   # beta holds, GA observes (holds ga to switch back)
+bun scripts/channels.ts open beta    # beta inbox in the browser
+```
+
+Remove beta with `bun scripts/uninstall.ts --channel beta --yes --app`. GA's hooks are left alone.
 
 ### Try it in one project first
 
@@ -76,7 +94,7 @@ bun apps/daemon/src/main.ts      # logs the inbox URL; Ctrl-C to stop
 
 ```bash
 bun scripts/uninstall.ts         # dry run
-bun scripts/uninstall.ts --yes   # removes our hooks (only ours) and the launchd agent
+bun scripts/uninstall.ts --yes   # removes our hooks (only ours) and the launchd agent; --app also removes the app
 ```
 
 ## Using it

@@ -39,7 +39,9 @@ bun scripts/demo.ts                   # seeded live daemon + built UI for browse
 bun run --cwd apps/desktop build      # UI → apps/desktop/dist
 bun run --cwd apps/desktop dev:mock   # UI against the fake client
 cd apps/desktop/src-tauri && cargo test && cargo clippy -- -D warnings
-bun scripts/build-shell.ts            # Session Inbox.app (slow first build)
+bun scripts/build-shell.ts            # Session Inbox.app (slow first build); --channel beta
+bun scripts/install.ts --channel beta --yes --app   # beta install beside GA (H-014)
+bun scripts/channels.ts               # GA + beta status; `holds <ga|beta>` picks the holder
 ```
 
 Before committing: `bun test`, `bun run typecheck`, `bun run lint`; also `bun scripts/smoke.ts` if you touched the daemon, hook or contracts.
@@ -53,6 +55,7 @@ Before committing: `bun test`, `bun run typecheck`, `bun run lint`; also `bun sc
 
 ## Gotchas
 
+- **Two channels can be installed at once** (GA from `main`, beta from a branch; H-014). Test a daemon/hook change on beta (`install.ts --channel beta`) before reinstalling GA. Never let both hold (H-016).
 - **Never touch the real machine state from tests or scripts without being asked**: `~/.claude/settings.json`, `~/Library/LaunchAgents`, `~/Library/Application Support/SessionInbox`. Use `SESSION_INBOX_HOME`, `CLAUDE_CONFIG_DIR` and `--settings <temp file>`. `install.ts` and `uninstall.ts` are dry runs unless given `--yes`.
 - macOS caps Unix socket paths at 104 bytes. Use short temp homes (`mkdtempSync("/tmp/si-…")`), not the session scratchpad.
 - `claude` processes the daemon spawns for its own use must set `SESSION_INBOX_INTERNAL=1` (the hook then ignores them) and disable hooks, or they feed back into the inbox. Outbox `--resume` replies deliberately do not, because their events confirm delivery.
