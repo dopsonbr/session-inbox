@@ -97,7 +97,7 @@ export const nextSteps = (o: {
   ...(o.addToPath
     ? [
         `  - To type just ${pathLinkName(o.channel)}, add ${o.addToPath} to your PATH (zsh): ` +
-          `echo 'export PATH="${dollarHome(o.addToPath)}:$PATH"' >> ~/.zshrc`,
+          `echo 'export PATH="${dollarHome(o.addToPath)}:$PATH"' >> ~/.zshrc   (then open a new terminal)`,
       ]
     : []),
 ]

@@ -137,7 +137,9 @@ const describeInstall = async (t: StatusTarget, say: Say): Promise<void> => {
       `  inbox    ${snap.sessions.length} sessions · ${snap.counts.needsYou ?? 0} need you · ${snap.counts.review ?? 0} to review`,
     )
     // The page only loads for a request that carries the token (D-095); don't print the token.
-    say(`  url      http://127.0.0.1:${conn.httpPort}/  (open it with: session-inbox open)`)
+    say(
+      `  url      http://127.0.0.1:${conn.httpPort}/  (open it with: session-inbox open${c === "beta" ? " beta" : ""})`,
+    )
   } catch (e) {
     say(`  daemon   unreachable (${(e as Error).message})`)
   }

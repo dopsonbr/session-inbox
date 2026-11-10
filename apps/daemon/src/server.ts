@@ -268,7 +268,8 @@ export const injectToken = (html: string, token: string, title?: string) => {
 /** Served instead of the app to a request that doesn't show the token (D-095). */
 export const LOCKED_PAGE = `<!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="light dark"><title>Session Inbox</title></head>
 <body style="font:13px -apple-system,system-ui;padding:24px"><h1 style="font-size:16px">Session Inbox</h1>
-<p>This inbox is opened from the menu-bar app (or run <code>session-inbox open</code>).</p></body></html>`
+<p>This inbox is opened from the menu-bar app (or run <code>session-inbox open</code>).</p>
+<p>The page needs a key that only this Mac's user has, so a bare address shows this notice instead.</p></body></html>`
 
 const HTML_HEADERS = {
   "content-type": "text/html; charset=utf-8",
