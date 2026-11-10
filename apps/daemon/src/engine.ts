@@ -284,8 +284,11 @@ export const openUrlFor = (session: Session): string | null => {
   return null
 }
 
+/** POSIX single quotes: nothing inside is expanded; a `'` becomes `'\''` (D-086). */
+export const shellQuote = (s: string): string => `'${s.replaceAll("'", "'\\''")}'`
+
 export const resumeCommandFor = (session: Session): string =>
-  `${session.cwd ? `cd ${JSON.stringify(session.cwd)} && ` : ""}claude --resume ${session.id}`
+  `${session.cwd ? `cd ${shellQuote(session.cwd)} && ` : ""}claude --resume ${shellQuote(session.id)}`
 
 /** One timeline line for a stored event (activity hooks, plus the source events of items). */
 const timelineText = (hook: string, p: Record<string, unknown>, show: ShowPath): string => {
