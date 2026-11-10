@@ -80,6 +80,8 @@ pub enum Msg {
     Notify(NotifyPayload),
     /// Remove these delivered notifications (answered elsewhere).
     Unnotify(Vec<String>),
+    /// `bindings.openInbox` from the live-only `shortcuts` message: `""` is off.
+    OpenInboxShortcut(String),
     Other,
 }
 
@@ -93,6 +95,10 @@ pub fn parse_message(data: &str) -> Msg {
             .map(Msg::Notify)
             .unwrap_or(Msg::Other),
         Some("unnotify") => serde_json::from_value(v["ids"].clone()).map(Msg::Unnotify).unwrap_or(Msg::Other),
+        Some("shortcuts") => v["bindings"]["openInbox"]
+            .as_str()
+            .map(|s| Msg::OpenInboxShortcut(s.to_string()))
+            .unwrap_or(Msg::Other),
         _ => Msg::Other,
     }
 }
@@ -253,6 +259,16 @@ mod tests {
             }
             m => panic!("{m:?}"),
         }
+    }
+
+    #[test]
+    fn parses_shortcuts() {
+        let m = |b: &str| parse_message(&format!(r#"{{"_tag":"shortcuts","seq":1,"bindings":{b}}}"#));
+        assert_eq!(m(r#"{"jump":"Mod+K","openInbox":"Mod+Shift+I"}"#), Msg::OpenInboxShortcut("Mod+Shift+I".into()));
+        assert_eq!(m(r#"{"openInbox":""}"#), Msg::OpenInboxShortcut(String::new()));
+        assert_eq!(m(r#"{"jump":"Mod+K"}"#), Msg::Other);
+        assert_eq!(m(r#"{"openInbox":5}"#), Msg::Other);
+        assert_eq!(parse_message(r#"{"_tag":"shortcuts","seq":1}"#), Msg::Other);
     }
 
     #[test]
