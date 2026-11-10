@@ -22,8 +22,8 @@ import { defaultSettingsPath, parseChannel, type Say, UsageError } from "./commo
 import { doctor } from "./doctor.ts"
 import { install } from "./install.ts"
 import { isLabel } from "./launchd.ts"
-import { payloadOfExecutable } from "./manifest.ts"
-import { installJsonPath, readInstallRecord } from "./state.ts"
+import { payloadOfExecutable, readPayload } from "./manifest.ts"
+import { installJsonPath, readInstallRecord, writeUpdateState } from "./state.ts"
 import { defaultTargets, openInbox, setHolds, status } from "./status.ts"
 import { uninstall } from "./uninstall.ts"
 import { apply, check, describeCheck } from "./update.ts"
@@ -69,11 +69,21 @@ const homeOfSelf = (): string | null => {
   return found
 }
 
-/** For commands acting on an existing install: --home, else this binary's home, else default. */
-const resolveTarget = (homeFlag: string | undefined, channelFlag: string | undefined) => {
-  const home0 = homeFlag ?? homeOfSelf()
+/**
+ * For commands acting on an existing install: --home; else this binary's own home, but only
+ * when no --channel is given or that home is the channel asked for; else the channel's
+ * default home. So GA's CLI run with `--channel beta` acts on beta, never on itself.
+ */
+export const resolveTarget = (
+  homeFlag: string | undefined,
+  channelFlag: string | undefined,
+  ownHome: string | null = homeOfSelf(),
+) => {
+  const wanted: Channel | null = channelFlag === undefined ? null : parseChannel(channelFlag)
+  const own = ownHome && (wanted === null || readInstallRecord(ownHome)?.channel === wanted)
+  const home0 = homeFlag ?? (own ? ownHome : null)
   const rec = home0 ? readInstallRecord(home0) : null
-  const channel: Channel = channelFlag ? parseChannel(channelFlag) : (rec?.channel ?? "ga")
+  const channel: Channel = wanted ?? rec?.channel ?? "ga"
   const home = home0 ?? CHANNELS[channel].home
   return { home, channel, rec: rec ?? readInstallRecord(home) }
 }
@@ -124,29 +134,39 @@ const cmdInstall = async (args: string[]) => {
       "no payload: pass --from <dir> (an unpacked release) or run the payload's own bin/session-inbox",
     )
   const channel = parseChannel(values.channel)
-  await install(
-    {
-      payload,
-      apply: values.yes === true,
-      channel,
-      home: values.home ?? CHANNELS[channel].home,
-      settingsPath: values.settings ?? defaultSettingsPath(),
-      holds: values.holds === true,
-      launchd: !values["no-launchd"],
-      hooks: !values["no-hooks"],
-      app: !values["no-app"],
-      pathLink: !values["no-path"],
-      source: "release",
-      updating: values.updating === true,
-      label: parseLabel(values.label),
-      // Install from a mirror: flags win, else the environment install.sh was run with.
-      releasesUrl: values["releases-url"] ?? env.SESSION_INBOX_RELEASES_URL ?? null,
-      assetUrl: values["asset-url"] ?? env.SESSION_INBOX_ASSET_URL ?? null,
-      repo: values.repo ?? env.SESSION_INBOX_REPO ?? null,
-      daemonEnv: parseEnvPairs(values["daemon-env"]),
-    },
-    say,
-  )
+  const home = values.home ?? CHANNELS[channel].home
+  try {
+    await install(
+      {
+        payload,
+        apply: values.yes === true,
+        channel,
+        home,
+        settingsPath: values.settings ?? defaultSettingsPath(),
+        holds: values.holds === true,
+        launchd: !values["no-launchd"],
+        hooks: !values["no-hooks"],
+        app: !values["no-app"],
+        pathLink: !values["no-path"],
+        source: "release",
+        updating: values.updating === true,
+        label: parseLabel(values.label),
+        // Install from a mirror: flags win, else the environment install.sh was run with.
+        releasesUrl: values["releases-url"] ?? env.SESSION_INBOX_RELEASES_URL ?? null,
+        assetUrl: values["asset-url"] ?? env.SESSION_INBOX_ASSET_URL ?? null,
+        repo: values.repo ?? env.SESSION_INBOX_REPO ?? null,
+        daemonEnv: parseEnvPairs(values["daemon-env"]),
+      },
+      say,
+    )
+  } catch (e) {
+    // During an update, the updater reads this to say why (e.g. how to load the daemon by hand).
+    if (values.updating)
+      try {
+        writeUpdateState(home, readPayload(payload).version, "failed", (e as Error).message)
+      } catch {}
+    throw e
+  }
   return 0
 }
 

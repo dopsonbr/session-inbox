@@ -1,15 +1,38 @@
 import { afterAll, describe, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import {
+  closeSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs"
 import { join } from "node:path"
-import { parseSidecar, sha256File, verifySha256 } from "../src/fsx.ts"
-import { nextSteps } from "../src/install.ts"
-import { isLabel, renderPlist } from "../src/launchd.ts"
+import { CHANNELS } from "@session-inbox/contracts/paths"
+import { parseSidecar, replaceUserFile, sha256File, verifySha256 } from "../src/fsx.ts"
+import { loginItemIsFor, nextSteps } from "../src/install.ts"
+import {
+  BootstrapError,
+  isLabel,
+  type LaunchctlDeps,
+  loadAgent,
+  renderPlist,
+} from "../src/launchd.ts"
+import { resolveTarget } from "../src/main.ts"
 import { validateManifest } from "../src/manifest.ts"
 import {
   assetUrl,
   checkResult,
   fetchRelease,
   type GhRelease,
+  isStableRelease,
+  newestStable,
   releasesUrl,
   selectAssets,
   tarballName,
@@ -22,7 +45,7 @@ import {
   writeInstallRecord,
   writeUpdateState,
 } from "../src/state.ts"
-import { BETA_REFUSAL, installArgs, sourceEnv } from "../src/update.ts"
+import { BETA_REFUSAL, fdIsFile, installArgs, sourceEnv, takeLock } from "../src/update.ts"
 
 const NO_EXTRAS = {
   label: null,
@@ -356,6 +379,241 @@ describe("release selection", () => {
       publishedAt: null,
       source: "source",
       error: "offline",
+    })
+  })
+})
+
+describe("review fixes", () => {
+  const stable = (tag: string, extra: Partial<GhRelease> = {}): GhRelease => ({
+    tag_name: tag,
+    draft: false,
+    prerelease: false,
+    assets: [tarballName(tag.slice(1)), `${tarballName(tag.slice(1))}.sha256`].map((name) => ({
+      name,
+      browser_download_url: `https://dl/${name}`,
+    })),
+    ...extra,
+  })
+
+  test("only stable releases are offered: no drafts, no pre-release flag, no -suffix tag", () => {
+    expect(isStableRelease(stable("v0.3.0"))).toBe(true)
+    expect(isStableRelease(stable("v0.3.0-beta.1"))).toBe(false)
+    expect(isStableRelease(stable("v0.3.0", { prerelease: true }))).toBe(false)
+    expect(isStableRelease(stable("v0.3.0", { draft: true }))).toBe(false)
+    expect(isStableRelease(stable("nightly"))).toBe(false)
+  })
+
+  test("the newest stable release wins by semver precedence, not list order", () => {
+    const list = [
+      stable("v0.9.0"),
+      stable("v0.10.0-rc.1"),
+      stable("v0.10.0"),
+      stable("v1.0.0", { draft: true }),
+      stable("v0.11.0", { prerelease: true }),
+      { tag_name: 7 },
+    ]
+    expect(newestStable(list)?.tag_name).toBe("v0.10.0")
+    expect(newestStable([stable("v1.0.0-beta.1")])).toBeNull()
+    expect(newestStable("nope")).toBeNull()
+  })
+
+  test("a /latest that names a mislabelled pre-release falls back to the newest stable", async () => {
+    const seen: string[] = []
+    const fake = (async (url: string) => {
+      seen.push(url)
+      if (url.endsWith("/latest")) return Response.json(stable("v0.4.0-beta.1"))
+      return Response.json([stable("v0.4.0-beta.1"), stable("v0.3.1"), stable("v0.3.0")])
+    }) as unknown as typeof fetch
+    const r = await fetchRelease({ SESSION_INBOX_RELEASES_URL: "http://x/r" }, null, fake)
+    expect(r.version).toBe("0.3.1")
+    expect(seen).toEqual(["http://x/r/latest", "http://x/r?per_page=100"])
+    const none = (async (url: string) =>
+      url.endsWith("/latest")
+        ? Response.json(stable("v0.4.0", { prerelease: true }))
+        : Response.json([])) as unknown as typeof fetch
+    await expect(fetchRelease({}, null, none)).rejects.toThrow(/no published stable release/)
+    // An explicit --to of a pre-release is the user's choice.
+    const tagged = (async () => Response.json(stable("v0.4.0-beta.1"))) as unknown as typeof fetch
+    expect((await fetchRelease({}, "0.4.0-beta.1", tagged)).version).toBe("0.4.0-beta.1")
+  })
+
+  test("renderPlist keeps $& and & in a mirror URL intact", () => {
+    const url = "http://m.example/r?x=$&y=$1&z=$$"
+    const xml = renderPlist({
+      label: "l",
+      home: "/h/$&",
+      path: "/p",
+      channel: "ga",
+      settingDefaults: {},
+      env: { SESSION_INBOX_RELEASES_URL: url },
+    })
+    expect(xml).toContain("<string>http://m.example/r?x=$&amp;y=$1&amp;z=$$</string>")
+    expect(xml).toContain("<string>/h/$&amp;/bin/inboxd</string>")
+    const f = join(dir, "dollar.plist")
+    writeFileSync(f, xml)
+    expect(Bun.spawnSync(["/usr/bin/plutil", "-lint", f]).exitCode).toBe(0)
+  })
+
+  test("closing lines: the bare name only when its directory is on PATH", () => {
+    const lines = nextSteps({
+      channel: "ga",
+      app: false,
+      cli: '"/Users/me/.local/bin/session-inbox"',
+      addToPath: "/Users/me/.local/bin",
+    }).join("\n")
+    expect(lines).toContain('"/Users/me/.local/bin/session-inbox" doctor')
+    expect(lines).toContain(">> ~/.zshrc")
+    expect(nextSteps({ channel: "ga", app: false, cli: "session-inbox" }).join("\n")).not.toContain(
+      "zshrc",
+    )
+  })
+
+  test("settings are replaced atomically, keeping the mode, and written through a symlink", () => {
+    const d = join(dir, "settings-write")
+    mkdirSync(d, { recursive: true })
+    const plain = join(d, "plain.json")
+    writeFileSync(plain, "{}\n", { mode: 0o600 })
+    replaceUserFile(plain, '{"a":1}\n')
+    expect(readFileSync(plain, "utf8")).toBe('{"a":1}\n')
+    expect(statSync(plain).mode & 0o777).toBe(0o600)
+
+    const real = join(d, "dotfiles-settings.json")
+    writeFileSync(real, "{}\n", { mode: 0o640 })
+    const link = join(d, "settings.json")
+    symlinkSync(real, link)
+    replaceUserFile(link, '{"b":2}\n')
+    expect(lstatSync(link).isSymbolicLink()).toBe(true)
+    expect(readFileSync(real, "utf8")).toBe('{"b":2}\n')
+    expect(statSync(real).mode & 0o777).toBe(0o640)
+
+    const fresh = join(d, "new", "settings.json")
+    replaceUserFile(fresh, "{}\n")
+    expect(statSync(fresh).mode & 0o777).toBe(0o644)
+    expect(readdirSync(d).filter((f) => f.startsWith("."))).toEqual([]) // no temp files left
+  })
+
+  test("a failed bootstrap leaves a valid plist and says how to load it", async () => {
+    const target = join(dir, "agents", "com.example.e2e.plist")
+    const calls: string[] = []
+    let failures = Number.POSITIVE_INFINITY
+    const deps: LaunchctlDeps = {
+      launchctl: (args) => {
+        calls.push(args[0] as string)
+        if (args[0] !== "bootstrap") return args[0] === "print" ? 113 : 0
+        return failures-- > 0 ? 5 : 0
+      },
+      sleep: async () => {},
+    }
+    const plist = renderPlist({
+      label: "l",
+      home: "/h",
+      path: "/p",
+      channel: "ga",
+      settingDefaults: {},
+    })
+    const err = await loadAgent("com.example.e2e", target, plist, () => {}, deps).catch((e) => e)
+    expect(err).toBeInstanceOf(BootstrapError)
+    expect((err as Error).message).toContain(
+      `launchctl bootstrap gui/${process.getuid?.()} "${target}"`,
+    )
+    expect(calls.filter((c) => c === "bootstrap")).toHaveLength(6)
+    expect(readFileSync(target, "utf8")).toBe(plist)
+    expect(Bun.spawnSync(["/usr/bin/plutil", "-lint", target]).exitCode).toBe(0)
+    // The last, longer-waited attempt is enough.
+    failures = 5
+    calls.length = 0
+    await loadAgent("com.example.e2e", target, plist, () => {}, deps)
+    expect(calls.filter((c) => c === "bootstrap")).toHaveLength(6)
+  })
+
+  test("a lock held by a pid that isn't a session-inbox updater is stale", async () => {
+    const home = join(dir, "lock-home")
+    mkdirSync(join(home, "updates"), { recursive: true })
+    const lock = join(home, "updates", ".lock")
+    const other = Bun.spawn(["/bin/sleep", "30"])
+    // ps reports the name it was exec'd as; a copied /bin/sleep would be killed by code signing.
+    const fakeUpdater = join(dir, "session-inbox")
+    symlinkSync("/bin/sleep", fakeUpdater)
+    const busy = Bun.spawn([fakeUpdater, "30"])
+    try {
+      await Bun.sleep(100)
+      writeFileSync(lock, String(other.pid))
+      const release = takeLock(home)
+      expect(readFileSync(lock, "utf8")).toBe(String(process.pid))
+      release()
+      writeFileSync(lock, String(busy.pid))
+      expect(() => takeLock(home)).toThrow(/another update is running/)
+      writeFileSync(lock, "999999")
+      takeLock(home)()
+      expect(existsSync(lock)).toBe(false)
+    } finally {
+      other.kill()
+      busy.kill()
+    }
+  })
+
+  test("the updater can tell when its stdout is update.log itself", () => {
+    const log = join(dir, "update.log")
+    writeFileSync(log, "")
+    const fd = openSync(log, "a")
+    try {
+      expect(fdIsFile(fd, log)).toBe(true)
+      expect(fdIsFile(fd, join(dir, "blob"))).toBe(false)
+      expect(fdIsFile(fd, join(dir, "missing"))).toBe(false)
+    } finally {
+      closeSync(fd)
+    }
+  })
+
+  test("a login item is ours only when it launches the bundle being removed", () => {
+    const d = join(dir, "login")
+    mkdirSync(d, { recursive: true })
+    const bundle = join(d, "Session Inbox Beta.app")
+    const write = (name: string, exe: string) => {
+      const f = join(d, name)
+      writeFileSync(f, JSON.stringify({ Label: "x", ProgramArguments: [exe], RunAtLoad: true }))
+      Bun.spawnSync(["/usr/bin/plutil", "-convert", "xml1", f])
+      return f
+    }
+    const ours = write("a.plist", `${bundle}/Contents/MacOS/session-inbox-shell`)
+    expect(loginItemIsFor(ours, bundle)).toBe(true)
+    const elsewhere = write("b.plist", "/Applications/Session Inbox Beta.app/Contents/MacOS/x")
+    expect(loginItemIsFor(elsewhere, bundle)).toBe(false)
+    expect(loginItemIsFor(write("c.plist", `${bundle}-old/Contents/MacOS/x`), bundle)).toBe(false)
+    writeFileSync(join(d, "d.plist"), "not a plist")
+    expect(loginItemIsFor(join(d, "d.plist"), bundle)).toBe(false)
+    expect(loginItemIsFor(join(d, "missing.plist"), bundle)).toBe(false)
+  })
+
+  test("--channel picks that channel's home, never the running binary's other-channel home", () => {
+    const ga = join(dir, "ga-home")
+    writeInstallRecord(ga, {
+      version: "0.2.0",
+      build: "b",
+      channel: "ga",
+      source: "release",
+      home: ga,
+      settingsPath: "/tmp/s.json",
+      launchd: true,
+      hooks: true,
+      app: false,
+      appPath: null,
+      installedAt: "",
+      ...NO_EXTRAS,
+    })
+    expect(resolveTarget(undefined, "beta", ga)).toMatchObject({
+      home: CHANNELS.beta.home,
+      channel: "beta",
+    })
+    expect(resolveTarget(undefined, "ga", ga)).toMatchObject({ home: ga, channel: "ga" })
+    expect(resolveTarget(undefined, undefined, ga)).toMatchObject({ home: ga, channel: "ga" })
+    expect(resolveTarget("/elsewhere", "beta", ga)).toMatchObject({
+      home: "/elsewhere",
+      channel: "beta",
+    })
+    expect(resolveTarget(undefined, undefined, null)).toMatchObject({
+      home: CHANNELS.ga.home,
+      channel: "ga",
     })
   })
 })

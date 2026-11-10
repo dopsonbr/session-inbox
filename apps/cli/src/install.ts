@@ -13,8 +13,8 @@ import {
   realpathSync,
   rmSync,
   symlinkSync,
-  writeFileSync,
 } from "node:fs"
+import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { CHANNELS, type Channel } from "@session-inbox/contracts/paths"
 import { hookHome, mergeHooks, serialize } from "../../hook/src/settings.ts"
@@ -29,7 +29,7 @@ import {
   timestamp,
   unifiedDiff,
 } from "./common.ts"
-import { atomicCopyFile, replaceDir } from "./fsx.ts"
+import { atomicCopyFile, replaceDir, replaceUserFile } from "./fsx.ts"
 import { daemonPath, loadAgent, renderPlist } from "./launchd.ts"
 import { PAYLOAD_BINARIES, readPayload } from "./manifest.ts"
 import { type InstallSource, mirrorEnv, writeInstallRecord } from "./state.ts"
@@ -71,8 +71,19 @@ export const stripQuarantine = (path: string): void => {
   })
 }
 
+/** `/Users/me/.local/bin` → `$HOME/.local/bin`, for a line pasted into ~/.zshrc. */
+const dollarHome = (dir: string) =>
+  dir.startsWith(`${homedir()}/`) ? `$HOME${dir.slice(homedir().length)}` : dir
+
 /** The last lines of a release install: what happens next, in plain words. */
-export const nextSteps = (o: { channel: Channel; app: boolean; cli: string }): string[] => [
+export const nextSteps = (o: {
+  channel: Channel
+  app: boolean
+  /** How to run the CLI: the bare name only when it is on PATH, else its quoted full path. */
+  cli: string
+  /** The link's directory when it isn't on PATH: one line on adding it (text only). */
+  addToPath?: string | null
+}): string[] => [
   "",
   "Session Inbox is installed. What happens next:",
   ...(o.app
@@ -83,7 +94,23 @@ export const nextSteps = (o: { channel: Channel; app: boolean; cli: string }): s
   "  - Restart any Claude Code sessions that were already open, so they pick up the hooks.",
   `  - Check the setup any time with: ${o.cli} doctor`,
   `  - To remove it: ${o.cli} uninstall --yes   (add --purge to delete the data too)`,
+  ...(o.addToPath
+    ? [
+        `  - To type just ${pathLinkName(o.channel)}, add ${o.addToPath} to your PATH (zsh): ` +
+          `echo 'export PATH="${dollarHome(o.addToPath)}:$PATH"' >> ~/.zshrc`,
+      ]
+    : []),
 ]
+
+/** Is `dir` one of the directories on $PATH (compared by realpath)? */
+export const onPath = (dir: string, pathVar = process.env.PATH ?? ""): boolean =>
+  pathVar.split(":").some((p) => {
+    try {
+      return p !== "" && realpathSync(p) === realpathSync(dir)
+    } catch {
+      return false
+    }
+  })
 
 /** Does the settings file hold another channel's hooks? Then this one only observes (H-016). */
 export const otherChannelHooked = (settingsText: string | null, path: string, channel: Channel) => {
@@ -101,9 +128,53 @@ export const otherChannelHooked = (settingsText: string | null, path: string, ch
   )
 }
 
-const appRunning = (title: string) =>
-  Bun.spawnSync(["/usr/bin/pgrep", "-f", `${title}.app/Contents/MacOS/`], { stdout: "ignore" })
-    .exitCode === 0
+const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+/** `pgrep`/`pkill -f` pattern: `<Title>.app` anywhere, or one exact bundle path (`/….app`). */
+const appPattern = (app: string) =>
+  `${escapeRegex(app.endsWith(".app") ? app : `${app}.app`)}/Contents/MacOS/`
+
+/** Is `<Title>.app` (or the bundle at that exact path) running? */
+export const appRunning = (app: string) =>
+  Bun.spawnSync(["/usr/bin/pgrep", "-f", appPattern(app)], { stdout: "ignore" }).exitCode === 0
+
+/**
+ * Quit the menu-bar app: ask it, then end the process, because the app keeps running on a
+ * plain quit request (it lives in the menu bar). `app` is a title or an exact bundle path;
+ * call it only when `appRunning(app)`, since asking a stopped app to quit can launch it.
+ */
+export const quitApp = (app: string): void => {
+  Bun.spawnSync(["/usr/bin/osascript", "-e", `quit app "${app}"`], { stderr: "ignore" })
+  Bun.spawnSync(["/usr/bin/pkill", "-f", appPattern(app)], { stderr: "ignore" })
+  Bun.sleepSync(500)
+}
+
+/** The login item tauri-plugin-autostart writes: `~/Library/LaunchAgents/<Title>.plist`. */
+export const loginItemPath = (title: string) =>
+  join(homedir(), "Library", "LaunchAgents", `${title}.plist`)
+
+/**
+ * Is this login-item plist the one for the app bundle at `bundle`? Only when its
+ * ProgramArguments run something inside that bundle; anything unreadable is not ours.
+ */
+export const loginItemIsFor = (plistFile: string, bundle: string): boolean => {
+  if (!existsSync(plistFile)) return false
+  const p = Bun.spawnSync(["/usr/bin/plutil", "-convert", "json", "-o", "-", plistFile], {
+    stderr: "ignore",
+  })
+  if (p.exitCode !== 0) return false
+  let args: unknown
+  try {
+    args = (JSON.parse(p.stdout.toString()) as { ProgramArguments?: unknown }).ProgramArguments
+  } catch {
+    return false
+  }
+  if (!Array.isArray(args) || typeof args[0] !== "string") return false
+  const prefixes = new Set([`${bundle.replace(/\/+$/, "")}/`])
+  try {
+    prefixes.add(`${realpathSync(bundle)}/`)
+  } catch {}
+  return [...prefixes].some((pre) => (args as string[])[0]?.startsWith(pre))
+}
 
 export const install = async (o: InstallOptions, say: Say): Promise<void> => {
   const { title } = CHANNELS[o.channel]
@@ -128,6 +199,15 @@ export const install = async (o: InstallOptions, say: Say): Promise<void> => {
 
   const settingsBefore = existsSync(o.settingsPath) ? readFileSync(o.settingsPath, "utf8") : null
   const currentSettings = parseSettings(settingsBefore, o.settingsPath)
+  // Merged now, so a settings file we can't merge into stops the install before anything is copied.
+  let settingsAfter: string | null = null
+  if (o.hooks) {
+    try {
+      settingsAfter = serialize(mergeHooks(currentSettings, o.home, otherHomes(o.channel)))
+    } catch (e) {
+      throw new Error(`${o.settingsPath}: ${(e as Error).message}`)
+    }
+  }
   const observer = otherChannelHooked(settingsBefore, o.settingsPath, o.channel) && !o.holds
   // Observers still notify, so both apps can be compared (user's call, H-016).
   const settingDefaults = observer ? { "holds.enabled": false } : {}
@@ -183,8 +263,8 @@ export const install = async (o: InstallOptions, say: Say): Promise<void> => {
   }
 
   // 3. hooks
-  if (o.hooks) {
-    const after = serialize(mergeHooks(currentSettings, o.home, otherHomes(o.channel)))
+  if (o.hooks && settingsAfter !== null) {
+    const after = settingsAfter
     const diff = unifiedDiff(settingsBefore ?? "", after, o.settingsPath)
     if (diff === "") say(`${o.settingsPath}: hooks already installed; no change`)
     else if (!apply) say(`${o.settingsPath} would change:\n${diff}`)
@@ -195,7 +275,7 @@ export const install = async (o: InstallOptions, say: Say): Promise<void> => {
         copyFileSync(o.settingsPath, bak)
         say(`backed up to ${bak}`)
       }
-      writeFileSync(o.settingsPath, after)
+      replaceUserFile(o.settingsPath, after)
       say(`updated ${o.settingsPath}`)
     }
   }
@@ -210,13 +290,7 @@ export const install = async (o: InstallOptions, say: Say): Promise<void> => {
     else if (!apply) say(`would install ${dest} (quitting a running copy first)`)
     else {
       const wasRunning = appRunning(title)
-      if (wasRunning) {
-        Bun.spawnSync(["/usr/bin/osascript", "-e", `quit app "${title}"`], { stderr: "ignore" })
-        Bun.spawnSync(["/usr/bin/pkill", "-f", `${title}.app/Contents/MacOS/`], {
-          stderr: "ignore",
-        })
-        await Bun.sleep(500)
-      }
+      if (wasRunning) quitApp(title)
       replaceDir(bundle, dest)
       stripQuarantine(dest)
       installedApp = dest
@@ -229,8 +303,8 @@ export const install = async (o: InstallOptions, say: Say): Promise<void> => {
   }
 
   // 5. ~/.local/bin/session-inbox → <home>/bin/session-inbox, for the default home only
-  const linked = o.pathLink && !customLabel && o.home === CHANNELS[o.channel].home
-  if (linked) linkOnPath(o, apply, say)
+  const linkWanted = o.pathLink && !customLabel && o.home === CHANNELS[o.channel].home
+  const link = linkWanted ? linkOnPath(o, apply, say) : null
 
   // 6. what was installed, so `update` can redo it the same way
   if (!apply || !manifest) say(`would write ${join(o.home, "install.json")}`)
@@ -254,12 +328,24 @@ export const install = async (o: InstallOptions, say: Say): Promise<void> => {
     say(`wrote ${join(o.home, "install.json")}`)
   }
   if (apply && o.source === "release" && !o.updating) {
-    const cli = linked ? pathLinkName(o.channel) : `"${join(o.home, "bin", "session-inbox")}"`
-    for (const line of nextSteps({ channel: o.channel, app: installedApp !== null, cli })) say(line)
+    // A fresh Mac's zsh has no ~/.local/bin on PATH: never print a command the shell can't find.
+    const linkDirOnPath = link !== null && onPath(dirname(link))
+    const cli = linkDirOnPath
+      ? pathLinkName(o.channel)
+      : `"${link ?? join(o.home, "bin", "session-inbox")}"`
+    const addToPath = link !== null && !linkDirOnPath ? dirname(link) : null
+    for (const line of nextSteps({
+      channel: o.channel,
+      app: installedApp !== null,
+      cli,
+      addToPath,
+    }))
+      say(line)
   }
 }
 
-const linkOnPath = (o: InstallOptions, apply: boolean, say: Say) => {
+/** The link's path when it points at this home's CLI afterwards, else null. */
+const linkOnPath = (o: InstallOptions, apply: boolean, say: Say): string | null => {
   const dir = localBin()
   const link = join(dir, pathLinkName(o.channel))
   const target = join(o.home, "bin", "session-inbox")
@@ -268,7 +354,7 @@ const linkOnPath = (o: InstallOptions, apply: boolean, say: Say) => {
     const st = lstatSync(link)
     if (!st.isSymbolicLink()) {
       say(`${link} exists and isn't our symlink; leaving it alone`)
-      return
+      return null
     }
     existing = readlinkSync(link)
   } catch {}
@@ -282,18 +368,10 @@ const linkOnPath = (o: InstallOptions, apply: boolean, say: Say) => {
       say(`linked ${link} -> ${target}`)
     } catch (e) {
       say(`could not link ${link} (${(e as Error).message}); run ${target} directly`)
-      return
+      return null
     }
   }
-  const onPath = (process.env.PATH ?? "").split(":").some((p) => {
-    try {
-      return p !== "" && realpathSync(p) === realpathSync(dir)
-    } catch {
-      return false
-    }
-  })
-  if (!onPath)
-    say(
-      `note: ${dir} is not on your PATH; add it (e.g. in ~/.zshrc) to run ${pathLinkName(o.channel)}`,
-    )
+  if (!onPath(dir))
+    say(`note: ${dir} is not on your PATH, so ${pathLinkName(o.channel)} alone won't be found`)
+  return link
 }

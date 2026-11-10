@@ -54,9 +54,16 @@ export const buildHooks = (home: string): Record<string, HookGroup[]> =>
     ]),
   )
 
-/** True when `command` runs an executable named inbox-hook (quoted or not). */
+/**
+ * True when `command`'s executable (its first token, quoted or not) is exactly
+ * `<some home>/bin/inbox-hook` and an event name follows. `node /opt/x/inbox-hook` is not ours.
+ */
 export const isOurs = (command: unknown): boolean =>
-  typeof command === "string" && /^\s*"?[^"]*\/inbox-hook"?(\s|$)/.test(command)
+  typeof command === "string" &&
+  /^\s*(?:"[^"]*\/bin\/inbox-hook"|[^\s"]*\/bin\/inbox-hook)\s+[A-Za-z]+(\s|$)/.test(command)
+
+/** A settings file whose hooks we can't merge into without losing what's there. */
+export class SettingsShapeError extends Error {}
 
 /** The Session Inbox home a hook command points at (`<home>/bin/inbox-hook`), if any. */
 export const hookHome = (command: unknown): string | null => {
@@ -112,8 +119,17 @@ export const mergeHooks = (
   const pruneOurs = pruneMine(mine)
   const isOurs = mine
   const settings = clone(input)
+  const raw: unknown = settings.hooks
+  if (raw !== undefined && (raw === null || typeof raw !== "object" || Array.isArray(raw)))
+    throw new SettingsShapeError(`"hooks" is not an object; refusing to touch the file`)
   const hooks: Record<string, HookGroup[]> = { ...(settings.hooks ?? {}) }
   const wanted = buildHooks(home)
+  // Replacing a value we don't understand would silently drop the user's hooks.
+  for (const event of Object.keys(wanted))
+    if (event in hooks && !Array.isArray(hooks[event]))
+      throw new SettingsShapeError(
+        `"hooks.${event}" is not a list; refusing to touch the file (fix or remove that key)`,
+      )
 
   // Ours under an event we no longer register: remove.
   for (const [event, groups] of Object.entries(hooks)) {

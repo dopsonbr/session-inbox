@@ -18,7 +18,7 @@ Scope: sessions on **this Mac** only (the Claude desktop app's Code tab and the 
 You need an Apple silicon Mac and the Claude desktop app or the `claude` CLI. The release is prebuilt (about 125 MB), so no Bun or Rust is needed.
 
 <!-- REMOVE AFTER FIRST RELEASE -->
-> **The first release hasn't been published yet**, so the one-liner below currently answers "no published release found". The repository owner publishes it with `bun scripts/release.ts --publish` from a clean checkout of `main` (about a minute, needs `gh`), or by running the **Release** workflow from the Actions tab. Until then, install from a tarball or from source (see the docs' [Install page](https://dopsonbr.github.io/session-inbox/install.html)).
+> **The first release hasn't been published yet**, so the one-liner below currently answers "no release has been published yet". The repository owner publishes it with `bun scripts/release.ts --publish` from a clean checkout of `main` (about a minute, needs `gh`), or by running the **Release** workflow from the Actions tab. Until then, install from a tarball or from source (see the docs' [Install page](https://dopsonbr.github.io/session-inbox/install.html)).
 <!-- /REMOVE AFTER FIRST RELEASE -->
 
 ```bash

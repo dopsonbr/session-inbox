@@ -10,8 +10,10 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
+  realpathSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs"
 import { basename, dirname, join } from "node:path"
@@ -27,11 +29,27 @@ export const atomicWriteFile = (path: string, data: string, mode = 0o644): void 
   const tmp = tmpBeside(path, "tmp")
   try {
     writeFileSync(tmp, data, { mode })
+    chmodSync(tmp, mode) // writeFileSync's mode is masked by the umask
     renameSync(tmp, path)
   } catch (e) {
     rmSync(tmp, { force: true })
     throw e
   }
+}
+
+/**
+ * Replace a user's file (`~/.claude/settings.json`) atomically: a temp file beside it, then a
+ * rename, keeping its mode. A symlink (dotfile setups) is written through to its target, so
+ * the link survives. A new file gets 0644.
+ */
+export const replaceUserFile = (path: string, data: string): void => {
+  let target = path
+  let mode = 0o644
+  if (existsSync(path)) {
+    target = realpathSync(path)
+    mode = statSync(target).mode & 0o7777
+  }
+  atomicWriteFile(target, data, mode)
 }
 
 export const atomicCopyFile = (src: string, dest: string, mode = 0o755): void => {

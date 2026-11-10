@@ -5,7 +5,8 @@
  *   <out>/session-inbox-<v>-macos-arm64.tar.gz      top-level dir session-inbox-<v>/
  *   <out>/session-inbox-<v>-macos-arm64.tar.gz.sha256   lowercase hex digest + newline
  * --skip-app leaves out the menu-bar app (fast; for tests). --version overrides VERSION
- * (tests build a "newer" fake release). --publish uploads with `gh release create`.
+ * (tests build a "newer" fake release). --publish first checks the checkout matches origin
+ * (H-042), then uploads with `gh release create --target <that commit>`.
  */
 import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
@@ -97,19 +98,43 @@ export const buildRelease = async (o: {
   return { payload, tarball, sidecar, version: o.version }
 }
 
-const sh = (...cmd: string[]) => {
-  const p = Bun.spawnSync(cmd, { cwd: root, stdout: "pipe", stderr: "pipe" })
-  return { code: p.exitCode, out: p.stdout.toString().trim() }
+const git = (cwd: string, ...args: string[]) => {
+  const p = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" })
+  return { code: p.exitCode, out: p.stdout.toString().trim(), err: p.stderr.toString().trim() }
 }
 
-const publish = (r: ReleaseResult) => {
-  const tag = `v${r.version}`
-  if (sh("git", "status", "--porcelain").out !== "")
-    throw new Error("the working tree is dirty; commit first")
-  if (sh("git", "rev-parse", "-q", "--verify", `refs/tags/${tag}`).code === 0)
+/**
+ * Checked BEFORE building, so a release is built from, and tagged at, exactly what origin has:
+ * a clean tree, HEAD equal to origin's default branch after a fetch, and a tag that exists
+ * neither here nor on origin. Returns the commit to tag. Throws with what to do otherwise.
+ */
+export const publishPreconditions = (cwd: string, version: string): { sha: string } => {
+  const tag = `v${version}`
+  if (git(cwd, "status", "--porcelain").out !== "")
+    throw new Error("the working tree is dirty; commit or stash first")
+  const f = git(cwd, "fetch", "--quiet", "--tags", "origin")
+  if (f.code !== 0) throw new Error(`git fetch origin failed: ${f.err}`)
+  const head = git(cwd, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
+  const branch = head.code === 0 && head.out !== "" ? head.out : "origin/main"
+  const sha = git(cwd, "rev-parse", "HEAD").out
+  const remote = git(cwd, "rev-parse", "--verify", "--quiet", `${branch}^{commit}`)
+  if (remote.code !== 0) throw new Error(`can't find ${branch}; is origin set up?`)
+  if (sha !== remote.out)
+    throw new Error(
+      `HEAD (${sha.slice(0, 9)}) is not ${branch} (${remote.out.slice(0, 9)}); ` +
+        `push or pull first, so the release is built from and tagged at what origin has`,
+    )
+  if (git(cwd, "rev-parse", "-q", "--verify", `refs/tags/${tag}`).code === 0)
     throw new Error(`tag ${tag} already exists`)
-  if (sh("git", "ls-remote", "--exit-code", "--tags", "origin", tag).code === 0)
+  if (git(cwd, "ls-remote", "--exit-code", "--tags", "origin", `refs/tags/${tag}`).code === 0)
     throw new Error(`tag ${tag} already exists on origin`)
+  return { sha }
+}
+
+const publish = (r: ReleaseResult, sha: string) => {
+  const tag = `v${r.version}`
+  if (git(root, "rev-parse", "HEAD").out !== sha || git(root, "status", "--porcelain").out !== "")
+    throw new Error("the checkout changed during the build; not publishing")
   const p = Bun.spawnSync(
     [
       "gh",
@@ -119,6 +144,8 @@ const publish = (r: ReleaseResult) => {
       r.tarball,
       r.sidecar,
       join(root, "install.sh"),
+      "--target",
+      sha,
       "--title",
       `Session Inbox ${tag}`,
       "--generate-notes",
@@ -137,13 +164,15 @@ if (import.meta.main) {
       publish: { type: "boolean", default: false },
     },
   })
+  const version = values.version ?? fileVersion()
+  const target = values.publish ? publishPreconditions(root, version) : null
   const r = await buildRelease({
     out: values.out ?? join(root, "dist", "release"),
-    version: values.version ?? fileVersion(),
+    version,
     skipApp: values["skip-app"] === true,
   })
   console.log(`payload  ${r.payload}`)
   console.log(`tarball  ${r.tarball}`)
   console.log(`sha256   ${r.sidecar}`)
-  if (values.publish) publish(r)
+  if (target) publish(r, target.sha)
 }

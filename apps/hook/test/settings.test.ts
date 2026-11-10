@@ -99,6 +99,35 @@ describe("settings merge", () => {
     expect(isOurs("/x/bin/inbox-hook Stop")).toBe(true)
     expect(isOurs("/x/bin/other-inbox-hook Stop")).toBe(false)
     expect(isOurs("echo inbox-hook")).toBe(false)
+    // The executable must be <home>/bin/inbox-hook itself, followed by an event name.
+    expect(isOurs("node /opt/x/inbox-hook")).toBe(false)
+    expect(isOurs("node /opt/x/bin/inbox-hook Stop")).toBe(false)
+    expect(isOurs("/opt/x/inbox-hook Stop")).toBe(false)
+    expect(isOurs("/x/bin/inbox-hook")).toBe(false)
+    expect(isOurs(`"${HOME}/bin/inbox-hook"`)).toBe(false)
+    expect(isOurs(`  "${HOME}/bin/inbox-hook"   PermissionRequest`)).toBe(true)
+  })
+
+  test("a user's look-alike hook is left alone by merge and unmerge", () => {
+    const user: Settings = {
+      hooks: {
+        Stop: [{ hooks: [{ type: "command", command: "node /opt/x/inbox-hook", timeout: 5 }] }],
+      },
+    }
+    const merged = mergeHooks(user, HOME)
+    expect(merged.hooks?.Stop?.[0]).toEqual(user.hooks?.Stop?.[0])
+    expect(merged.hooks?.Stop).toHaveLength(2)
+    expect(unmergeHooks(merged)).toEqual(user)
+  })
+
+  test("a hooks.<Event> that isn't a list is refused, not replaced", () => {
+    const odd = { hooks: { Stop: { command: "say done" }, PreToolUse: [] } } as unknown as Settings
+    expect(() => mergeHooks(odd, HOME)).toThrow(/hooks\.Stop.*not a list/)
+    expect(() => mergeHooks({ hooks: "x" } as unknown as Settings, HOME)).toThrow(/not an object/)
+    // An unknown event's odd value is ours to ignore, and unmerge leaves it be.
+    const other = { hooks: { Custom: "x" } } as unknown as Settings
+    expect(mergeHooks(other, HOME).hooks?.Custom).toBe("x" as never)
+    expect(unmergeHooks(mergeHooks(other, HOME))).toEqual(other)
   })
 
   test("hookHome reads the home out of quoted and bare commands", () => {
