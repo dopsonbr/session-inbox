@@ -11,6 +11,7 @@ import {
   type TreeNode,
   visibleTreeNodes,
 } from "../selectors.ts"
+import { SettingsMessage } from "../settings.ts"
 import { dot, Icon, kbd, type Tone } from "./parts.ts"
 
 type H = HtmlBuilder<Message>
@@ -51,6 +52,20 @@ export const headerView = (model: Model, h: H): Html => {
           h.OnClick(Message.ClickedJumpField()),
         ],
         [Icon.search(h), h.span([h.Class("flex-1")], ["Jump to session"]), kbd(h, "⌘K")],
+      ),
+      h.button(
+        [
+          h.Type("button"),
+          h.Class("btn"),
+          h.DataAttribute("variant", "ghost"),
+          h.DataAttribute("size", "icon"),
+          h.AriaLabel("Settings"),
+          h.Title("Settings (⌘,)"),
+          h.AriaKeyshortcuts("Meta+,"),
+          h.AriaHasPopup("dialog"),
+          h.OnClick(Message.GotSettingsMessage({ message: SettingsMessage.RequestedOpen() })),
+        ],
+        [Icon.gear(h, "size-4")],
       ),
     ],
   )

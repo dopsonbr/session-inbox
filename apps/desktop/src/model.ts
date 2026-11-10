@@ -2,6 +2,7 @@ import { Combobox, Dialog, Menu, RadioGroup } from "@foldkit/ui"
 import { ItemDetail, Snapshot } from "@session-inbox/contracts"
 import { Schema } from "effect"
 import { defineTaggedUnion } from "foldkit/schema"
+import { SettingsModel } from "./settings.ts"
 import { Toast } from "./toast.ts"
 
 // MODEL
@@ -93,5 +94,6 @@ export const Model = Schema.Struct({
   jumpCombobox: Combobox.Model,
   snoozeMenu: Menu.Model,
   toasts: Toast.Model,
+  settings: SettingsModel,
 })
 export type Model = typeof Model.Type
