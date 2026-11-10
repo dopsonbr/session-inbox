@@ -89,8 +89,12 @@ const findClosing = (scan: Scan, delim: string, from: number, end: number): numb
   let at = findFrom(scan, delim, from)
   while (at !== -1 && at < end && attempts < MAX_CLOSER_ATTEMPTS) {
     attempts += 1
+    // `**bold *italic***`: a double closes on the last two of a run, leaving the inner one.
+    if (!isSingle) {
+      while (text[at + 2] === delim[0] && at + 2 < end) at += 1
+    }
     const before = text[at - 1]
-    const after = text[at + delim.length]
+    const after = at + delim.length < end ? text[at + delim.length] : undefined
     const ok =
       at > from &&
       !isSpace(text[from]) &&
@@ -133,11 +137,12 @@ const parseRange = (
       while (text[i + run] === "`") run++
       const fence = "`".repeat(run)
       let close = findFrom(scan, fence, i + run)
-      // The closing run must be exactly as long.
+      // The closing run must be exactly as long (bounded, like emphasis closers).
+      let skips = 0
       while (close !== -1 && close < end && text[close + run] === "`") {
         let skip = close
         while (text[skip] === "`") skip++
-        close = findFrom(scan, fence, skip)
+        close = ++skips > MAX_CLOSER_ATTEMPTS ? -1 : findFrom(scan, fence, skip)
       }
       if (close !== -1 && close + run <= end) {
         flush(i)

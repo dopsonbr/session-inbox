@@ -474,7 +474,7 @@ const setupLink = (model: Model, h: H): Html =>
         ],
       )
 
-const body = (model: Model, h: H): Html => {
+export const settingsBody = (model: Model, h: H): Html => {
   const load = model.settings.load
   if (load._tag === "Loaded") {
     const loaded = load.loaded
@@ -563,7 +563,7 @@ export const settingsDialogView = (model: Model, h: H): Html =>
                         ),
                       ],
                     ),
-                    h.div([h.Class("overflow-y-auto px-5 py-4")], [body(model, h)]),
+                    h.div([h.Class("overflow-y-auto px-5 py-4")], [settingsBody(model, h)]),
                   ],
                 ),
               ]

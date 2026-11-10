@@ -149,11 +149,25 @@ export const FieldStatus = defineTaggedUnion({
 })
 export type FieldStatus = typeof FieldStatus.Type
 
+/**
+ * UserSettings plus whatever else the daemon reported (U-036). Message constructors validate
+ * against their schema and drop unknown keys, so the plain contract would lose a newer key
+ * (`storage.retentionDays`) between the HTTP client and the pane.
+ */
+export const OpenSettings = Schema.StructWithRest(UserSettings, [
+  Schema.Record(Schema.String, Schema.Unknown),
+])
+export const OpenSettingsResponse = Schema.Struct({
+  ...SettingsResponse.fields,
+  settings: OpenSettings,
+  defaults: OpenSettings,
+})
+
 export const Loaded = Schema.Struct({
   /** The daemon's last answer. */
-  saved: SettingsResponse,
+  saved: OpenSettingsResponse,
   /** What the controls show: `saved`, plus changes still in flight. */
-  shown: UserSettings,
+  shown: OpenSettings,
 })
 export type Loaded = typeof Loaded.Type
 
@@ -190,7 +204,7 @@ export const SettingsMessage = defineMessageUnion({
   /** Closed from outside the dialog (e.g. its "Setup check" link navigated away). */
   RequestedClose: {},
   GotDialogMessage: { message: Dialog.Message },
-  SucceededFetchSettings: { response: SettingsResponse },
+  SucceededFetchSettings: { response: OpenSettingsResponse },
   FailedFetchSettings: { error: Schema.String },
   ToggledSetting: { key: Schema.String, value: Schema.Boolean },
   ToggledTool: { tool: Schema.String, isChecked: Schema.Boolean },
@@ -199,7 +213,7 @@ export const SettingsMessage = defineMessageUnion({
   RemovedListEntry: { key: Schema.String, value: Schema.String },
   ClickedReset: { key: Schema.String },
   ClickedResetAll: {},
-  SucceededSaveSettings: { key: Schema.String, response: SettingsResponse },
+  SucceededSaveSettings: { key: Schema.String, response: OpenSettingsResponse },
   FailedSaveSettings: { key: Schema.String, error: Schema.String },
   ClickedUnmute: { projectId: Schema.String },
   CompletedUnmute: { projectId: Schema.String, error: Schema.NullOr(Schema.String) },

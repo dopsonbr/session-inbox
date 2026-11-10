@@ -171,7 +171,7 @@ const detailHeader = (model: Model, detail: ItemDetail, h: H): Html => {
 
 // CONTEXT STRIP
 
-const contextStrip = (model: Model, detail: ItemDetail, h: H): Html => {
+export const contextStrip = (model: Model, detail: ItemDetail, h: H): Html => {
   const { session } = detail
   const cell = (label: string, value: Html | string, title: string, mono = false) =>
     h.div(
@@ -215,7 +215,7 @@ const contextStrip = (model: Model, detail: ItemDetail, h: H): Html => {
 
 // CLAUDE'S LAST MESSAGE (C-023, U-033)
 
-const lastMessageView = (model: Model, detail: ItemDetail, h: H): Html => {
+export const lastMessageView = (model: Model, detail: ItemDetail, h: H): Html => {
   const message = detail.lastMessage
   if (message === undefined || message.trim() === "") {
     return h.empty
@@ -601,7 +601,7 @@ const replyUnavailableView = (model: Model, reason: string, h: H): Html => {
   )
 }
 
-const replyForm = (model: Model, detail: ItemDetail, form: Form, h: H): Html => {
+export const replyForm = (model: Model, detail: ItemDetail, form: Form, h: H): Html => {
   if (detail.replyUnavailable !== undefined) {
     return replyUnavailableView(model, detail.replyUnavailable, h)
   }
