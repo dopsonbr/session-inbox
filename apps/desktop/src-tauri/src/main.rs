@@ -221,9 +221,11 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let status = MenuItem::with_id(&h, "status", "Daemon: checking…", false, None::<&str>)?;
     let about = MenuItem::with_id(&h, "version", format!("{} {version}", ch.product_name), false, None::<&str>)?;
     let updates = MenuItem::with_id(&h, "updates", "Check for Updates…", true, None::<&str>)?;
+    let settings = MenuItem::with_id(&h, "settings", "Settings…", true, Some("CmdOrCtrl+,"))?;
+    let setup = MenuItem::with_id(&h, "setup", "Setup Check…", true, None::<&str>)?;
     let quit = MenuItem::with_id(&h, "quit", format!("Quit {}", ch.product_name), true, Some("CmdOrCtrl+Q"))?;
     let sep = || PredefinedMenuItem::separator(&h);
-    let menu = Menu::with_items(&h, &[&open, &pause, &sep()?, &status, &about, &updates, &sep()?, &quit])?;
+    let menu = Menu::with_items(&h, &[&open, &pause, &sep()?, &settings, &setup, &updates, &sep()?, &status, &about, &sep()?, &quit])?;
     app.manage(Shell {
         paused: AtomicBool::new(false),
         status,
@@ -248,6 +250,8 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             "open" => show_main(app, None),
             "notif-settings" => open_notification_settings(),
             "updates" => show_main(app, Some("#/update".into())),
+            "settings" => show_main(app, Some("#/settings".into())),
+            "setup" => show_main(app, Some("#/setup".into())),
             "pause" => app.state::<Shell>().paused.store(pause.is_checked().unwrap_or(false), Ordering::Relaxed),
             "quit" => app.exit(0),
             _ => {}

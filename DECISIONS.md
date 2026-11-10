@@ -204,6 +204,7 @@ entries with your section's prefix (G, C, D, H, U, S, P) and the next free numbe
 - U-038 — Popover: when nothing needs you, up to 5 Ready to review rows (title + summary) under a quiet label; a one-line Setup row only when `attention > 0`.
 - U-039 — Times: `formatAgo` ("just now", "2 min ago", "3 h ago", "2 d ago") wherever a phrase reads; `formatAge` stays terse ("<1m", "2m") for "waiting 2m" and popover ages.
 - U-040 — Layout fixes: the detail and Setup columns' children don't flex-shrink (that clipped the context strip); the strip is 4 across above a 640 px pane, 2×2 below. Unnamed subagents read "agent" (`Agent` has no type field). The header version never wraps and drops the build hash under 900 px; "What's new" links `notesUrl` while `justUpdatedFrom` is set.
+- U-041 — `#/settings` opens the Settings dialog over the inbox and puts the hash back, at boot and while running (not in the popover). Why: the tray menu needs a way to open Settings without IPC (S-002), and the docs screenshots are taken by a script that can only navigate.
 
 ## Shell
 
@@ -227,6 +228,7 @@ entries with your section's prefix (G, C, D, H, U, S, P) and the next free numbe
 - S-018 — `Info.plist` (`NSUserNotificationAlertStyle=alert`) is dropped. With the key in the beta bundle, usernoted still recorded `alertStyle: Banner` for the UN app, so UN ignores it. Users who want persistent Allow/Deny alerts pick "Alerts" in System Settings.
 - S-019 — Startup hardening: a taken global shortcut, failed login-item registration or missing app-data dir are logged and launch continues. Without an `.app` bundle (`cargo run`), notifications are skipped and status is `unknown`, because `UNUserNotificationCenter` raises there. Exec'ing `Contents/MacOS/session-inbox-shell` directly and `open -n -a … --env` both give the bundle identity. The tray adds "<Product> <version>" (disabled) and "Check for Updates…" (main window at `#/update`).
 - S-020 — The app asks launchd to start an offline daemon with `launchctl kickstart`, without `-k`. Found on a real reinstall: the app noticed the daemon was away for a moment, and its `kickstart -k` killed the daemon the installer had just started (launchd logged a second run, exit 130). Without `-k` a running job is left alone.
+- S-021 — The tray menu gains "Settings…" (`#/settings`) and "Setup Check…" (`#/setup`), grouped with "Check for Updates…"; status and version lines move below them. Why: the three things a person looks for in a menu-bar app's menu were only reachable from inside the window.
 
 ## Phase 0 spike findings
 

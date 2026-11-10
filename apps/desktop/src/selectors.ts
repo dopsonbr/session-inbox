@@ -178,12 +178,14 @@ const SETUP_ITEM_ID = "setup"
 
 /**
  * `#/setup` and `#/item/setup` (what a click on the test notification opens) are the Setup
- * panel; `#/update` is the tray's "Check for Updates…"; `#/item/<id>` selects (U-034).
+ * panel; `#/update` is the tray's "Check for Updates…"; `#/settings` opens the Settings
+ * dialog (the tray's "Settings…", U-041); `#/item/<id>` selects (U-034).
  */
 export type HashRoute =
   | Readonly<{ _tag: "item"; itemId: string }>
   | Readonly<{ _tag: "setup" }>
   | Readonly<{ _tag: "update" }>
+  | Readonly<{ _tag: "settings" }>
   | Readonly<{ _tag: "inbox" }>
 
 export const routeFromHash = (hash: string): HashRoute => {
@@ -192,6 +194,9 @@ export const routeFromHash = (hash: string): HashRoute => {
   }
   if (/^#\/update\/?$/.test(hash)) {
     return { _tag: "update" }
+  }
+  if (/^#\/settings\/?$/.test(hash)) {
+    return { _tag: "settings" }
   }
   const match = /^#\/item\/([^/?#]+)/.exec(hash)
   if (match?.[1] === undefined) {

@@ -115,6 +115,31 @@ describe("setup check: routes", () => {
     expect(names(ret)).toEqual(["CheckForUpdates", "SetHash"])
   })
 
+  test("#/settings opens the Settings dialog at boot and while running, and puts the hash back", () => {
+    const boot = init({
+      view: "full",
+      now: NOW,
+      maybeInitialItemId: Option.none(),
+      initialRoute: "settings",
+    })
+    expect(boot.model.route).toBe("inbox")
+    expect(boot.model.settings.dialog.isOpen).toBe(true)
+    expect(names(boot)).toContain("SetHash")
+    const onSetup = update(fresh(), Message.ChangedHash({ hash: "#/setup" })).model
+    const ret = update(onSetup, Message.ChangedHash({ hash: "#/settings" }))
+    expect(ret.model.route).toBe("inbox")
+    expect(ret.model.settings.dialog.isOpen).toBe(true)
+    expect(names(ret)).toContain("SetHash")
+    // The popover has no Settings.
+    const compact = init({
+      view: "compact",
+      now: NOW,
+      maybeInitialItemId: Option.none(),
+      initialRoute: "settings",
+    })
+    expect(compact.model.settings.dialog.isOpen).toBe(false)
+  })
+
   test("the Settings footer link closes Settings on the way to Setup", () => {
     const opened = update(
       fresh(),

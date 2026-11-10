@@ -78,7 +78,7 @@ export const Flags = Schema.Struct({
   now: Schema.Number,
   maybeInitialItemId: Schema.Option(Schema.String),
   /** From the boot hash: `#/setup` opens Setup, `#/update` checks for updates (U-034). */
-  initialRoute: Schema.optional(Schema.Literals(["inbox", "setup", "update"])),
+  initialRoute: Schema.optional(Schema.Literals(["inbox", "setup", "update", "settings"])),
 })
 export type Flags = typeof Flags.Type
 
@@ -131,14 +131,21 @@ export const initialModel = (flags: Flags): Model => ({
 })
 
 export const init = (flags: Flags): UpdateReturn => {
-  const model = initialModel(flags)
+  // `#/settings` at boot: the inbox with the Settings dialog open (U-041).
+  const opened =
+    flags.view === "full" && flags.initialRoute === "settings"
+      ? liftSettings(initialModel(flags), SettingsMessage.RequestedOpen())
+      : { model: initialModel(flags) }
+  const model = opened.model
   // The doctor report itself comes with every stream `hello` (U-034).
   const routeCommands: Commands =
     flags.view !== "full"
       ? []
       : flags.initialRoute === "update"
         ? [CheckForUpdates(), SetHash({ hash: "#/" })]
-        : []
+        : flags.initialRoute === "settings"
+          ? [...(opened.commands ?? []), SetHash({ hash: "#/" })]
+          : []
   return {
     model,
     commands: [
@@ -746,6 +753,13 @@ const changeHash = (model: Model, hash: string): UpdateReturn => {
     case "update":
       // The tray's "Check for Updates…": the main view, with a check running.
       return withCommands(checkForUpdates(toInbox), [SetHash({ hash: selectedHash(model) })])
+    case "settings":
+      // The tray's "Settings…": the main view with the dialog open, hash put back (U-041).
+      return model.view === "full"
+        ? withCommands(liftSettings(toInbox, SettingsMessage.RequestedOpen()), [
+            SetHash({ hash: selectedHash(model) }),
+          ])
+        : { model }
     case "item":
       return Option.contains(model.maybeSelectedItemId, route.itemId)
         ? { model: toInbox }
