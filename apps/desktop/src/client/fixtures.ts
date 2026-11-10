@@ -7,6 +7,7 @@ import type {
   Approval,
   HistoryOutcome,
   Item,
+  ItemDetail,
   OutboxEntry,
   Project,
   Question,
@@ -34,7 +35,13 @@ export type ItemExtras = {
   outcome?: HistoryOutcome
   /** The reason given with a denial, searchable in History. */
   denyReason?: string
+  /** A stuck item's call: tool, start and preview (C-030). */
+  running?: ItemDetail["running"]
 }
+
+/** What the daemon says about replying while a call runs (D-100). */
+export const STUCK_REPLY_UNAVAILABLE =
+  "Claude is busy with this call. Open it in Claude to stop it."
 
 /** A long review message: >24 lines, every block kind, a relative link and a bare URL. */
 export const RECEIPTS_LAST_MESSAGE = `## ESC/POS driver is done
@@ -141,7 +148,8 @@ export const makeFixtures = (now: number): Fixtures => {
     session("s-ravelo", "p-ravelo", "POS export ingestion", "desktop", "waiting", 14, {
       branch: "feat/pos-export",
     }),
-    session("s-ravelo-dash", "p-ravelo", "Dashboard tile caching", "cli", "running", 1),
+    // Its dev server was started in the foreground 12 minutes ago: a stuck item (C-030).
+    session("s-ravelo-dash", "p-ravelo", "Dashboard tile caching", "cli", "running", 12),
     session("s-hooks", "p-agentkit", "Hook event schema v2", "cli", "idle", 41, {
       branch: "schema-v2",
     }),
@@ -178,7 +186,7 @@ export const makeFixtures = (now: number): Fixtures => {
     agent("a-retry-review", "s-retry", "code-reviewer", "running", "a-retry-main", 4),
     agent("a-delivery-main", "s-delivery", "main", "running", null, 12),
     agent("a-ravelo-main", "s-ravelo", "main", "waiting", null, 30),
-    agent("a-dash-main", "s-ravelo-dash", "main", "running", null, 8),
+    agent("a-dash-main", "s-ravelo-dash", "main", "running", null, 16),
     agent("a-hooks-main", "s-hooks", "main", "failed", null, 50),
     agent("a-docs-main", "s-agentkit-docs", "main", "done", null, 70),
     agent("a-sync-main", "s-pos-sync", "main", "running", null, 35),
@@ -266,6 +274,17 @@ export const makeFixtures = (now: number): Fixtures => {
       58,
       { unread: false },
     ),
+    // Raised 5 minutes after the call started, the default `stuck.afterMs` (D-099).
+    item(
+      "i-dash-stuck",
+      "s-ravelo-dash",
+      "a-dash-main",
+      "stuck",
+      "review",
+      "Running npm run dev",
+      7,
+      { runningSince: ago(12) },
+    ),
     item(
       "i-sync-snoozed",
       "s-pos-sync",
@@ -333,6 +352,21 @@ export const makeFixtures = (now: number): Fixtures => {
       replyUnavailable:
         "Replies are sent with the claude CLI, which isn't logged in on this Mac. Reply in Claude instead, or log in with claude /login in a terminal.",
     },
+    "i-dash-stuck": {
+      ...none,
+      replyUnavailable: STUCK_REPLY_UNAVAILABLE,
+      running: {
+        tool: "Bash",
+        since: ago(12),
+        preview: {
+          _tag: "command",
+          command: "npm run dev",
+          description: "Start the dashboard dev server",
+          cwd: "/Users/dev/code/ravelo-insights",
+          displayCwd: ".",
+        },
+      },
+    },
     "i-sync-snoozed": {
       ...none,
       openUrl: "claude://code/session/local_s-pos-sync",
@@ -387,6 +421,11 @@ export const makeFixtures = (now: number): Fixtures => {
     "s-agentkit-docs": [
       entry(70, "SessionStart", "Session started"),
       entry(58, "Stop", "Finished: README.md drafted"),
+    ],
+    "s-ravelo-dash": [
+      entry(16, "SessionStart", "Session started"),
+      entry(14, "PostToolUse", "Edited src/cache/tiles.ts"),
+      entry(12, "PreToolUse", "Running npm run dev"),
     ],
     "s-pos-sync": [
       entry(35, "SessionStart", "Session started in sync-conflicts"),

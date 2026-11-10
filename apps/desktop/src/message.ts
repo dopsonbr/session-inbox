@@ -89,7 +89,7 @@ export const Message = defineMessageUnion({
   PressedDenyShortcut: {},
   ClickedJumpField: {},
   PressedListKey: { direction: ListDirection },
-  /** Done on a review or failed item: the dismiss intent (U-061). */
+  /** Done on a review, failed or stuck item: the dismiss intent (U-061, U-087). */
   ClickedDone: {},
   PressedDoneShortcut: {},
   UpdatedDenyNote: { value: Schema.String },

@@ -491,9 +491,15 @@ const denyWithNote = (model: Model): UpdateReturn => {
   })
 }
 
-/** A review or failed item still open: Done (the dismiss intent) clears it (U-061). */
+/**
+ * A review, failed or stuck item still open: Done (the dismiss intent) clears it (U-061). For a
+ * stuck call it means "I meant that to keep running"; the call itself goes on (U-087).
+ */
 export const canMarkDone = (detail: ItemDetail): boolean =>
-  (detail.item.kind === "review" || detail.item.kind === "failed") && detail.item.queue !== "done"
+  (detail.item.kind === "review" ||
+    detail.item.kind === "failed" ||
+    detail.item.kind === "stuck") &&
+  detail.item.queue !== "done"
 
 const markDone = (model: Model): UpdateReturn =>
   Option.match(loadedDetail(model), {

@@ -21,6 +21,7 @@ import {
   findSession,
   formatAgo,
   formatClock,
+  itemLine,
   recordedAnswer,
   selectedHistoryEntry,
 } from "../selectors.ts"
@@ -39,7 +40,7 @@ import {
   shortcutHint,
   toneText,
 } from "./parts.ts"
-import { contextLine, previewView } from "./preview.ts"
+import { contextLine, previewBody, previewView } from "./preview.ts"
 
 type H = HtmlBuilder<Message>
 
@@ -69,11 +70,17 @@ const WANTS_TO = "Wants to "
 
 /**
  * The detail's h1 (U-066). A permission says what is asked, from the daemon's summary ("Claude
- * wants to edit src/window.ts"); a finished item is in the past tense.
+ * wants to edit src/window.ts"); a finished item is in the past tense. A stuck call reads like
+ * its row ("Running npm run dev for 12 min", given `now`); once it ended, the summary alone,
+ * since how it ended is unknown and History's "Ended:" line says when (U-085).
  */
-export const titleFor = (detail: ItemDetail): string => {
+export const titleFor = (detail: ItemDetail, now?: number): string => {
   const { item, questions, approval } = detail
   const isDone = item.queue === "done"
+  if (item.kind === "stuck") {
+    const line = now === undefined ? item.summary : itemLine(item, now)
+    return line ?? (isDone ? "A tool call ran long" : "A tool call is still running")
+  }
   if (item.kind === "question") {
     const count = `${questions.length} question${questions.length === 1 ? "" : "s"}`
     if (questions.length === 0) {
@@ -173,7 +180,10 @@ const detailHeader = (model: Model, detail: ItemDetail, h: H): Html => {
             [h.AriaLabel("Breadcrumb"), h.Class("text-[13px] text-muted-foreground")],
             [crumbs.join(" › ")],
           ),
-          h.h1([h.Class("mt-1 text-[22px] font-bold tracking-tight")], [titleFor(detail)]),
+          h.h1(
+            [h.Class("mt-1 text-[22px] font-bold tracking-tight")],
+            [titleFor(detail, model.now)],
+          ),
           h.div(
             [h.Class("mt-1.5")],
             // Finished: what it was; how it ended is the line below (U-057).
@@ -208,7 +218,10 @@ const detailHeader = (model: Model, detail: ItemDetail, h: H): Html => {
   )
 }
 
-/** "I've read it, clear it" for a review or failed item: the dismiss intent, key `e` (U-061). */
+/**
+ * "I've read it, clear it" for a review, failed or stuck item: the dismiss intent, key `e`
+ * (U-061, U-087).
+ */
 export const doneButton = (model: Model, h: H): Html => {
   const isSending = model.submission._tag === "Sending" && model.submission.action === "dismiss"
   return h.button(
@@ -884,6 +897,51 @@ export const approvalCard = (model: Model, detail: ItemDetail, approval: Approva
   )
 }
 
+// STUCK CALL (C-030)
+
+/** The quiet line under a stuck call: Done is for a call meant to run; stopping is Claude's. */
+export const STUCK_HINT =
+  "If this is meant to keep running (a dev server), choose Done. To stop it, open the session in Claude."
+
+/** "Started at 14:02. No result yet." (open); a call that ended keeps only when it started. */
+export const startedLine = (now: number, since: number, isOpen: boolean): string => {
+  const day = dayLabel(now, since)
+  const on = day === "Today" ? "" : day === "Yesterday" ? "yesterday " : `on ${day} `
+  return `Started ${on}at ${formatClock(since)}.${isOpen ? " No result yet." : ""}`
+}
+
+/**
+ * The call that is (or was) running, with the preview a permission request gets (U-087). No
+ * decision buttons and no reply box: Claude is busy with this call and can't take either. Not
+ * the orange needs-you border: nothing is waiting for an answer.
+ */
+export const runningCard = (model: Model, detail: ItemDetail, h: H): Html => {
+  const running = detail.running
+  const since = running?.since ?? detail.item.runningSince
+  const isOpen = detail.item.queue !== "done"
+  const preview =
+    running?.preview === undefined ? null : previewBody(h, running.preview, model.isPreviewExpanded)
+  return h.section(
+    [
+      h.AriaLabel("Running tool call"),
+      h.Class("flex min-w-0 flex-col gap-3 rounded-[14px] border border-border p-4"),
+    ],
+    [
+      preview ??
+        (running === undefined
+          ? h.empty
+          : h.p([h.Class("text-[13px] font-semibold text-foreground")], [running.tool])),
+      since === undefined
+        ? h.empty
+        : h.p(
+            [h.Class("text-[13px] text-muted-foreground")],
+            [startedLine(model.now, since, isOpen)],
+          ),
+      isOpen ? h.p([h.Class("text-xs text-subtle-foreground")], [STUCK_HINT]) : h.empty,
+    ],
+  )
+}
+
 // SHORT REPLY
 
 /** The daemon says a reply can't be sent from here (C-023): say so instead of a reply box. */
@@ -1162,13 +1220,15 @@ const loadedView = (model: Model, detail: ItemDetail, h: H): ReadonlyArray<Html>
     Option.filter(model.maybeForm, (f) => f.itemId === detail.item.id),
   )
   const action =
-    form === undefined
-      ? h.empty
-      : detail.item.kind === "question" && detail.questions.length > 0
-        ? questionForm(model, detail, form, h)
-        : detail.approval !== null
-          ? approvalCard(model, detail, detail.approval, h)
-          : replyForm(model, detail, form, h)
+    detail.item.kind === "stuck"
+      ? runningCard(model, detail, h)
+      : form === undefined
+        ? h.empty
+        : detail.item.kind === "question" && detail.questions.length > 0
+          ? questionForm(model, detail, form, h)
+          : detail.approval !== null
+            ? approvalCard(model, detail, detail.approval, h)
+            : replyForm(model, detail, form, h)
   return [
     detailHeader(model, detail, h),
     contextFacts(model, detail, h),

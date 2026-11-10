@@ -379,7 +379,7 @@ describe("history: the HTTP client", () => {
 describe("history: the fake daemon", () => {
   test("finished items, newest first, with outcomes; old ones are not in the snapshot", () => {
     const all = page()
-    expect(all.entries.length).toBe(14)
+    expect(all.entries.length).toBe(15)
     expect(all.retentionDays).toBe(14)
     expect(all.nextBefore).toBeNull()
     const times = all.entries.map((e) => e.endedAt)

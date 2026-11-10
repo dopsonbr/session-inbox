@@ -7,7 +7,7 @@ import { Option } from "effect"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { Message } from "../message.ts"
 import type { Model } from "../model.ts"
-import { dayKey, dayLabel, formatAgo, formatClock, itemRowId } from "../selectors.ts"
+import { dayKey, dayLabel, formatAgo, formatClock, itemLine, itemRowId } from "../selectors.ts"
 import { SettingsMessage } from "../settings.ts"
 import { inlineLineView } from "./markdown.ts"
 import { Icon, KIND_WORD, outcomeBadge } from "./parts.ts"
@@ -23,6 +23,7 @@ export const KIND_FILTERS: ReadonlyArray<{ kind: AttentionKind | null; label: st
   { kind: "permission", label: "Permissions" },
   { kind: "review", label: "Reviews" },
   { kind: "failed", label: "Errors" },
+  // No pill for stuck calls: a sixth one doesn't fit the column at 1280 wide (U-086).
 ]
 
 export const MATCH_WORD: Record<HistoryMatch["where"], string> = {
@@ -112,6 +113,7 @@ const kindFilter = (model: Model, h: H): Html =>
 const entryRow = (model: Model, entry: HistoryEntry, h: H): Html => {
   const isSelected = Option.contains(model.maybeSelectedItemId, entry.item.id)
   const { item, session, project, match } = entry
+  const line = itemLine(item, model.now)
   return h.keyed("li")(
     item.id,
     [],
@@ -146,7 +148,7 @@ const entryRow = (model: Model, entry: HistoryEntry, h: H): Html => {
           h.div(
             // Two lines before it truncates (U-075).
             [h.Class("line-clamp-2 text-[15px] font-medium break-words text-foreground")],
-            item.summary === null ? [KIND_WORD[item.kind]] : inlineLineView(h, item.summary),
+            line === null ? [KIND_WORD[item.kind]] : inlineLineView(h, line),
           ),
           h.div(
             [h.Class("truncate text-[13px] text-muted-foreground")],

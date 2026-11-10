@@ -33,6 +33,7 @@ The audience is a power user who runs several Claude Code sessions at once. Dens
 | Setup check | 8 | 8 | 8 | Each line says what is wrong and offers the fix. |
 | Update banner and Update now | not graded | not graded | not graded | Not exercised in either pass. |
 | History and search | not there | 8 | 8 | Finished items by day with how each ended, word search with a "Matched in…" line, kind chips, `j` / `k`. No key to focus the search field, no project or date filter, and the first entry isn't selected for you. |
+| Stuck calls | not there | not there | 7 | In Review as "Running npm run dev for 12 min" with a clock and "Still running" in blue; the detail shows the command, when it started and that Done is for a call meant to keep running. Done or `e` clears it. It can't be stopped from the inbox (Open in Claude), the popover row has only its dot and line, and it was checked against the fake client only, not a real hang. |
 | Keyboard | 5 | 8 | 9 | Every shortcut can be changed or turned off in Settings, and the hints and the `?` list follow. Still no key for Snooze, Always allow or a question's options. |
 | Type, icons and radius | 5 | 8 | 8 | Six text sizes from 11 to 22px (was eight, down to 9.75px); icons 12, 14 and 16px (was 10 to 13px). |
 | Dark mode | 8 | 8 | 8 | Matches light closely, History included. |
@@ -63,6 +64,7 @@ Starting point unless stated: the inbox window is open on **Needs you** with the
 | 17 | See why notifications aren't arriving | 1 | 1 | 1 | Setup check. |
 | 18 | See the note you sent with a denial | not possible | 2 | 2 | History, the row: "Sent with the denial: …". |
 | 19 | Change a shortcut | not possible | not possible | 3 | 3 since the shortcut settings (`0.3.0`): Settings, **Change** on the row, press the keys. |
+| 20 | Clear a stuck call you expected (a dev server) | not possible | not possible | 3 | 3 with stuck calls, measured on `dev:mock`: the **Review** tab, the row, **Done** (or `e`). The next Review item is selected after. |
 
 ## Findings
 
@@ -130,6 +132,7 @@ Starting point unless stated: the inbox window is open on **Needs you** with the
 
 ## Changes
 
+- 2026-11-10 — Stuck calls in the UI (G-035, C-030, U-084 to U-088): a Review row and title reading "Running npm run dev for 12 min", a card with the command and "Started at … No result yet.", Done/Snooze/Open in Claude, "Ran long" in History, and a switch plus minutes in Settings › Notifications. Checked on `dev:mock` in light and dark at 1280×820 and the popover at 480×600; not yet on a real hung call.
 - 2026-11-10 — Shortcut settings (G-034): a Shortcuts group in Settings with press-to-record, Clear and Reset, clash warnings, and the menu-bar app re-registering its system-wide key. Checked on the real daemon: after changing Next to N, J did nothing, N moved, and N still worked after a reload. The system-wide key changing in the running app is unverified (nobody could press keys). Closes UX-064; opens UX-065.
 - 2026-11-10 — Second pass on `3b2144c`, re-measured on the real daemon: scores and step counts above. Still open: UX-010 (partly), UX-031, UX-032, UX-055 to UX-059, UX-062, UX-063.
 - 2026-11-10 — A denial's note shows on the finished item; permission titles drop the diff count (C-028, U-077); "in the project folder" and "Session activity" wording. Closes UX-053, UX-054, UX-060, UX-061.

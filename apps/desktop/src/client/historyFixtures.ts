@@ -126,6 +126,10 @@ export const makeHistoryFixtures = (now: number) => {
       "Wants to run rm -rf fixtures/recorded",
       5 * HOUR,
     ),
+    // A watch run that never returned: flagged after 5 minutes, ended 20 minutes in (C-030).
+    done("h-hooks-watch", "s-hooks", "stuck", "resolved", "Running bun test --watch", 2 * HOUR, {
+      createdAt: ago(2 * HOUR + 15 * MIN),
+    }),
     done(
       "h-receipts-queue",
       "s-pos-receipts",
@@ -265,6 +269,21 @@ export const makeHistoryFixtures = (now: number) => {
         "deny",
         at("h-hooks-rm"),
       ),
+    },
+    "h-hooks-watch": {
+      ...none,
+      outcome: "moved-on",
+      running: {
+        tool: "Bash",
+        since: ago(2 * HOUR + 20 * MIN),
+        preview: {
+          _tag: "command",
+          command: "bun test --watch",
+          description: "Run the parser tests in watch mode",
+          cwd: "/Users/dev/code/agent-kit",
+          displayCwd: ".",
+        },
+      },
     },
     "h-receipts-queue": {
       ...none,

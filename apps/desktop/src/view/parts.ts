@@ -117,6 +117,10 @@ export const itemTone = (item: Item): Tone => {
   if (item.kind === "failed") {
     return "failed"
   }
+  // Still running: a fact, not a request (orange) or an ending (green, red). U-084.
+  if (item.kind === "stuck") {
+    return "working"
+  }
   return item.kind === "review" ? "ready" : "needs"
 }
 
@@ -137,6 +141,9 @@ export const itemKindLabel = (item: Item): string => {
   if (item.kind === "permission") {
     return "Permission"
   }
+  if (item.kind === "stuck") {
+    return "Still running"
+  }
   return item.kind === "failed" ? "Stopped with errors" : "Ready to review"
 }
 
@@ -152,6 +159,9 @@ const kindIcon = (h: H, item: Item, className?: string): Html => {
   }
   if (item.kind === "permission") {
     return Icon.shield(h, className)
+  }
+  if (item.kind === "stuck") {
+    return Icon.clock(h, className)
   }
   return item.kind === "failed" ? Icon.alert(h, className) : Icon.check(h, className)
 }
@@ -227,7 +237,8 @@ export const KIND_WORD: Record<AttentionKind, string> = {
   permission: "Permission",
   review: "Ready to review",
   failed: "Stopped with errors",
-  stuck: "Still running",
+  // What it was, once it ended: "Still running" would be wrong in History (U-086).
+  stuck: "Ran long",
 }
 
 const KIND_ICON: Record<AttentionKind, (h: H, c?: string) => Html> = {

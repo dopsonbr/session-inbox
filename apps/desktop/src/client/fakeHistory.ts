@@ -103,6 +103,16 @@ export const fakeHistoryPage = (
             ["tool", inputField(approval.input, "url")],
             ["path", inputField(approval.input, "file_path")],
           ] as ReadonlyArray<[Where, string]>)),
+      // A stuck call's tool and command, like a permission's (C-030).
+      [
+        "tool",
+        extras?.running === undefined
+          ? ""
+          : [
+              extras.running.tool,
+              extras.running.preview?._tag === "command" ? extras.running.preview.command : "",
+            ].join(" "),
+      ],
       ["reason", extras?.denyReason ?? ""],
       ...(extras?.outbox ?? []).map((o): [Where, string] => ["reply", o.body]),
       ["path", session.cwd ?? ""],

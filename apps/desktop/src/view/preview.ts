@@ -263,9 +263,11 @@ export const contextLine = (h: H, approval: Approval): Html =>
       )
 
 /** The preview body, or null when the daemon sent none (older rows): the caller falls back. */
-export const previewView = (h: H, approval: Approval, expanded: boolean): Html | null => {
-  const p = approval.preview
-  if (p === undefined) return null
+export const previewView = (h: H, approval: Approval, expanded: boolean): Html | null =>
+  approval.preview === undefined ? null : previewBody(h, approval.preview, expanded)
+
+/** One preview, wherever it came from: an approval, or a stuck call's `running` (C-030). */
+export const previewBody = (h: H, p: ApprovalPreview, expanded: boolean): Html => {
   switch (p._tag) {
     case "diff":
       return diffView(h, p, expanded)

@@ -155,6 +155,22 @@ export const SETTINGS_FIELDS: ReadonlyArray<SettingsField> = [
     help: "Sessions that finish within this window share one notification. 0 to 600 seconds.",
   },
   {
+    key: "stuck.enabled",
+    group: "notifications",
+    kind: "toggle",
+    label: "Tell me when a tool call runs long",
+    help: "A command that hangs, or a server started in the foreground, shows up in Review with one notification.",
+  },
+  {
+    // Stored in ms like the other durations; on screen only while the switch is on (U-088).
+    key: "stuck.afterMs",
+    group: "notifications",
+    kind: "minutes",
+    label: "After",
+    help: `${SETTING_LIMITS["stuck.afterMs"].min / 60_000} to ${SETTING_LIMITS["stuck.afterMs"].max / 60_000} minutes.`,
+    showWhen: (shown) => shown["stuck.enabled"] === true,
+  },
+  {
     key: "titles.generate",
     group: "sessions",
     kind: "toggle",

@@ -392,6 +392,30 @@ export const formatAgo = (now: number, at: number): string => {
   return hours < 24 ? `${hours} h ago` : `${Math.floor(hours / 24)} d ago`
 }
 
+/**
+ * How long something has been going, for a stuck call (C-030): "12 min" (at least 1), then
+ * "1 h 5 min" / "2 h" from an hour. Never rounds up, so it never runs ahead of the clock.
+ */
+export const formatDuration = (ms: number): string => {
+  const minutes = Math.max(1, Math.floor(ms / MIN))
+  if (minutes < 60) {
+    return `${minutes} min`
+  }
+  const hours = Math.floor(minutes / 60)
+  const rest = minutes % 60
+  return rest === 0 ? `${hours} h` : `${hours} h ${rest} min`
+}
+
+/**
+ * An item's one line as rows and titles show it. A stuck call still running adds how long
+ * from `runningSince` ("Running npm run dev for 12 min"); the daemon's summary says what.
+ * Everything else, and a stuck call that ended, is the summary as given.
+ */
+export const itemLine = (item: Item, now: number): string | null =>
+  item.kind === "stuck" && item.runningSince !== undefined && item.summary !== null
+    ? `${item.summary} for ${formatDuration(now - item.runningSince)}`
+    : item.summary
+
 export const formatClock = (at: number): string => {
   const d = new Date(at)
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`

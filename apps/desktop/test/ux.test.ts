@@ -157,7 +157,9 @@ describe("auto-advance after an answer (U-059, UX-001)", () => {
     const s = snapshotOf(showing("i-ravelo-migrate"))
     const order = s.items.map((i) => i.id)
     expect(nextInTab(s, order, "review", "i-receipts-review")).toEqual(Option.some("i-docs-review"))
-    expect(nextInTab(s, order, "review", "i-docs-review")).toEqual(Option.some("i-receipts-review"))
+    // A stuck call is a Review item like the others (U-087).
+    expect(nextInTab(s, order, "review", "i-docs-review")).toEqual(Option.some("i-dash-stuck"))
+    expect(nextInTab(s, order, "review", "i-dash-stuck")).toEqual(Option.some("i-docs-review"))
     expect(nextInTab(s, order, "snoozed", "i-sync-snoozed")).toEqual(Option.none())
     expect(nextInTab(s, order, "working", "i-receipts-review")).toEqual(Option.none())
   })
@@ -180,7 +182,7 @@ describe("j / k through the list on screen (U-060, UX-002)", () => {
   test("another tab: k from outside the list takes its last row", () => {
     const review = update(showing("i-retry-questions"), Message.SelectedQueueTab({ tab: "review" }))
     expect(update(review.model, key("previous")).model.maybeSelectedItemId).toEqual(
-      Option.some("i-docs-review"),
+      Option.some("i-dash-stuck"),
     )
     expect(update(review.model, key("next")).model.maybeSelectedItemId).toEqual(
       Option.some("i-receipts-review"),
@@ -195,9 +197,14 @@ describe("j / k through the list on screen (U-060, UX-002)", () => {
     const first = update(working.model, key("next"))
     expect(first.model.maybeSelectedSessionId).toEqual(Option.some("s-delivery"))
     expect(argsOf(first, "ScrollToRow")).toEqual({ rowId: "session:s-delivery" })
-    expect(update(first.model, key("next")).model.maybeSelectedSessionId).toEqual(
-      Option.some("s-ravelo-dash"),
-    )
+    // A session with an open item opens that item, as a click on its card does: its stuck call.
+    const second = update(first.model, key("next"))
+    expect(second.model.maybeSelectedItemId).toEqual(Option.some("i-dash-stuck"))
+    expect(argsOf(second, "ScrollToRow")).toEqual({ rowId: "session:s-ravelo-dash" })
+    // …and J goes on from that session, not back to the top.
+    expect(argsOf(update(second.model, key("next")), "ScrollToRow")).toEqual({
+      rowId: "session:s-pos-sync",
+    })
   })
 
   test("History: through its entries", () => {
@@ -279,7 +286,9 @@ describe("popover rows (U-062, UX-004)", () => {
     const text = textOf(compactView(model, h))
     expect(text).toContain("Wants to run bun run migrate · ravelo")
     const item = itemOf(model, "i-ravelo-migrate")
-    expect(textOf(rowSubtitle({ ...item, summary: null }, "ravelo", h))).toBe("Permission · ravelo")
+    expect(textOf(rowSubtitle({ ...item, summary: null }, "ravelo", NOW, h))).toBe(
+      "Permission · ravelo",
+    )
   })
 
   test("Allow and Deny only on live permissions, beside the link, never inside it", () => {

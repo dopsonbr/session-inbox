@@ -3,7 +3,14 @@ import { Option } from "effect"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { Message } from "../message.ts"
 import type { Model } from "../model.ts"
-import { findProject, findSession, formatAge, hashForItem, itemsInQueue } from "../selectors.ts"
+import {
+  findProject,
+  findSession,
+  formatAge,
+  hashForItem,
+  itemLine,
+  itemsInQueue,
+} from "../selectors.ts"
 import { inlineLineView } from "./markdown.ts"
 import { dot, itemKindLabel, itemTone, keyshortcuts, shortcutHint } from "./parts.ts"
 import { compactSetupRowView } from "./setup.ts"
@@ -51,7 +58,7 @@ const row = (model: Model, snapshot: Snapshot, item: Item, isFirst: boolean, h: 
               ),
               h.span(
                 [h.Class("block truncate text-xs text-muted-foreground")],
-                rowSubtitle(item, projectName, h),
+                rowSubtitle(item, projectName, model.now, h),
               ),
             ],
           ),
@@ -68,12 +75,19 @@ const row = (model: Model, snapshot: Snapshot, item: Item, isFirst: boolean, h: 
 
 /**
  * A row's second line: what is asked (or, for a review, what was done), then the project
- * (U-062). Without a summary: the kind and the project.
+ * (U-062); a stuck call says for how long (U-085). Without a summary: the kind and the project.
  */
-export const rowSubtitle = (item: Item, projectName: string, h: H): ReadonlyArray<Html | string> =>
-  item.summary === null || item.summary.trim() === ""
+export const rowSubtitle = (
+  item: Item,
+  projectName: string,
+  now: number,
+  h: H,
+): ReadonlyArray<Html | string> => {
+  const line = itemLine(item, now)
+  return line === null || line.trim() === ""
     ? [`${itemKindLabel(item)} · ${projectName}`]
-    : [...inlineLineView(h, item.summary), projectName === "" ? "" : ` · ${projectName}`]
+    : [...inlineLineView(h, line), projectName === "" ? "" : ` · ${projectName}`]
+}
 
 /** Allow and Deny on a live permission row: decided here, without opening the window (U-062). */
 const rowDecisions = (model: Model, item: Item, h: H): Html => {

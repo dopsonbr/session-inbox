@@ -248,7 +248,15 @@ export const makeFakeClient = (options: FakeOptions = {}): FakeDaemon => {
   }
 
   const closeItem = (itemId: string, state: Item["state"]) => {
-    const item = patchItem(itemId, { state, queue: "done", live: false, unread: false })
+    const { runningSince: _ended, ...open } = patchItem(itemId, {
+      state,
+      queue: "done",
+      live: false,
+      unread: false,
+    })
+    // Like the daemon: only an open (or snoozed) stuck item says how long it has run (C-030).
+    const item: Item = open
+    db.items[db.items.findIndex((i) => i.id === itemId)] = item
     emitDelta({ items: [itemId], sessions: [item.sessionId] })
     return item
   }
@@ -263,7 +271,8 @@ export const makeFakeClient = (options: FakeOptions = {}): FakeDaemon => {
     const activity = [
       ["s-delivery", "Edited src/delivery/window.ts"],
       ["s-pos-sync", "Ran bun test — 64 passed"],
-      ["s-ravelo-dash", "Wrote src/cache/tiles.ts"],
+      // Not s-ravelo-dash: its dev server is the stuck call, so it reports nothing.
+      ["s-pos-sync", "Edited src/sync/tombstones.ts"],
       ["s-pos-bench", "Benchmark: 4.1k writes/s with batch=50"],
     ] as const
     let tick = 0
@@ -395,6 +404,7 @@ export const makeFakeClient = (options: FakeOptions = {}): FakeDaemon => {
             ...(extras?.replyUnavailable === undefined
               ? {}
               : { replyUnavailable: extras.replyUnavailable }),
+            ...(extras?.running === undefined ? {} : { running: extras.running }),
           }
           return Effect.succeed(detail)
         }),

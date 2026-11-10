@@ -9,7 +9,7 @@ describe("fake DaemonClient", () => {
   test("snapshot matches the mockup counts", async () => {
     const snapshot = await Effect.runPromise(fake().snapshot)
     // The mockup's 3 needs-you items plus 4 approval-preview fixtures (U-031).
-    expect(snapshot.counts).toEqual({ needsYou: 7, working: 4, review: 2, snoozed: 1 })
+    expect(snapshot.counts).toEqual({ needsYou: 7, working: 4, review: 3, snoozed: 1 })
     expect(snapshot.projects.map((p) => p.name)).toEqual([
       "order-up-api",
       "ravelo-insights",

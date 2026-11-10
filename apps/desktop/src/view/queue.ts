@@ -11,6 +11,7 @@ import {
   formatAge,
   formatAgo,
   formatClock,
+  itemLine,
   itemRowId,
   itemsInQueue,
   sessionRowId,
@@ -90,6 +91,7 @@ const itemCard = (model: Model, snapshot: Snapshot, item: Item, h: H): Html => {
         : isNeedsYou && item.kind !== "failed"
           ? `waiting ${formatAge(model.now, item.createdAt)}`
           : formatAge(model.now, item.createdAt)
+  const line = itemLine(item, model.now)
   // Only Needs you gets the heavy border (design rule); other selections get a neutral ring.
   const border = isNeedsYou
     ? isSelected
@@ -139,11 +141,11 @@ const itemCard = (model: Model, snapshot: Snapshot, item: Item, h: H): Html => {
               h.span([h.Class("truncate")], [title]),
             ],
           ),
-          item.summary === null
+          line === null
             ? h.empty
             : h.div(
                 [h.Class("truncate text-[13px] text-muted-foreground")],
-                inlineLineView(h, item.summary),
+                inlineLineView(h, line),
               ),
         ],
       ),
@@ -248,7 +250,7 @@ export const queueView = (model: Model, h: H): Html =>
           h.p(
             [h.Class("mx-1 mt-3.5 text-xs text-subtle-foreground")],
             [
-              "Routine progress never shows up here. Only questions, permission requests, stops and failures do.",
+              "Routine progress never shows up here. Only questions, permission requests, stops, failures and calls that run long do.",
             ],
           ),
         ]
