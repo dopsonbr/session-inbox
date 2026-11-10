@@ -49,3 +49,13 @@ export const compareSemver = (a: string, b: string): number => {
 }
 
 export const isNewer = (candidate: string, current: string) => compareSemver(candidate, current) > 0
+
+export type Bump = "patch" | "minor" | "major"
+/** 0.2.3 → patch 0.2.4, minor 0.3.0, major 1.0.0. A prerelease is dropped. */
+export const bumpVersion = (v: string, bump: Bump): string => {
+  const s = parseSemver(v)
+  if (!s) throw new Error(`not a semver version: ${v}`)
+  if (bump === "major") return `${s.major + 1}.0.0`
+  if (bump === "minor") return `${s.major}.${s.minor + 1}.0`
+  return `${s.major}.${s.minor}.${s.patch + 1}`
+}

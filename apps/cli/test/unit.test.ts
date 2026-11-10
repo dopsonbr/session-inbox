@@ -11,7 +11,7 @@ import {
   selectAssets,
   tarballName,
 } from "../src/releases.ts"
-import { compareSemver, isNewer, isSemver } from "../src/semver.ts"
+import { bumpVersion, compareSemver, isNewer, isSemver } from "../src/semver.ts"
 import {
   type InstallRecord,
   readInstallRecord,
@@ -38,6 +38,12 @@ describe("semver", () => {
     expect(compareSemver("1.0.0-rc.2", "1.0.0-rc.10")).toBe(-1)
     expect(compareSemver("1.0.0-alpha", "1.0.0-alpha.1")).toBe(-1)
     expect(compareSemver("1.0.0-beta", "1.0.0-alpha")).toBe(1)
+  })
+  test("bumps patch, minor and major", () => {
+    expect(bumpVersion("0.2.3", "patch")).toBe("0.2.4")
+    expect(bumpVersion("0.2.3", "minor")).toBe("0.3.0")
+    expect(bumpVersion("0.2.3", "major")).toBe("1.0.0")
+    expect(bumpVersion("1.0.0-rc.1", "patch")).toBe("1.0.1")
   })
   test("rejects non-versions", () => {
     expect(isSemver("1.2")).toBe(false)
