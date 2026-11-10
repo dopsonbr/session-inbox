@@ -15,11 +15,13 @@ import {
   NotificationActedRequest,
   ReplyRequest,
   SCHEMA_VERSION,
+  type SettingsResponse,
   SnoozeRequest,
 } from "@session-inbox/contracts"
 import { Result, Schema } from "effect"
 import { ApiFailure, type Engine } from "./engine.ts"
 import type { ClientKind } from "./stream.ts"
+import { decodeSettingsPatch } from "./userSettings.ts"
 
 export const VERSION = "0.1.0"
 export const TOKEN_META = '<meta name="session-inbox-token" content="">'
@@ -72,7 +74,15 @@ export interface ServerContext {
   readonly title: string
   /** Set once the TCP listener knows its port. */
   port: number
+  /** A second installed channel (H-016), checked per request; absent = none. */
+  readonly otherChannel?: () => string | null
 }
+
+const settingsResponse = (ctx: ServerContext): SettingsResponse => ({
+  ...ctx.engine.userSettings(),
+  channel: ctx.channel,
+  otherChannel: ctx.otherChannel?.() ?? null,
+})
 
 export const health = (ctx: ServerContext): Health => ({
   ok: true,
@@ -232,6 +242,19 @@ export const uiHandler =
       if (notif && m === "POST") {
         const body = await decodeBody(NotificationActedRequest, req)
         return json(await e.notificationActed(notif[1] ?? "", body.action))
+      }
+      if (path === "/v1/settings" && m === "GET") return json(settingsResponse(ctx))
+      if (path === "/v1/settings" && m === "PUT") {
+        let raw: unknown
+        try {
+          raw = await readJson(req)
+        } catch {
+          throw new ApiFailure(400, "bad_request", "body is not JSON")
+        }
+        const patch = decodeSettingsPatch(raw)
+        if (Result.isFailure(patch)) throw new ApiFailure(400, "bad_request", patch.failure)
+        e.updateSettings(patch.success)
+        return json(settingsResponse(ctx))
       }
       const mute = /^\/v1\/projects\/([^/]+)\/mute$/.exec(path)
       if (mute && m === "POST") {

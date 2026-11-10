@@ -27,7 +27,7 @@ import {
   Opener,
   type OpenerShape,
 } from "./services.ts"
-import { loadSettings, type Settings } from "./settings.ts"
+import { DEFAULT_SETTINGS, loadSettings, type Settings } from "./settings.ts"
 
 export interface DaemonOptions {
   readonly home: string
@@ -39,6 +39,8 @@ export interface DaemonOptions {
   /** Defaults that DB rows override (from SESSION_INBOX_SETTINGS; H-016). */
   readonly settingDefaults?: Partial<Settings>
   readonly channel?: Channel
+  /** Home of the other channel, for the Settings pane's two-holders caveat (H-016); null = none. */
+  readonly otherChannelHome?: string | null
 }
 
 export interface DaemonServices {
@@ -86,10 +88,20 @@ export const startDaemon = async (
   mkdirSync(p.home, { recursive: true, mode: 0o700 })
   const db = openDb(p.db)
   const settings = loadSettings(db, opts.settings, opts.settingDefaults)
-  const engine = new Engine({ db, ...svc, claudeConfigDir: opts.claudeConfigDir, settings })
+  const settingDefaults = { ...DEFAULT_SETTINGS, ...opts.settingDefaults }
+  const engine = new Engine({
+    db,
+    ...svc,
+    claudeConfigDir: opts.claudeConfigDir,
+    settings,
+    settingDefaults,
+  })
   engine.recover()
   const token = loadToken(p.home)
   const channel = opts.channel ?? "ga"
+  const other: Channel = channel === "ga" ? "beta" : "ga"
+  const otherHome =
+    opts.otherChannelHome === undefined ? CHANNELS[other].home : opts.otherChannelHome
   const ctx: ServerContext = {
     engine,
     token,
@@ -97,6 +109,12 @@ export const startDaemon = async (
     channel,
     title: CHANNELS[channel].title,
     port: 0,
+    otherChannel: () =>
+      otherHome !== null &&
+      resolve(otherHome) !== resolve(p.home) &&
+      existsSync(paths(otherHome).db)
+        ? other
+        : null,
   }
 
   if (existsSync(p.socket)) rmSync(p.socket)
