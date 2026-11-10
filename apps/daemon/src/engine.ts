@@ -59,7 +59,13 @@ import {
 } from "./domain/permissionRequest.ts"
 import { appendAllowRule, ruleVerdict, scopedAllowRule } from "./domain/permissions.ts"
 import { displayPathFor } from "./domain/preview.ts"
-import { matchPrompt, type PromptCandidate, promptTool } from "./domain/prompts.ts"
+import {
+  ambiguousPrompt,
+  DISMISSED_RECENT_MS,
+  matchPrompt,
+  type PromptCandidate,
+  promptTool,
+} from "./domain/prompts.ts"
 import {
   type AnswerMode,
   encodeLiveAnswers,
@@ -974,7 +980,7 @@ export class Engine {
         requestId = this.onPreToolUse(c, session, agentId, p)
         break
       case "PostToolUse":
-        this.finishMatchedRequest(c, sid, p)
+        this.finishMatchedRequest(c, sid, agentId, p)
         this.setSessionState(c, sid, "running")
         this.setAgentState(c, agentId, "running")
         break
@@ -1189,7 +1195,11 @@ export class Engine {
       // Already tracked only when it's the same prompt: an open item for the same tool, or a
       // hold of that tool that lapsed into Claude's own prompt (D-067). A lapsed AskUserQuestion
       // hold also reaches us as "…permission to use AskUserQuestion" (D-034).
-      const match = matchPrompt(this.promptCandidates(session.id), promptTool(message), this.now())
+      const named = promptTool(message)
+      const candidates = this.promptCandidates(session.id)
+      // It names no agent or call: with two such prompts open, it can't say which (D-084).
+      if (ambiguousPrompt(candidates, named)) return
+      const match = matchPrompt(candidates, named, this.now())
       if (match) {
         const row = match.open ? this.store.item(match.itemId) : null
         if (row) this.apply(c, row, { _tag: "Refresh" })
@@ -1225,25 +1235,44 @@ export class Engine {
    * The session's permission/question items a new permission prompt could be about (D-067):
    * open ones, and ones whose hold ended in `ask` in the last day.
    */
-  private promptCandidates(sessionId: string): PromptCandidate[] {
+  private promptCandidates(sessionId: string): Array<
+    PromptCandidate & {
+      agentId: string | null
+      via: string | null
+      toolUseId: string | null
+      inputKey: string | null
+    }
+  > {
     const rows = this.store.all<{
       id: string
       kind: string
       state: string
       agent_id: string | null
+      updated_at: number
       tool: string | null
       decision: string | null
       decided_at: number | null
+      via: string | null
+      tool_use_id: string | null
+      input_key: string | null
     }>(
-      `SELECT i.id, i.kind, i.state, i.agent_id, a.tool, a.decision, a.decided_at
+      `SELECT i.id, i.kind, i.state, i.agent_id, i.updated_at, a.tool, a.decision, a.decided_at,
+           a.via, a.tool_use_id, a.input_key
          FROM attention_items i LEFT JOIN approvals a ON a.item_id = i.id
          WHERE i.session_id = ? AND i.kind IN ('permission','question')
-           AND (i.state IN ('open','snoozed') OR (a.decision = 'ask' AND a.decided_at > ?))
+           AND (i.state IN ('open','snoozed') OR (a.decision = 'ask' AND a.decided_at > ?)
+             OR (i.state = 'dismissed' AND i.updated_at > ?))
          ORDER BY i.updated_at DESC`,
       sessionId,
       this.now() - 24 * 3600_000,
+      this.now() - DISMISSED_RECENT_MS,
     )
     return rows.map((r) => ({
+      agentId: r.agent_id,
+      via: r.via,
+      toolUseId: r.tool_use_id,
+      inputKey: r.input_key,
+      dismissedAt: r.state === "dismissed" ? r.updated_at : null,
       itemId: r.id,
       open: r.state === "open" || r.state === "snoozed",
       tool: r.tool ?? (r.kind === "question" ? "AskUserQuestion" : null),
@@ -1465,12 +1494,19 @@ export class Engine {
    * newest PreToolUse of the session in the last 60 s with the same tool and deep-equal input
    * that hasn't completed and isn't already claimed by another open request.
    */
-  private recoverToolUseId(sessionId: string, tool: string, input: unknown): string | null {
+  private recoverToolUseId(
+    sessionId: string,
+    agentId: string,
+    tool: string,
+    input: unknown,
+  ): string | null {
     const want = canonicalJson(input)
+    // Same agent only: two subagents running the same command must not swap ids (D-083).
     const rows = this.store.all<{ payload_json: string }>(
-      `SELECT payload_json FROM events WHERE session_id = ? AND hook = 'PreToolUse'
+      `SELECT payload_json FROM events WHERE session_id = ? AND agent_id IS ? AND hook = 'PreToolUse'
          AND decode_error IS NULL AND received_at >= ? ORDER BY seq DESC LIMIT 50`,
       sessionId,
+      agentId,
       this.now() - 60_000,
     )
     for (const r of rows) {
@@ -1490,9 +1526,10 @@ export class Engine {
       )
       const claimed = this.store.one(
         `SELECT 1 AS x FROM approvals a JOIN attention_items i ON i.id = a.item_id
-           WHERE i.session_id = ? AND a.via = 'permissionRequest' AND a.tool_use_id = ?
-             AND i.state IN ('open','snoozed') LIMIT 1`,
+           WHERE i.session_id = ? AND i.agent_id IS ? AND a.via = 'permissionRequest'
+             AND a.tool_use_id = ? AND i.state IN ('open','snoozed') LIMIT 1`,
         sessionId,
+        agentId,
         p.tool_use_id,
       )
       if (!done && !claimed) return p.tool_use_id
@@ -1519,7 +1556,7 @@ export class Engine {
     this.setSessionState(c, sid, "waiting")
     const toolUseId =
       (typeof p.tool_use_id === "string" ? p.tool_use_id : null) ??
-      this.recoverToolUseId(sid, tool, p.tool_input)
+      this.recoverToolUseId(sid, agentId, tool, p.tool_input)
     const key = inputKey(tool, p.tool_input)
     const isQuestion = tool === "AskUserQuestion"
     const decide = this.decidesViaRequest()
@@ -1552,7 +1589,16 @@ export class Engine {
       }
       if (!existing) {
         // Same prompt as an item we have (the Part 1 rule, D-067): our hold lapsed into it.
-        const match = matchPrompt(this.promptCandidates(sid), tool, this.now())
+        // Only this agent's items, and another PermissionRequest's item only when it is this
+        // very call: a second, concurrent prompt is a new item (D-084).
+        const mine = this.promptCandidates(sid).filter(
+          (x) =>
+            x.agentId === agentId &&
+            (x.via !== "permissionRequest" ||
+              (toolUseId !== null && x.toolUseId === toolUseId) ||
+              x.inputKey === key),
+        )
+        const match = matchPrompt(mine, tool, this.now())
         if (match) {
           const row = match.open ? this.store.item(match.itemId) : null
           if (row) this.apply(c, row, { _tag: "Refresh" })
@@ -1657,19 +1703,21 @@ export class Engine {
   }
 
   /** The PostToolUse of the very call a PermissionRequest item is about; other calls don't count. */
-  private finishMatchedRequest(c: Changes, sessionId: string, p: Payload) {
+  private finishMatchedRequest(c: Changes, sessionId: string, agentId: string, p: Payload) {
     const tool = String(p.tool_name ?? "")
     const toolUseId = typeof p.tool_use_id === "string" ? p.tool_use_id : null
     const key = inputKey(tool, p.tool_input)
+    // By input only within the same agent: another agent's identical call isn't this one (D-083).
     for (const a of this.store.all<ApprovalRow>(
       `SELECT a.* FROM approvals a JOIN attention_items i ON i.id = a.item_id
          WHERE i.session_id = ? AND ${WAITING_IN_CLAUDE} AND i.state IN ('open','snoozed')
            AND ((a.tool_use_id IS NOT NULL AND a.tool_use_id = ?)
-             OR (a.tool_use_id IS NULL AND a.tool = ? AND a.input_key = ?))`,
+             OR (a.tool_use_id IS NULL AND a.tool = ? AND a.input_key = ? AND i.agent_id IS ?))`,
       sessionId,
       toolUseId,
       tool,
       key,
+      agentId,
     ))
       this.finishRequest(c, a, "PostToolUse")
   }
