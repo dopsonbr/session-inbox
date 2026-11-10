@@ -2,7 +2,7 @@ import "./styles.css"
 import { Effect, Layer, Option } from "effect"
 import { Runtime } from "foldkit"
 import { DaemonClient, type DaemonClientShape } from "./client/daemonClient.ts"
-import { makeHttpClient, readTokenFromDocument } from "./client/http.ts"
+import { addressWithoutToken, makeHttpClient, readTokenFromDocument } from "./client/http.ts"
 import { Message } from "./message.ts"
 import { Model } from "./model.ts"
 import { routeFromHash } from "./selectors.ts"
@@ -43,6 +43,10 @@ const flags: Effect.Effect<Flags> = Effect.sync(() => {
 })
 
 const client = await loadClient()
+
+// The token is in the page now (and in the cookie for reloads): keep it out of the address bar.
+const stripped = addressWithoutToken(window.location.href)
+if (stripped !== null) window.history.replaceState(window.history.state, "", stripped)
 
 const application = Runtime.makeApplication({
   Model,

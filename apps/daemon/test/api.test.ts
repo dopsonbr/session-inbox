@@ -137,11 +137,19 @@ describe("security", () => {
 })
 
 describe("static UI", () => {
-  test("index.html gets the token injected; assets are served", async () => {
-    const html = await (await fetch(`${base()}/`)).text()
-    expect(html).toContain(`content="${d.token}"`)
+  test("the token is injected only for ?k= or the cookie; assets are public (D-095)", async () => {
+    const locked = await (await fetch(`${base()}/`)).text()
+    expect(locked).not.toContain(d.token)
+    expect(locked).toContain("opened from the menu-bar app")
+    const first = await fetch(`${base()}/?k=${d.token}`)
+    expect(await first.text()).toContain(`content="${d.token}"`)
+    const cookie = (first.headers.get("set-cookie") ?? "").split(";")[0] ?? ""
+    expect(cookie).toBe(`si_k_${d.port}=${d.token}`)
+    const again = await fetch(`${base()}/inbox/item/1`, { headers: { cookie } })
+    expect(await again.text()).toContain(d.token)
     expect(await (await fetch(`${base()}/app.js`)).text()).toBe("console.log(1)")
-    expect(await (await fetch(`${base()}/inbox/item/1`)).text()).toContain(d.token)
+    // The cookie is never API auth.
+    expect((await fetch(`${base()}/v1/snapshot`, { headers: { cookie } })).status).toBe(401)
   })
 })
 

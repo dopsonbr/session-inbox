@@ -3,6 +3,7 @@
  * - Unix socket (0600, no auth): hook ingest + decision long-poll (+ health).
  * - TCP 127.0.0.1:<port> (bearer token, Host check): UI API, SSE stream, static UI.
  */
+import { createHash, timingSafeEqual } from "node:crypto"
 import { existsSync, statSync } from "node:fs"
 import { join, normalize } from "node:path"
 import {
@@ -168,10 +169,50 @@ const hostOk = (req: Request, port: number) => {
   return host === `127.0.0.1:${port}` || host === `localhost:${port}`
 }
 
+/** Constant-time string compare; hashing first hides the length too. */
+export const sameSecret = (a: string, b: string) =>
+  timingSafeEqual(createHash("sha256").update(a).digest(), createHash("sha256").update(b).digest())
+
+/**
+ * API auth is the bearer header only (plus `?token=` on the stream, D-020). The `si_k`
+ * cookie never authorises `/v1/*`, so a cross-site page can't ride it (D-095).
+ */
 const authOk = (req: Request, token: string, url: URL, allowQuery: boolean) => {
   const h = req.headers.get("authorization")
-  if (h === `Bearer ${token}`) return true
-  return allowQuery && url.searchParams.get("token") === token
+  if (h?.startsWith("Bearer ") && sameSecret(h.slice(7), token)) return true
+  const q = url.searchParams.get("token")
+  return allowQuery && q !== null && sameSecret(q, token)
+}
+
+/**
+ * `si_k_<port>`: cookies ignore the port, so GA and beta open in one browser would otherwise
+ * overwrite each other's cookie on 127.0.0.1.
+ */
+export const tokenCookie = (port: number) => `si_k_${port}`
+
+const cookieValue = (req: Request, name: string): string | null => {
+  for (const part of (req.headers.get("cookie") ?? "").split(";")) {
+    const eq = part.indexOf("=")
+    if (eq > 0 && part.slice(0, eq).trim() === name) return part.slice(eq + 1).trim()
+  }
+  return null
+}
+
+/**
+ * How a document request proves it already knows the token (D-095): `?k=<token>` from the
+ * menu-bar app or `session-inbox open`, or the cookie set on that first load.
+ */
+export const documentProof = (
+  req: Request,
+  url: URL,
+  token: string,
+  port: number,
+): "query" | "cookie" | null => {
+  const k = url.searchParams.get("k")
+  if (k !== null && sameSecret(k, token)) return "query"
+  const c = cookieValue(req, tokenCookie(port))
+  if (c !== null && sameSecret(c, token)) return "cookie"
+  return null
 }
 
 const streamResponse = (ctx: ServerContext, req: Request, url: URL): Response => {
@@ -224,13 +265,29 @@ export const injectToken = (html: string, token: string, title?: string) => {
   return title ? out.replace(/<title>[^<]*<\/title>/, `<title>${title}</title>`) : out
 }
 
-const serveStatic = async (ctx: ServerContext, url: URL): Promise<Response> => {
+/** Served instead of the app to a request that doesn't show the token (D-095). */
+export const LOCKED_PAGE = `<!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="light dark"><title>Session Inbox</title></head>
+<body style="font:13px -apple-system,system-ui;padding:24px"><h1 style="font-size:16px">Session Inbox</h1>
+<p>This inbox is opened from the menu-bar app (or run <code>session-inbox open</code>).</p></body></html>`
+
+const HTML_HEADERS = {
+  "content-type": "text/html; charset=utf-8",
+  "cache-control": "no-store",
+  "referrer-policy": "no-referrer",
+}
+
+const serveStatic = async (ctx: ServerContext, req: Request, url: URL): Promise<Response> => {
   const index = join(ctx.uiDir, "index.html")
   const html = async () => {
+    const proof = documentProof(req, url, ctx.token, ctx.port)
+    if (proof === null) return new Response(LOCKED_PAGE, { headers: HTML_HEADERS })
     const text = existsSync(index) ? await Bun.file(index).text() : PLACEHOLDER
-    return new Response(injectToken(text, ctx.token, ctx.title), {
-      headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
-    })
+    const headers: Record<string, string> = { ...HTML_HEADERS }
+    // Plain http on loopback, so no Secure; HttpOnly keeps it away from page scripts.
+    if (proof === "query")
+      headers["set-cookie"] =
+        `${tokenCookie(ctx.port)}=${ctx.token}; HttpOnly; SameSite=Strict; Path=/`
+    return new Response(injectToken(text, ctx.token, ctx.title), { headers })
   }
   const rel = normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.(\/|$))+/, "")
   if (rel === "/" || rel === "/index.html") return html()
@@ -252,7 +309,7 @@ export const uiHandler =
       const m = req.method
       if (!path.startsWith("/v1/")) {
         if (m !== "GET" && m !== "HEAD") return apiError(404, "not_found", "no such route")
-        return serveStatic(ctx, url)
+        return serveStatic(ctx, req, url)
       }
       if (path === "/v1/health") return json(health(ctx))
       if (!authOk(req, ctx.token, url, path === "/v1/stream"))

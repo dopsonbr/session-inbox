@@ -19,7 +19,8 @@ use tauri_plugin_autostart::{MacosLauncher, ManagerExt as _};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
-const WINDOWS: [(&str, &str); 2] = [("main", "/"), ("popover", "/?view=compact")];
+/// Window label and the query its page is opened with (the token is added per load, D-095).
+const WINDOWS: [(&str, &str); 2] = [("main", ""), ("popover", "view=compact")];
 
 /// Where the "Notifications are off" line goes in the tray menu (after Pause).
 const NOTIF_LINE_POS: usize = 2;
@@ -84,10 +85,10 @@ fn on_daemon_origin(w: &WebviewWindow, c: &Connection) -> bool {
 
 /// Point both windows at the daemon's UI (also after the daemon restarts on a new port).
 fn sync_windows(app: &AppHandle, c: &Connection) {
-    for (label, path) in WINDOWS {
+    for (label, query) in WINDOWS {
         if let Some(w) = app.get_webview_window(label) {
             if !on_daemon_origin(&w, c) {
-                let _ = w.navigate(format!("{}{path}", c.base()).parse().unwrap());
+                let _ = w.navigate(c.page_url(query, "").parse().unwrap());
             }
         }
     }
@@ -100,7 +101,7 @@ pub fn show_main(app: &AppHandle, hash: Option<String>) {
         if on_daemon_origin(&w, &c) {
             let _ = w.eval(format!("location.hash = {}", serde_json::to_string(&h).unwrap()));
         } else {
-            let _ = w.navigate(format!("{}/{h}", c.base()).parse().unwrap());
+            let _ = w.navigate(c.page_url("", &h).parse().unwrap());
         }
     }
     if let Some(p) = app.get_webview_window("popover") {
