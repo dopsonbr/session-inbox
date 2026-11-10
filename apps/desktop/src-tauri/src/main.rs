@@ -136,12 +136,14 @@ fn set_badge(app: &AppHandle, count: u32) {
     }
 }
 
-/// Ask launchd to (re)start the daemon agent. Never spawns it as a child.
+/// Ask launchd to start the daemon agent if it isn't running. Never spawns it as a child,
+/// and never kills one that is already up: without `-k` a running job is left alone, so an
+/// installer or updater that has just restarted the daemon isn't restarted again (S-020).
 fn kickstart() {
     let uid = std::process::Command::new("id").arg("-u").output().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
     if let Ok(uid) = uid {
         let _ = std::process::Command::new("launchctl")
-            .args(["kickstart", "-k", &format!("gui/{uid}/{}", channel::current().launchd_label)])
+            .args(["kickstart", &format!("gui/{uid}/{}", channel::current().launchd_label)])
             .output();
     }
 }

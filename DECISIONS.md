@@ -226,6 +226,7 @@ entries with your section's prefix (G, C, D, H, U, S, P) and the next free numbe
 - S-017 — `{"_tag":"unnotify","ids":[…]}` removes delivered and pending notifications by id (the request identifier is the daemon's notification id, the thread identifier its item id). Unknown tags are still ignored. Verified in usernoted's log against the fake daemon.
 - S-018 — `Info.plist` (`NSUserNotificationAlertStyle=alert`) is dropped. With the key in the beta bundle, usernoted still recorded `alertStyle: Banner` for the UN app, so UN ignores it. Users who want persistent Allow/Deny alerts pick "Alerts" in System Settings.
 - S-019 — Startup hardening: a taken global shortcut, failed login-item registration or missing app-data dir are logged and launch continues. Without an `.app` bundle (`cargo run`), notifications are skipped and status is `unknown`, because `UNUserNotificationCenter` raises there. Exec'ing `Contents/MacOS/session-inbox-shell` directly and `open -n -a … --env` both give the bundle identity. The tray adds "<Product> <version>" (disabled) and "Check for Updates…" (main window at `#/update`).
+- S-020 — The app asks launchd to start an offline daemon with `launchctl kickstart`, without `-k`. Found on a real reinstall: the app noticed the daemon was away for a moment, and its `kickstart -k` killed the daemon the installer had just started (launchd logged a second run, exit 130). Without `-k` a running job is left alone.
 
 ## Phase 0 spike findings
 
