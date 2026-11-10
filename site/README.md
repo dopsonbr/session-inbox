@@ -13,7 +13,6 @@ The documentation at <https://dopsonbr.github.io/session-inbox/> is built from t
 | `assets/site.css`, `assets/site.js` | The stylesheet (tokens plus a dark-mode block) and the small script for the mobile menu and copy buttons. |
 | `assets/screenshots/` | Screenshot files. Missing ones render a placeholder. |
 | `partials/*.html` | Hand-written HTML that a page pulls in with `[[include name]]` (the install box and the flow diagram). |
-| `VERIFY.md` | A checklist of claims to re-check against the code. It isn't published. |
 | `dist/` | The build output. It's git-ignored. |
 
 ### Add or edit a page
@@ -53,7 +52,13 @@ The file goes in `assets/screenshots/`. The numbers are the image's width and he
 [[screenshot inbox-light.png,inbox-dark.png 1440x900 Alt text.]]
 ```
 
-If the file isn't there yet, the page shows a placeholder and the build lists the missing file. Slots in use: `inbox-light.png`, `inbox-dark.png`, `popover.png`, `approval-diff.png` and `settings.png`.
+If the file isn't there yet, the page shows a placeholder and the build lists the missing file. Slots in use: `inbox-light.png` and `inbox-dark.png` (Home, 1440×900), `popover.png` (Using it, 420×560), `approval-diff.png` (Using it, 1200×760), `settings.png` (Settings, 1100×760) and `setup.png` (Troubleshooting, 1440×900). When a view changes, re-take its screenshot and re-check the alt text.
+
+### Keep it true
+
+When behaviour changes, update the matching page in `content/` in the same change. Don't write a flag, default, label or behaviour on a page unless you can find it in the code, and quote UI labels exactly. Claims that no person has checked yet go in the "Not yet verified by a person" list at the bottom of `content/troubleshooting.md`; remove a line when someone has.
+
+Two notes are written to be deleted once the first release is published: the blocks between `<!-- REMOVE AFTER FIRST RELEASE -->` and `<!-- /REMOVE AFTER FIRST RELEASE -->` in `index.md`, `install.md` and `changelog.md`.
 
 ### The Decisions page
 

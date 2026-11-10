@@ -13,6 +13,10 @@ toc: false
 
 [[include install-cmd]]
 
+<!-- REMOVE AFTER FIRST RELEASE -->
+The first release hasn't been published yet, so that command won't work until it is. See [Install](install.md) for what to do meanwhile.
+<!-- /REMOVE AFTER FIRST RELEASE -->
+
 [[include flow]]
 
 ## What it does
@@ -23,11 +27,11 @@ You hear about questions, permission requests, stops and failures. Routine tool 
 
 ### You answer where you are
 
-Allow or Deny a tool call from the notification itself, with the diff or the full command in front of you. Answer several of Claude's questions in one form and they reach the waiting session together.
+Allow or Deny a tool call with the diff or the full command in front of you, from the inbox or from the notification. Answer several of Claude's questions in one form and they reach the waiting session together.
 
 ### It follows Claude's own structure
 
-Sessions are grouped by project, then session, then subagent. Worktrees of the same repository land under one project. **Open in Claude** takes you to the exact session when there is real work to do.
+Sessions are grouped by project, then session, then subagent. Worktrees of the same repository land under one project. **Open in Claude** takes you to the exact session when there is real work to do. Session titles come from the Claude desktop app's own title for the session.
 
 ### It gets out of the way when it's off
 
@@ -37,10 +41,11 @@ If the background daemon isn't running, every hook exits immediately with no out
 
 ## Where to go next
 
-- [Install](install.md): the one-line installer, what it changes on your Mac, and how to remove it.
+- [Install](install.md): the one-line installer, installing from a tarball or source, what it changes on your Mac, and how to remove it.
 - [Using it](using-it.md): notifications, the menu bar, the inbox window and keyboard shortcuts.
 - [When it holds a tool call](holds.md): exactly when Session Inbox pauses Claude, and what happens if you don't answer.
 - [Settings](settings.md) and [Updating](updating.md): tune it, and keep it current.
+- [Troubleshooting](troubleshooting.md): the setup check, notification problems, logs, and what hasn't been verified by a person yet.
 - [How it works](how-it-works.md): the architecture, the files on disk and the security model.
 
 Session Inbox covers sessions on **this Mac** only: the Claude desktop app's Code tab and the `claude` CLI. There are no cloud sessions, no sync and no transcript viewer.

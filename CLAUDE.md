@@ -7,6 +7,8 @@ macOS menu-bar inbox for local Claude Code sessions: hooks → Bun daemon → Ta
 - **DECISIONS.md** is the source of truth for what was decided and why; it overrides `docs/implementation.md` (the spec snapshot). Add an entry for every decision you make, in your area's section with the next free number (G general, C contracts, D daemon, H hook & ops, U UI, S shell, P spike findings): `- X-NNN — decision. Why.` Keep it to one or two lines.
 - `docs/spike.md`: what's proven about Claude Code's hooks, and what isn't.
 - `docs/mockups/InboxDesktop.dc.html`, `MenuBar.dc.html`: the target UI.
+- `docs/handoff.md`: where things stand and what's next.
+- **Docs site** (`site/content/*.md`, published at https://dopsonbr.github.io/session-inbox/): **when behaviour changes, update the matching page in `site/content/` in the same change.** Quote UI labels and defaults from the code; don't document what you can't find there. Claims no person has checked yet go in the "Not yet verified by a person" list on the Troubleshooting page. `site/README.md` says how pages are built.
 
 ## Architecture rules (don't break these)
 
@@ -19,7 +21,7 @@ macOS menu-bar inbox for local Claude Code sessions: hooks → Bun daemon → Ta
 
 ## Conventions
 
-- **Bun for everything**: runtime, tests, scripts (`scripts/*.ts`), compiled binaries. No Node, npm, or shell scripts.
+- **Bun for everything**: runtime, tests, scripts (`scripts/*.ts`), compiled binaries. No Node, npm, or shell scripts, except `install.sh` (G-025), the `curl | sh` bootstrap that must run before Bun exists.
 - **Pin exact versions** (G-005). Effect is **v4.1.2**: `Schema.Literals([...])`, `Schema.Union([...])`, `Result` not `Either`, no `onExcessProperty: "preserve"` (use `decodeHookPayload`). Check `node_modules/.bun/effect@4.1.2/node_modules/effect/dist/*.d.ts` rather than recalling v3 APIs. Foldkit (0.170) is not React; follow the existing Model / Message / Update / View code in `apps/desktop/src`.
 - Daemon storage is `bun:sqlite` and HTTP is `Bun.serve`, wrapped in Effect services (D-001, D-002). Schema changes are new numbered files in `apps/daemon/src/db/migrations/`; never edit a shipped migration.
 - Side effects (git, claude CLI, notifier, opener, clock) go through services in `apps/daemon/src/services.ts` so tests can fake them.
@@ -45,11 +47,13 @@ bun scripts/build-shell.ts            # Session Inbox.app (slow first build); --
 bun scripts/install.ts --channel beta --yes --app   # beta install beside GA (H-014)
 bun scripts/channels.ts               # GA + beta status; `holds <ga|beta>` picks the holder
 session-inbox doctor [--json]         # setup check (daemon's report, or local checks when it's down)
-bun scripts/release.ts --skip-app     # release payload + tarball + .sha256 → dist/release (no app: fast)
-bun apps/cli/src/main.ts <cmd>        # the session-inbox CLI from source (install/uninstall/update/status)
+bun scripts/release.ts --skip-app     # release payload + tarball + .sha256 → dist/release (no app: fast); --publish runs `gh release create`
+bun scripts/bump.ts patch|minor|major # edit VERSION (the Release workflow runs it)
+bun scripts/build-site.ts --check     # docs site: build and check every link; --serve to preview
+bun apps/cli/src/main.ts <cmd>        # the session-inbox CLI from source: install | uninstall | update | status | doctor | holds | open
 ```
 
-Before committing: `bun test`, `bun run typecheck`, `bun run lint`; also `bun scripts/smoke.ts` if you touched the daemon, hook or contracts, and `bun scripts/e2e-update.ts` if you touched the CLI, the updater or the launchd plist.
+Before committing: `bun test`, `bun run typecheck`, `bun run lint`; also `bun scripts/smoke.ts` if you touched the daemon, hook or contracts, and `bun scripts/e2e-update.ts` if you touched the CLI, the updater or the launchd plist, and `bun scripts/build-site.ts --check` if you touched `site/`, `README.md` or `DECISIONS.md`.
 
 ## Testing approach
 
@@ -61,7 +65,8 @@ Before committing: `bun test`, `bun run typecheck`, `bun run lint`; also `bun sc
 ## Gotchas
 
 - **Two channels can be installed at once** (GA from `main`, beta from a branch; H-014). Test a daemon/hook change on beta (`install.ts --channel beta`) before reinstalling GA. Never let both hold (H-016).
-- **Never touch the real machine state from tests or scripts without being asked**: `~/.claude/settings.json`, `~/Library/LaunchAgents`, `~/Library/Application Support/SessionInbox`. Use `SESSION_INBOX_HOME`, `CLAUDE_CONFIG_DIR` and `--settings <temp file>`. `install.ts` and `uninstall.ts` are dry runs unless given `--yes`.
+- **Never touch the real machine state from tests or scripts without being asked**: `~/.claude/settings.json`, `~/Library/LaunchAgents`, `~/Library/Application Support/SessionInbox`. Use `SESSION_INBOX_HOME`, `CLAUDE_CONFIG_DIR` and `--settings <temp file>`. `install`, `uninstall` and `update` (the scripts and the `session-inbox` CLI) are dry runs unless given `--yes`; `holds` and `open` act at once.
+- **Publishing is never automatic**: `release.ts --publish` and the Release workflow create a GitHub Release. Don't run or trigger either unless asked. Release artifacts are Apple silicon only (G-027); beta never updates from releases (G-029).
 - macOS caps Unix socket paths at 104 bytes. Use short temp homes (`mkdtempSync("/tmp/si-…")`), not the session scratchpad.
 - `claude` processes the daemon spawns for its own use must set `SESSION_INBOX_INTERNAL=1` (the hook then ignores them) and disable hooks, or they feed back into the inbox. Outbox `--resume` replies deliberately do not, because their events confirm delivery.
 - A child `claude -p` started from inside a Claude Code session needs a clean env (`env -u CLAUDECODE …`) and its own login. Desktop-app auth is not shared with the CLI.

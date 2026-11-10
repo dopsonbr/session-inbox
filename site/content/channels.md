@@ -10,7 +10,7 @@ section: Guides
 
 You can run two copies of Session Inbox on one Mac. **GA** is the everyday install. **Beta** is a second install built from a working checkout, so you can try a branch while GA keeps doing its job. This is mostly for people working on Session Inbox itself.
 
-Beta is installed from source, so it needs Bun and Rust as described in [Install from source](install.md#install-from-source).
+Beta is installed from source, so it needs Bun and Rust as described in [Install from source](install.md#install-from-source). It never updates from releases: to refresh it, reinstall it from your checkout.
 
 ## What each channel has of its own
 
@@ -21,6 +21,8 @@ Beta is installed from source, so it needs Bun and Rust as described in [Install
 | App | `~/Applications/Session Inbox.app` | `~/Applications/Session Inbox Beta.app` |
 | Deep links | `sessioninbox://` | `sessioninbox-beta://` |
 | Open the inbox | <kbd>⌘</kbd><kbd>⇧</kbd><kbd>I</kbd> | <kbd>⌘</kbd><kbd>⌥</kbd><kbd>⇧</kbd><kbd>I</kbd> |
+| Command | `~/.local/bin/session-inbox` | `~/.local/bin/session-inbox-beta` |
+| Updates | from GitHub Releases | never; reinstall from your checkout |
 | Port | random, per install | random, per install |
 
 Both channels put their hooks in `~/.claude/settings.json`, so both see every session. Each install leaves the other's hooks alone.
@@ -37,10 +39,10 @@ git switch my-branch
 bun scripts/install.ts --channel beta --yes --app
 ```
 
-Then see the state of both channels: whether each is running, its build, whether it holds, and its URL:
+Then see the state of both channels: its version, whether launchd and the app are running, whether it holds, and its URL:
 
 ```bash
-bun scripts/channels.ts
+session-inbox status
 ```
 
 ## Only one channel holds
@@ -52,16 +54,18 @@ That means you can compare the two inboxes side by side, and they match. A held 
 To swap roles:
 
 ```bash
-bun scripts/channels.ts holds beta
+session-inbox holds beta
 ```
 
-Beta now holds and GA observes. Switch back with `holds ga`. Swapping restarts both daemons, so anything being held at that moment falls back to Claude's own prompt. Do it when nothing is waiting.
+Beta now holds and GA observes. Switch back with `session-inbox holds ga`. Swapping restarts both daemons, so anything being held at that moment falls back to Claude's own prompt. Do it when nothing is waiting.
 
 Open a channel's inbox in the browser:
 
 ```bash
-bun scripts/channels.ts open beta
+session-inbox open beta
 ```
+
+From a checkout, `bun scripts/channels.ts` does the same three things (`status`, `holds <ga|beta>` and `open <ga|beta>`).
 
 ## Remove the beta
 
@@ -69,4 +73,4 @@ bun scripts/channels.ts open beta
 bun scripts/uninstall.ts --channel beta --yes --app
 ```
 
-This removes only beta's hooks, launchd agent and app. GA's hooks are left alone.
+This removes only beta's hooks, launchd agent and app. GA's hooks are left alone. Add `--purge` to delete beta's data folder too.

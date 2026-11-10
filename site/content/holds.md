@@ -15,19 +15,23 @@ Session Inbox can pause a tool call in a Claude session until you decide, from a
 A call is held only when all of these are true:
 
 1. **The session is in the default permission mode.** Sessions in other modes, such as auto or accept-edits, are never held.
-2. **The tool is in the held set.** By default that's Bash, Write, Edit, MultiEdit, NotebookEdit and WebFetch. Change it with `holds.tools` in [Settings](settings.md).
+2. **The tool is in the held set.** By default that's Bash, Write, Edit, MultiEdit, NotebookEdit and WebFetch. Change it with **Tools that can be held** in [Settings](settings.md).
 3. **No allow rule matches.** If your user, project or local Claude settings already allow the call, Claude wouldn't ask, so neither does Session Inbox. A deny rule wins over an allow rule, as it does in Claude.
 4. **The project isn't muted.**
 
-Two more cases are never held. Read-only Bash commands from the safe list (`ls`, `pwd`, `git status`, `git diff` and similar, with no shell operators in them) run without a pause. And if holding is switched off with `holds.enabled`, nothing is held.
+Two more cases are never held. Read-only Bash commands from the safe list (`ls`, `pwd`, `git status`, `git diff` and similar, with no shell operators in them) run without a pause. And if holding is switched off in [Settings](settings.md), nothing is held.
+
+Session Inbox reads your allow and deny rules to decide rule 3. It understands `Tool`, `Tool(exact)`, `Tool(prefix:*)`, `Tool(prefix*)`, `Tool(dir/**)` and `WebFetch(domain:host)`, but not every pattern Claude supports. If it misreads a rule, the worst case is that it holds a call Claude wouldn't have asked about; the call is then released to Claude after the wait.
 
 `AskUserQuestion` is the exception to rule 1 to 3: it is always routed through the inbox, so you can answer from a notification. Muting the project still applies.
 
-Everything else is left alone. Claude shows its own permission prompt exactly as it would without Session Inbox, and Session Inbox only records that it happened.
+Everything else is left alone. Claude shows its own permission prompt exactly as it would without Session Inbox. When Claude reports that prompt, it appears in **Needs you** as an item with only **Open in Claude**: the call isn't paused by the inbox, so there is nothing to Allow or Deny from here.
+
+<!-- TODO(orchestrator): PermissionRequest -->
 
 ## What you see while a call is held
 
-The item appears in **Needs you** with a notification that offers **Allow**, **Deny** and **Open**. Claude shows its working state and waits. When you decide, the answer goes straight back and Claude continues in the same turn.
+The item appears in **Needs you** with a notification that offers **Allow**, **Deny** and **Open**. Claude shows its working state and waits. When you decide, the answer goes straight back and Claude continues in the same turn. The card shows the diff or the full command so you can decide; see [Approving a tool call](using-it.md#approving-a-tool-call).
 
 Clicking **Open in Claude** on a held item releases the hold at once, so Claude's own permission prompt appears. You're never looking at a frozen session.
 
@@ -35,7 +39,9 @@ Clicking **Open in Claude** on a held item releases the hold at once, so Claude'
 
 A held call waits up to **120 seconds** for your decision. If you haven't answered by then, Session Inbox lets go and Claude shows its own permission prompt, as if the inbox hadn't been there. The item stays in the inbox, marked as no longer live, so you can still see what happened.
 
-The wait is `holds.budgetMs` (default `120000`) in [Settings](settings.md). The registered hook has a longer timeout than the wait, so Claude never cuts the hook off before the fallback happens.
+You can shorten the wait in [Settings](settings.md), under **Approvals**, as **Wait for an answer**: 15 to 120 seconds. It can't be longer, because the hook itself stops waiting at 120 seconds. The registered hook has a longer timeout than the wait, so Claude never cuts the hook off before the fallback happens.
+
+Turning holding off in Settings releases every call being held at that moment, so none stay frozen: Claude shows its own prompt for each.
 
 ## Always allow
 
