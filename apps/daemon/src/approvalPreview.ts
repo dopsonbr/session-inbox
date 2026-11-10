@@ -48,7 +48,14 @@ export const computePreview = (
   }
   try {
     if (p.transcriptPath)
-      context = lastAssistantText(fs.tail(p.transcriptPath, TRANSCRIPT_TAIL_BYTES), p.toolUseId)
+      // Only with this call's own tool_use block in the tail: at hold time it usually isn't
+      // written yet, and "the last text before the end" is then the previous step's (D-075).
+      context = lastAssistantText(
+        fs.tail(p.transcriptPath, TRANSCRIPT_TAIL_BYTES),
+        p.toolUseId,
+        undefined,
+        { requireToolUse: true },
+      )
   } catch (e) {
     log.warn("approval context failed", e)
   }

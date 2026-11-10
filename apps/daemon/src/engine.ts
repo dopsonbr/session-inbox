@@ -69,9 +69,11 @@ import {
   permissionSummary,
   provisionalTitle,
   type ShowPath,
+  summaryLine,
   TITLE_HEAD_BYTES,
   TRANSCRIPT_TAIL_BYTES,
   toolLine,
+  toolUsesIn,
   transcriptTitle,
   UNTITLED,
 } from "./domain/text.ts"
@@ -159,6 +161,8 @@ export const REPLY_CLI_MISSING =
   "Replies are sent with the claude CLI, which wasn't found on this Mac. Install Claude Code's command-line tool, or open the session in Claude."
 /** Claude's own prompt is on screen for this item: `--resume` would collide with it (D-073). */
 export const ANSWER_IN_CLAUDE = "Claude is asking in its own window. Answer there."
+/** What a plain Deny from the inbox tells Claude (D-078); replies keep "The user replied: …". */
+export const DENIED_IN_INBOX = "Denied by the user in Session Inbox."
 export const REPLY_CLI_LOGGED_OUT =
   "Replies are sent with the claude CLI, which isn't logged in on this Mac. Run `claude` in a terminal once to log in, or open the session in Claude."
 
@@ -871,7 +875,7 @@ export class Engine {
             agentId: main,
             kind: "failed",
             dedupeKey: this.dedupeKey(sid, main, "failed"),
-            summary: firstLine(lastMessage) ?? "Stopped with errors",
+            summary: summaryLine(lastMessage) ?? "Stopped with errors",
           })
           if (created) this.queueNotification(c, row)
         } else {
@@ -880,7 +884,7 @@ export class Engine {
             agentId: main,
             kind: "review",
             dedupeKey: this.dedupeKey(sid, main, "review"),
-            summary: firstLine(lastMessage) ?? "Ready to review",
+            summary: summaryLine(lastMessage) ?? "Ready to review",
           })
           if (created) this.queueNotification(c, row)
         }
@@ -1533,6 +1537,127 @@ export class Engine {
     c.after.push(() => this.wake(a.hook_request_id))
   }
 
+  /**
+   * The transcript pass on the tick (D-075, D-076), for open approval items that are Claude's
+   * own prompt (PermissionRequest items, live or not, and lapsed holds) or have no context yet:
+   * one bounded tail read per session; never throws.
+   * - context: read once the call's own `tool_use` block is written (≥ 1 s, up to 3 tries), and
+   *   the `tool_use_id` recovered from the transcript when no PreToolUse had it;
+   * - answered in Claude: once the call has a `tool_result` (ran, failed or was denied there),
+   *   the item resolves as with its PostToolUse, and a still-waiting hook exits silently.
+   */
+  private followTranscripts() {
+    const now = this.now()
+    const rows = this.store.all<
+      ApprovalRow & { created_at: number; session_id: string; transcript_path: string | null }
+    >(
+      `SELECT a.*, i.created_at, i.session_id, s.transcript_path FROM approvals a
+         JOIN attention_items i ON i.id = a.item_id JOIN sessions s ON s.id = i.session_id
+         WHERE i.state IN ('open','snoozed') AND s.transcript_path IS NOT NULL
+           AND (${WAITING_IN_CLAUDE} OR (a.live = 1 AND a.via = 'permissionRequest')
+             OR (a.context IS NULL AND i.created_at >= ?))
+         ORDER BY i.session_id`,
+      now - 30_000,
+    )
+    const current = new Set(rows.map((r) => r.item_id))
+    for (const id of this.contextTries.keys()) if (!current.has(id)) this.contextTries.delete(id)
+    if (rows.length === 0) return
+    const bySession = new Map<string, typeof rows>()
+    for (const r of rows) bySession.set(r.session_id, [...(bySession.get(r.session_id) ?? []), r])
+    for (const [, items] of bySession) {
+      const first = items[0]
+      if (!first?.transcript_path) continue
+      const due = items.filter((a) => now - a.created_at >= 1_000)
+      if (due.length === 0) continue
+      let tail: string | null = null
+      try {
+        tail = this.files.tail(first.transcript_path, TRANSCRIPT_TAIL_BYTES)
+      } catch (e) {
+        this.deps.log.warn("transcript read failed", e)
+        continue
+      }
+      if (!tail) continue
+      for (const a of due) {
+        try {
+          this.followOne(a, tail, now)
+        } catch (e) {
+          this.deps.log.warn("transcript follow failed", e)
+        }
+      }
+    }
+  }
+
+  private readonly contextTries = new Map<string, number>()
+
+  private followOne(
+    a: ApprovalRow & { created_at: number; session_id: string },
+    tail: string,
+    now: number,
+  ) {
+    let input: unknown = null
+    try {
+      input = JSON.parse(a.input_json)
+    } catch {
+      input = null
+    }
+    const want = canonicalJson(input)
+    let toolUseId = a.tool_use_id
+    let answered = false
+    const uses = toolUsesIn(tail, a.tool, (x) => canonicalJson(x) === want).filter(
+      // An identical call from before this item (a repeated `ls`) isn't this one.
+      (u) => u.at === null || u.at >= a.created_at - 5_000,
+    )
+    if (toolUseId) {
+      answered = uses.some((u) => u.id === toolUseId && u.hasResult)
+    } else {
+      const claimed = new Set(
+        this.store
+          .all<{ tool_use_id: string }>(
+            `SELECT a.tool_use_id FROM approvals a JOIN attention_items i ON i.id = a.item_id
+               WHERE i.session_id = ? AND a.tool_use_id IS NOT NULL AND i.state IN ('open','snoozed')`,
+            a.session_id,
+          )
+          .map((r) => r.tool_use_id),
+      )
+      const pending = uses.find((u) => !u.hasResult && !claimed.has(u.id))
+      const done = uses.find((u) => u.hasResult && !claimed.has(u.id))
+      const found = pending ?? done
+      if (found) {
+        toolUseId = found.id
+        answered = found.hasResult
+        this.store.run(
+          "UPDATE approvals SET tool_use_id = ? WHERE item_id = ? AND tool_use_id IS NULL",
+          found.id,
+          a.item_id,
+        )
+      }
+    }
+    const waiting = a.via === "permissionRequest" || (a.decision === "ask" && a.live === 0)
+    if (answered && waiting && now - a.created_at >= 2_000) {
+      const fresh = this.store.approval(a.item_id)
+      if (fresh && fresh.decision === (a.decision ?? null))
+        this.tx((c) => this.finishRequest(c, fresh, "transcript"))
+      return
+    }
+    if (a.context || !toolUseId) return
+    const tries = this.contextTries.get(a.item_id) ?? 0
+    if (tries >= 3) return
+    this.contextTries.set(a.item_id, tries + 1)
+    const text = lastAssistantText(tail, toolUseId, undefined, { requireToolUse: true })
+    if (!text) return
+    this.contextTries.delete(a.item_id)
+    // Presentation data (D-066), but an open detail pane should see it: one event + delta.
+    this.tx((c) => {
+      this.appendEvent(c, {
+        sessionId: a.session_id,
+        hook: "daemon:context",
+        payload: { itemId: a.item_id },
+      })
+      this.store.run("UPDATE approvals SET context = ? WHERE item_id = ?", text, a.item_id)
+      c.items.add(a.item_id)
+    })
+  }
+
   /** The hook's long-poll closed while still waiting: Claude's prompt was answered first. */
   private requestAbandoned(requestId: string) {
     const a = this.store.approvalByRequest(requestId)
@@ -1720,7 +1845,7 @@ export class Engine {
     this.store.run(
       "UPDATE approvals SET decision = ?, reason = ?, updated_input_json = ?, live = 0, decided_at = ? WHERE item_id = ?",
       decision,
-      extra.reason ?? null,
+      extra.reason ?? (decision === "deny" ? DENIED_IN_INBOX : null),
       extra.updatedInput === undefined ? null : JSON.stringify(extra.updatedInput),
       this.now(),
       item.id,
@@ -2708,6 +2833,7 @@ export class Engine {
         this.apply(c, r, { _tag: "MarkUnconfirmed" })
       })
     }
+    this.followTranscripts()
     this.flushReviewGroup()
     this.kickOutbox()
     this.updates?.tick()

@@ -225,7 +225,10 @@ describe("decide mode (holds.via = permissionRequest, the default since D-074)",
     const h = makeHarness({ settings: DECIDE })
     const r = await decideReq(h, "t1", "rm -rf build")
     h.engine.decide(live(h)?.id ?? "", "deny", null)
-    expect(await h.engine.waitDecision(r.requestId ?? "", 0)).toEqual({ decision: "deny" })
+    expect(await h.engine.waitDecision(r.requestId ?? "", 0)).toEqual({
+      decision: "deny",
+      reason: "Denied by the user in Session Inbox.",
+    })
   })
 
   test("allow-always with suggestions echoes them and writes nothing itself", async () => {
