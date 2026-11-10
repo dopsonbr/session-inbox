@@ -17,11 +17,13 @@ import {
   SCHEMA_VERSION,
   SnoozeRequest,
 } from "@session-inbox/contracts"
+import { BUILD, VERSION } from "@session-inbox/contracts/version"
 import { Result, Schema } from "effect"
 import { ApiFailure, type Engine } from "./engine.ts"
 import type { ClientKind } from "./stream.ts"
 
-export const VERSION = "0.1.0"
+/** From the root VERSION file, or `bun build --define` in scripts/build.ts (H-019). */
+export { BUILD, VERSION }
 export const TOKEN_META = '<meta name="session-inbox-token" content="">'
 
 const json = (body: unknown, status = 200) =>
@@ -185,10 +187,6 @@ export const injectToken = (html: string, token: string, title?: string) => {
   const out = html.replace(TOKEN_META_RE, `<meta name="session-inbox-token" content="${token}">`)
   return title ? out.replace(/<title>[^<]*<\/title>/, `<title>${title}</title>`) : out
 }
-
-declare const SESSION_INBOX_BUILD: string | undefined
-/** Set by `bun build --define` in scripts/build.ts; "dev" when run from source. */
-export const BUILD: string = typeof SESSION_INBOX_BUILD === "string" ? SESSION_INBOX_BUILD : "dev"
 
 const serveStatic = async (ctx: ServerContext, url: URL): Promise<Response> => {
   const index = join(ctx.uiDir, "index.html")

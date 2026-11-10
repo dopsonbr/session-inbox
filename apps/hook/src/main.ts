@@ -12,6 +12,7 @@
 import { appendFileSync, mkdirSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { homeOfExecutable, INTERNAL_ENV, paths } from "@session-inbox/contracts/paths"
+import { VERSION } from "@session-inbox/contracts/version"
 
 const INGEST_TIMEOUT_MS = 500
 const MAX_WAIT_S = 110
@@ -78,6 +79,7 @@ export const run = async (
   readStdin: () => Promise<string>,
   execPath: string = process.execPath,
 ): Promise<string | null> => {
+  if (argv[0] === "--version") return VERSION
   if (env[INTERNAL_ENV]) return null
 
   const args = [...argv]
