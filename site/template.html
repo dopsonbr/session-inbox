@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{pageTitle}}</title>
+<meta name="description" content="{{description}}">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="layout">
+  <div class="sidebar">
+    <header class="site-header">
+      <a class="brand" href="index.html">{{logo}}<span>Session Inbox</span></a>
+      <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
+    </header>
+    {{nav}}
+  </div>
+  <div class="page">
+    <div class="page-grid">
+      <main id="main" class="content">
+        <article>{{content}}</article>
+        {{pager}}
+      </main>
+      {{toc}}
+    </div>
+    <footer class="site-footer">{{footer}}</footer>
+  </div>
+</div>
+<script src="assets/site.js" defer></script>
+</body>
+</html>

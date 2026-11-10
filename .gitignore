@@ -6,3 +6,4 @@ target/
 .dev/
 apps/desktop/src-tauri/gen/
 .claude/worktrees/
+site/dist/
