@@ -15,6 +15,7 @@ import { Message } from "../src/message.ts"
 import type { Model } from "../src/model.ts"
 import { nextInTab, stepThrough } from "../src/selectors.ts"
 import { SettingsMessage } from "../src/settings.ts"
+import { DEFAULT_BINDINGS } from "../src/shortcuts.ts"
 import {
   canMarkDone,
   initialModel,
@@ -34,7 +35,7 @@ import {
 } from "../src/view/detail.ts"
 import { historyView } from "../src/view/history.ts"
 import { navView } from "../src/view/nav.ts"
-import { SHORTCUTS } from "../src/view/overlays.ts"
+import { shortcutRows } from "../src/view/overlays.ts"
 import { queueView } from "../src/view/queue.ts"
 import { SETTINGS_APPLY_TEXT, settingsBody, settingsTitle } from "../src/view/settings.ts"
 import { attrOf, classOf, findAll, h, textOf } from "./vnode.ts"
@@ -522,8 +523,8 @@ describe("the shortcut list (U-073, UX-030)", () => {
   })
 
   test("lists every shortcut", () => {
-    const keys = SHORTCUTS.flatMap((s) => s.keys)
-    for (const key of ["⌘K", "⌘↵", "⌘⌫", "j", "k", "e", "⌘,", "↑", "↓", "?"]) {
+    const keys = shortcutRows(DEFAULT_BINDINGS).flatMap((s) => s.keys)
+    for (const key of ["⌘⇧I", "⌘K", "⌘↵", "⌘⌫", "J", "K", "E", "⌘,", "↑", "↓", "?", "Esc"]) {
       expect(keys).toContain(key)
     }
   })

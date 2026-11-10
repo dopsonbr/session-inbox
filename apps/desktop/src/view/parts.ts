@@ -1,6 +1,7 @@
 import type { AttentionKind, HistoryOutcome, Item, Session } from "@session-inbox/contracts"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import type { Message } from "../message.ts"
+import { ariaShortcut, displayShortcut } from "../shortcuts.ts"
 
 type H = HtmlBuilder<Message>
 
@@ -273,3 +274,13 @@ export const kbd = (h: H, text: string): Html =>
     ],
     [text],
   )
+
+/** A button's hint for a shortcut setting (U-078): nothing when the action has no key press. */
+export const shortcutHint = (h: H, binding: string): Html =>
+  binding === "" ? h.empty : kbd(h, displayShortcut(binding))
+
+/** `aria-keyshortcuts` for a shortcut setting, or no attribute when it has none (U-078). */
+export const keyshortcuts = (h: H, binding: string) => {
+  const value = ariaShortcut(binding)
+  return value === "" ? [] : [h.AriaKeyshortcuts(value)]
+}

@@ -5,6 +5,13 @@ import { childAttributes, type Html, type HtmlBuilder } from "foldkit/html"
 import { Message } from "../message.ts"
 import type { Model } from "../model.ts"
 import { findProject, needsYouCountForProject } from "../selectors.ts"
+import {
+  displayShortcut,
+  NOT_SET_TEXT,
+  SHORTCUT_LABELS,
+  SHORTCUT_ROW_ORDER,
+  type ShortcutBindings,
+} from "../shortcuts.ts"
 import { Toast } from "../toast.ts"
 import { SessionCombobox } from "../update.ts"
 import { Icon, kbd } from "./parts.ts"
@@ -148,35 +155,45 @@ export const jumpDialogView = (model: Model, h: H): Html =>
     toParentMessage: (message) => Message.GotJumpDialogMessage({ message }),
   })
 
-/** Every shortcut, as the `?` dialog lists them (U-073). */
-export const SHORTCUTS: ReadonlyArray<Readonly<{ keys: ReadonlyArray<string>; does: string }>> = [
-  { keys: ["⌘K"], does: "Jump to a session" },
-  { keys: ["⌘↵"], does: "Main action: Allow once, Send answers or Send reply" },
-  { keys: ["⌘⌫"], does: "Deny" },
-  { keys: ["j", "k"], does: "Next / previous item in the list" },
-  { keys: ["e"], does: "Done: clear a review or failed item" },
-  { keys: ["⌘,"], does: "Settings" },
+export type ShortcutRow = Readonly<{ keys: ReadonlyArray<string>; does: string }>
+
+/** Keys that can't be changed: always the last rows. */
+export const FIXED_SHORTCUTS: ReadonlyArray<ShortcutRow> = [
   { keys: ["↑", "↓"], does: "Move in the session tree" },
-  { keys: ["?"], does: "This list" },
+  { keys: ["Esc"], does: "Close a dialog or menu" },
 ]
 
-const shortcutList = (h: H): Html =>
+/**
+ * Every shortcut as the `?` dialog lists them (U-073), with the current key presses (U-078):
+ * one row per action in the Settings pane's order and words; an unset one has no keys.
+ */
+export const shortcutRows = (bindings: ShortcutBindings): ReadonlyArray<ShortcutRow> => [
+  ...SHORTCUT_ROW_ORDER.map((action) => ({
+    keys: bindings[action] === "" ? [] : [displayShortcut(bindings[action])],
+    does: SHORTCUT_LABELS[action],
+  })),
+  ...FIXED_SHORTCUTS,
+]
+
+const shortcutList = (bindings: ShortcutBindings, h: H): Html =>
   h.dl(
     [h.Class("m-0 grid grid-cols-[max-content_1fr] items-center gap-x-4 gap-y-2.5")],
-    SHORTCUTS.flatMap(({ keys, does }) => [
+    shortcutRows(bindings).flatMap(({ keys, does }) => [
       h.dt(
         [h.Class("flex items-center gap-1")],
-        keys.flatMap((key, i) => [
-          i === 0 ? h.empty : h.span([h.Class("text-xs text-subtle-foreground")], ["/"]),
-          h.kbd(
-            [
-              h.Class(
-                "inline-flex min-w-6 justify-center rounded border border-border bg-muted px-1.5 py-0.5 font-sans text-[12px] font-medium",
+        keys.length === 0
+          ? [h.span([h.Class("text-xs text-subtle-foreground")], [NOT_SET_TEXT])]
+          : keys.flatMap((key, i) => [
+              i === 0 ? h.empty : h.span([h.Class("text-xs text-subtle-foreground")], ["/"]),
+              h.kbd(
+                [
+                  h.Class(
+                    "inline-flex min-w-6 justify-center rounded border border-border bg-muted px-1.5 py-0.5 font-sans text-[12px] font-medium",
+                  ),
+                ],
+                [key],
               ),
-            ],
-            [key],
-          ),
-        ]),
+            ]),
       ),
       h.dd([h.Class("m-0 text-[13px]")], [does]),
     ]),
@@ -227,7 +244,7 @@ export const shortcutsDialogView = (model: Model, h: H): Html =>
                         ),
                       ],
                     ),
-                    shortcutList(h),
+                    shortcutList(model.shortcuts, h),
                     h.p(
                       [h.Class("mt-3 text-xs text-subtle-foreground")],
                       ["Letter keys do nothing while you type in a field."],

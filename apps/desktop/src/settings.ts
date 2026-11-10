@@ -7,8 +7,12 @@ import { Dialog } from "@foldkit/ui"
 import {
   HOLDABLE_TOOLS,
   type HoldableTool,
+  isGlobalShortcut,
   SETTING_LIMITS,
   SettingsResponse,
+  shortcutActionOf,
+  shortcutProblem,
+  shortcutSettingKey,
   type UserSettingKey,
   UserSettings,
   UserSettingsPatch,
@@ -19,14 +23,34 @@ import { defineMessageUnion } from "foldkit/message"
 import { defineTaggedUnion } from "foldkit/schema"
 import { DaemonClient } from "./client/daemonClient.ts"
 import type { ExtraNumberSetting } from "./client/extraSettings.ts"
+import {
+  isCancelPress,
+  SHORTCUT_LABELS,
+  SHORTCUT_ROW_ORDER,
+  shortcutFromKeyPress,
+} from "./shortcuts.ts"
 
 // FIELDS
 //
 // The pane renders from this list. A new boolean setting is one entry here (plus the
 // key in contracts' UserSettings); a new group is one entry in SETTINGS_GROUPS.
 
-export type SettingsGroupId = "approvals" | "notifications" | "sessions" | "storage" | "updates"
-export type FieldKind = "toggle" | "seconds" | "minutes" | "days" | "tools" | "list" | "choice"
+export type SettingsGroupId =
+  | "approvals"
+  | "notifications"
+  | "sessions"
+  | "storage"
+  | "updates"
+  | "shortcuts"
+export type FieldKind =
+  | "toggle"
+  | "seconds"
+  | "minutes"
+  | "days"
+  | "tools"
+  | "list"
+  | "choice"
+  | "shortcut"
 
 /** A contracts key, or a number setting a newer daemon may report (U-036). */
 export type SettingKey = UserSettingKey | ExtraNumberSetting
@@ -57,6 +81,7 @@ export const SETTINGS_GROUPS: ReadonlyArray<Readonly<{ id: SettingsGroupId; titl
   { id: "sessions", title: "Sessions" },
   { id: "storage", title: "Storage" },
   { id: "updates", title: "Updates" },
+  { id: "shortcuts", title: "Shortcuts" },
 ]
 
 export const SETTINGS_FIELDS: ReadonlyArray<SettingsField> = [
@@ -158,6 +183,16 @@ export const SETTINGS_FIELDS: ReadonlyArray<SettingsField> = [
     label: "Install updates automatically",
     help: "Only while nothing is waiting on you, nothing is being sent and sessions have been quiet for 30 seconds. Until then you get an Update now button.",
   },
+  // One row per shortcut action (U-078): the menu-bar app's system-wide key first.
+  ...SHORTCUT_ROW_ORDER.map(
+    (action): SettingsField => ({
+      key: shortcutSettingKey(action),
+      group: "shortcuts",
+      kind: "shortcut",
+      label: SHORTCUT_LABELS[action],
+      help: isGlobalShortcut(action) ? "Works system-wide, from the menu-bar app." : "",
+    }),
+  ),
 ]
 
 export const fieldFor = (key: string): SettingsField | undefined =>
@@ -223,6 +258,8 @@ export const SettingsModel = Schema.Struct({
   /** The latest save sent per key; an answer to an older one is stale and ignored (U-050). */
   saveSeq: Schema.Record(Schema.String, Schema.Number),
   unmuting: Schema.Array(Schema.String),
+  /** The shortcut setting key whose row waits for a key press (U-078); one row at a time. */
+  recording: Schema.NullOr(Schema.String),
 })
 export type SettingsModel = typeof SettingsModel.Type
 
@@ -233,6 +270,7 @@ export const initSettings = (): SettingsModel => ({
   status: {},
   saveSeq: {},
   unmuting: [],
+  recording: null,
 })
 
 // MESSAGE
@@ -258,6 +296,21 @@ export const SettingsMessage = defineMessageUnion({
     response: OpenSettingsResponse,
   },
   FailedSaveSettings: { key: Schema.String, seq: Schema.Number, error: Schema.String },
+  /** Change on a shortcut row: wait for the next key press. */
+  ClickedRecordShortcut: { key: Schema.String },
+  ClickedCancelRecording: {},
+  /** A keydown while recording (not a modifier on its own); Esc cancels. */
+  PressedRecordingKey: {
+    press: Schema.Struct({
+      key: Schema.String,
+      code: Schema.String,
+      metaKey: Schema.Boolean,
+      ctrlKey: Schema.Boolean,
+      altKey: Schema.Boolean,
+      shiftKey: Schema.Boolean,
+    }),
+  },
+  ClickedClearShortcut: { key: Schema.String },
   ClickedUnmute: { projectId: Schema.String },
   CompletedUnmute: { projectId: Schema.String, error: Schema.NullOr(Schema.String) },
 })
@@ -350,6 +403,15 @@ export const isDefault = (loaded: Loaded, key: string): boolean =>
 
 const withoutKey = <V>(record: Readonly<Record<string, V>>, key: string) =>
   Object.fromEntries(Object.entries(record).filter(([k]) => k !== key))
+
+/** The daemon prefixes a shortcut's 400 with its key ("shortcuts.next: …"); the row says which. */
+export const rowError = (key: string, error: string): string =>
+  shortcutActionOf(key) !== null && error.startsWith(`${key}: `)
+    ? error.slice(key.length + 2)
+    : error
+
+const stopRecording = (model: SettingsModel): SettingsModel =>
+  model.recording === null ? model : { ...model, recording: null }
 
 // UPDATE
 
@@ -479,6 +541,7 @@ export const updateSettings = (model: SettingsModel, message: SettingsMessage): 
           load: model.load._tag === "Loaded" ? model.load : SettingsLoad.Loading(),
           drafts: {},
           status: {},
+          recording: null,
         },
         commands: [...opened.commands, FetchSettings()],
       }
@@ -486,15 +549,18 @@ export const updateSettings = (model: SettingsModel, message: SettingsMessage): 
 
     GotDialogMessage: ({ message: dialogMessage }) => {
       const next = liftDialog(model, Dialog.update(model.dialog, dialogMessage))
-      // Closing (Esc, backdrop, Close) discards text that was typed but not committed.
-      return next.model.dialog.isOpen ? next : { ...next, model: { ...next.model, drafts: {} } }
+      // Closing (Esc, backdrop, Close) discards text that was typed but not committed, and
+      // stops waiting for a shortcut.
+      return next.model.dialog.isOpen
+        ? next
+        : { ...next, model: { ...next.model, drafts: {}, recording: null } }
     },
 
     RequestedClose: () =>
       model.dialog.isOpen
         ? (() => {
             const next = liftDialog(model, Dialog.close(model.dialog))
-            return { ...next, model: { ...next.model, drafts: {} } }
+            return { ...next, model: { ...next.model, drafts: {}, recording: null } }
           })()
         : { model },
 
@@ -576,7 +642,8 @@ export const updateSettings = (model: SettingsModel, message: SettingsMessage): 
           [field.key]: settingValue(loaded.saved.defaults, field.key),
         } as UserSettings,
       })
-      return sendSave({ ...next, drafts: withoutKey(next.drafts, key) }, key, {
+      const stopped = next.recording === key ? stopRecording(next) : next
+      return sendSave({ ...stopped, drafts: withoutKey(next.drafts, key) }, key, {
         [field.key]: null,
       } as UserSettingsPatch)
     },
@@ -595,6 +662,7 @@ export const updateSettings = (model: SettingsModel, message: SettingsMessage): 
           ...withLoaded(model, { ...loaded, shown: loaded.saved.defaults }),
           drafts: {},
           status: {},
+          recording: null,
         },
         RESET_ALL,
         patch,
@@ -626,9 +694,52 @@ export const updateSettings = (model: SettingsModel, message: SettingsMessage): 
       return {
         model: {
           ...withLoaded(model, { ...loaded, shown: shown as UserSettings }),
-          status: { ...model.status, [key]: FieldStatus.Failed({ error }) },
+          status: { ...model.status, [key]: FieldStatus.Failed({ error: rowError(key, error) }) },
         },
       }
+    },
+
+    ClickedRecordShortcut: ({ key }) =>
+      fieldFor(key)?.kind !== "shortcut" || loadedOf(model) === null
+        ? { model }
+        : { model: { ...model, recording: key, status: withoutKey(model.status, key) } },
+
+    ClickedCancelRecording: () => ({ model: stopRecording(model) }),
+
+    PressedRecordingKey: ({ press }) => {
+      const key = model.recording
+      const action = key === null ? null : shortcutActionOf(key)
+      const loaded = loadedOf(model)
+      if (key === null || action === null || loaded === null) {
+        return { model }
+      }
+      if (isCancelPress(press)) {
+        return { model: stopRecording(model) }
+      }
+      const candidate = shortcutFromKeyPress(press, action)
+      if (candidate === null) {
+        return { model }
+      }
+      const problem = shortcutProblem(action, candidate)
+      if (problem !== null) {
+        // Still recording: the next key press is another try.
+        return fail(model, key, problem)
+      }
+      const stopped = stopRecording(model)
+      return settingValue(loaded.shown, key) === candidate
+        ? { model: { ...stopped, status: withoutKey(stopped.status, key) } }
+        : save(stopped, key as SettingKey, candidate)
+    },
+
+    ClickedClearShortcut: ({ key }) => {
+      const loaded = loadedOf(model)
+      if (fieldFor(key)?.kind !== "shortcut" || loaded === null) {
+        return { model }
+      }
+      const stopped = model.recording === key ? stopRecording(model) : model
+      return settingValue(loaded.shown, key) === ""
+        ? { model: stopped }
+        : save(stopped, key as SettingKey, "")
     },
 
     ClickedUnmute: ({ projectId }) =>

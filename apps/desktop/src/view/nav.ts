@@ -13,8 +13,9 @@ import {
   visibleTreeNodes,
 } from "../selectors.ts"
 import { SettingsMessage } from "../settings.ts"
+import { displayShortcut } from "../shortcuts.ts"
 import { historyNavEntry } from "./history.ts"
-import { dot, Icon, kbd, type Tone } from "./parts.ts"
+import { dot, Icon, keyshortcuts, shortcutHint, type Tone } from "./parts.ts"
 import { setupNavEntry } from "./setup.ts"
 import { versionView } from "./update.ts"
 
@@ -51,11 +52,15 @@ export const headerView = (model: Model, h: H): Html => {
           h.Class(
             "ml-auto flex h-9 w-64 min-w-44 max-w-full shrink cursor-pointer items-center gap-2 rounded-[10px] border border-input bg-background px-3 text-left text-[13px] whitespace-nowrap text-subtle-foreground hover:bg-accent",
           ),
-          h.AriaKeyshortcuts("Meta+K"),
+          ...keyshortcuts(h, model.shortcuts.jump),
           h.AriaHasPopup("dialog"),
           h.OnClick(Message.ClickedJumpField()),
         ],
-        [Icon.search(h), h.span([h.Class("flex-1")], ["Jump to session"]), kbd(h, "⌘K")],
+        [
+          Icon.search(h),
+          h.span([h.Class("flex-1")], ["Jump to session"]),
+          shortcutHint(h, model.shortcuts.jump),
+        ],
       ),
       versionView(model, h),
       h.button(
@@ -65,8 +70,12 @@ export const headerView = (model: Model, h: H): Html => {
           h.DataAttribute("variant", "ghost"),
           h.DataAttribute("size", "icon"),
           h.AriaLabel("Settings"),
-          h.Title("Settings (⌘,)"),
-          h.AriaKeyshortcuts("Meta+,"),
+          h.Title(
+            model.shortcuts.settings === ""
+              ? "Settings"
+              : `Settings (${displayShortcut(model.shortcuts.settings)})`,
+          ),
+          ...keyshortcuts(h, model.shortcuts.settings),
           h.AriaHasPopup("dialog"),
           h.OnClick(Message.GotSettingsMessage({ message: SettingsMessage.RequestedOpen() })),
         ],
@@ -308,12 +317,12 @@ export const navView = (model: Model, h: H): Html =>
       }),
       historyNavEntry(model, h),
       whereSessionsRun(model, h),
-      shortcutsNavEntry(h),
+      shortcutsNavEntry(model, h),
     ],
   )
 
 /** A quiet way to the shortcut list at the bottom of the nav (U-073). */
-const shortcutsNavEntry = (h: H): Html =>
+const shortcutsNavEntry = (model: Model, h: H): Html =>
   h.button(
     [
       h.Type("button"),
@@ -321,10 +330,14 @@ const shortcutsNavEntry = (h: H): Html =>
         "mt-auto flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-lg border border-transparent px-2 pt-4 text-left text-[13px] text-subtle-foreground hover:bg-accent",
       ),
       h.AriaHasPopup("dialog"),
-      h.AriaKeyshortcuts("Shift+?"),
+      ...keyshortcuts(h, model.shortcuts.help),
       h.OnClick(Message.ClickedShortcuts()),
     ],
-    [Icon.keyboard(h), h.span([h.Class("flex-1")], ["Shortcuts"]), kbd(h, "?")],
+    [
+      Icon.keyboard(h),
+      h.span([h.Class("flex-1")], ["Shortcuts"]),
+      shortcutHint(h, model.shortcuts.help),
+    ],
   )
 
 const loadingText = (model: Model): string =>

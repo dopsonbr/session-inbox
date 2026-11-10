@@ -30,12 +30,13 @@ import { markdownView } from "./markdown.ts"
 import {
   Icon,
   itemBadge,
-  kbd,
+  keyshortcuts,
   kindBadge,
   outcomeBadge,
   runtimeLabel,
   sessionStateLabel,
   sessionTone,
+  shortcutHint,
   toneText,
 } from "./parts.ts"
 import { contextLine, previewView } from "./preview.ts"
@@ -208,7 +209,7 @@ const detailHeader = (model: Model, detail: ItemDetail, h: H): Html => {
 }
 
 /** "I've read it, clear it" for a review or failed item: the dismiss intent, key `e` (U-061). */
-const doneButton = (model: Model, h: H): Html => {
+export const doneButton = (model: Model, h: H): Html => {
   const isSending = model.submission._tag === "Sending" && model.submission.action === "dismiss"
   return h.button(
     [
@@ -217,10 +218,10 @@ const doneButton = (model: Model, h: H): Html => {
       h.DataAttribute("variant", "outline"),
       h.DataAttribute("size", "lg"),
       h.Disabled(isSending),
-      h.AriaKeyshortcuts("E"),
+      ...keyshortcuts(h, model.shortcuts.done),
       h.OnClick(Message.ClickedDone()),
     ],
-    [Icon.check(h), "Done", kbd(h, "e")],
+    [Icon.check(h), "Done", shortcutHint(h, model.shortcuts.done)],
   )
 }
 
@@ -602,9 +603,9 @@ export const questionForm = (model: Model, detail: ItemDetail, form: Form, h: H)
               h.DataAttribute("variant", "needs"),
               h.DataAttribute("size", "lg"),
               h.Disabled(!isComplete || isSending),
-              h.AriaKeyshortcuts("Meta+Enter"),
+              ...keyshortcuts(h, model.shortcuts.submit),
             ],
-            [isSending ? "Sending…" : "Send answers", kbd(h, "⌘↵")],
+            [isSending ? "Sending…" : "Send answers", shortcutHint(h, model.shortcuts.submit)],
           ),
         ],
       ),
@@ -716,10 +717,10 @@ const decisionFooter = (
             h.Class("btn"),
             h.DataAttribute("size", "lg"),
             h.Disabled(disabled),
-            h.AriaKeyshortcuts("Meta+Enter"),
+            ...keyshortcuts(h, model.shortcuts.submit),
             h.OnClick(Message.ClickedDecision({ decision: "allow" })),
           ],
-          ["Allow once", kbd(h, "⌘↵")],
+          ["Allow once", shortcutHint(h, model.shortcuts.submit)],
         ),
         alwaysAllow === undefined
           ? h.empty
@@ -743,10 +744,10 @@ const decisionFooter = (
             h.DataAttribute("variant", "danger-outline"),
             h.DataAttribute("size", "lg"),
             h.Disabled(disabled),
-            h.AriaKeyshortcuts("Meta+Backspace"),
+            ...keyshortcuts(h, model.shortcuts.deny),
             h.OnClick(Message.ClickedDecision({ decision: "deny" })),
           ],
-          ["Deny", kbd(h, "⌘⌫")],
+          ["Deny", shortcutHint(h, model.shortcuts.deny)],
         ),
       ],
     ),
@@ -977,9 +978,13 @@ export const replyForm = (model: Model, detail: ItemDetail, form: Form, h: H): H
               h.Class("btn"),
               h.DataAttribute("size", "lg"),
               h.Disabled(form.reply.trim() === "" || isSending),
-              h.AriaKeyshortcuts("Meta+Enter"),
+              ...keyshortcuts(h, model.shortcuts.submit),
             ],
-            [Icon.send(h), isSending ? "Sending…" : "Send reply", kbd(h, "⌘↵")],
+            [
+              Icon.send(h),
+              isSending ? "Sending…" : "Send reply",
+              shortcutHint(h, model.shortcuts.submit),
+            ],
           ),
         ],
       ),

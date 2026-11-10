@@ -1,5 +1,13 @@
 import { Checkbox, Dialog } from "@foldkit/ui"
-import { HOLDABLE_TOOLS, type Project } from "@session-inbox/contracts"
+import {
+  HOLDABLE_TOOLS,
+  type Project,
+  SHORTCUT_ACTIONS,
+  type ShortcutAction,
+  shortcutActionOf,
+  shortcutClashes,
+  shortcutSettingKey,
+} from "@session-inbox/contracts"
 import { Option } from "effect"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { Message } from "../message.ts"
@@ -18,6 +26,7 @@ import {
   type SettingsModel,
   settingValue,
 } from "../settings.ts"
+import { displayShortcut, NOT_SET_TEXT, SHORTCUT_LABELS } from "../shortcuts.ts"
 import { Icon, kbd } from "./parts.ts"
 import { attentionLabel } from "./setup.ts"
 
@@ -378,6 +387,131 @@ const choiceRow = (loaded: Loaded, field: SettingsField, isDisabled: boolean, h:
   )
 }
 
+// SHORTCUTS (U-078)
+
+export const RECORDING_TEXT = "Press the new shortcut…"
+export const FIXED_KEYS_TEXT = "↑ ↓ in the session tree, Tab and Esc can't be changed."
+export const clashText = (labels: ReadonlyArray<string>): string =>
+  `Also set for ${labels.join(" and ")}. Only the first one listed will work.`
+
+/** The other shortcut rows set to the same key press, as their labels. */
+const clashLabels = (loaded: Loaded, action: ShortcutAction): ReadonlyArray<string> => {
+  const bindings = Object.fromEntries(
+    SHORTCUT_ACTIONS.map((a) => [a, String(settingValue(loaded.shown, shortcutSettingKey(a)))]),
+  ) as Record<ShortcutAction, string>
+  return shortcutClashes(bindings, action).map((other) => SHORTCUT_LABELS[other])
+}
+
+const smallButton = (
+  h: H,
+  text: string,
+  ariaLabel: string,
+  message: SettingsMessage,
+  variant = "ghost",
+): Html =>
+  h.button(
+    [
+      h.Type("button"),
+      h.Class("btn"),
+      h.DataAttribute("variant", variant),
+      h.DataAttribute("size", "sm"),
+      h.AriaLabel(ariaLabel),
+      h.OnClick(send(message)),
+    ],
+    [text],
+  )
+
+/** One action: its key press (or "Not set"), Change / Clear / Reset; or recording. */
+const shortcutRow = (settings: SettingsModel, loaded: Loaded, field: SettingsField, h: H): Html => {
+  const id = idFor(field.key)
+  const action = shortcutActionOf(field.key)
+  const value = String(settingValue(loaded.shown, field.key) ?? "")
+  const isRecording = settings.recording === field.key
+  const clashes = action === null ? [] : clashLabels(loaded, action)
+  const keys = isRecording
+    ? [
+        h.span(
+          [h.Class("text-[13px] font-medium text-foreground"), h.AriaLive("polite")],
+          [RECORDING_TEXT],
+        ),
+        smallButton(
+          h,
+          "Cancel",
+          `Stop changing the ${field.label} shortcut`,
+          SettingsMessage.ClickedCancelRecording(),
+          "outline",
+        ),
+      ]
+    : [
+        value === ""
+          ? h.span([h.Class("text-[13px] text-subtle-foreground")], [NOT_SET_TEXT])
+          : h.kbd(
+              [
+                h.Class(
+                  "inline-flex min-w-6 justify-center rounded border border-border bg-muted px-1.5 py-0.5 font-sans text-[12px] font-medium",
+                ),
+              ],
+              [displayShortcut(value)],
+            ),
+        smallButton(
+          h,
+          "Change",
+          `Change the ${field.label} shortcut`,
+          SettingsMessage.ClickedRecordShortcut({ key: field.key }),
+          "outline",
+        ),
+        value === ""
+          ? h.empty
+          : smallButton(
+              h,
+              "Clear",
+              `Clear the ${field.label} shortcut`,
+              SettingsMessage.ClickedClearShortcut({ key: field.key }),
+            ),
+        isDefault(loaded, field.key)
+          ? h.empty
+          : smallButton(
+              h,
+              "Reset",
+              `Reset the ${field.label} shortcut to its default`,
+              SettingsMessage.ClickedReset({ key: field.key }),
+            ),
+      ]
+  return h.div(
+    [h.Class("flex flex-col gap-1")],
+    [
+      h.div(
+        [h.Class("flex flex-wrap items-center gap-x-3 gap-y-1.5")],
+        [
+          h.div(
+            [h.Class("flex min-w-48 flex-1 flex-col gap-0.5")],
+            [
+              h.span([h.Id(`${id}-label`), h.Class("text-[13px] font-medium")], [field.label]),
+              field.help === ""
+                ? h.empty
+                : h.span([h.Class("text-xs text-subtle-foreground")], [field.help]),
+            ],
+          ),
+          h.div(
+            [
+              h.Role("group"),
+              h.AriaLabelledBy(`${id}-label`),
+              h.Class("flex items-center gap-1.5"),
+            ],
+            keys,
+          ),
+        ],
+      ),
+      clashes.length === 0
+        ? h.empty
+        : h.p(
+            [h.Class("rounded-md bg-needs-tint px-2.5 py-1.5 text-xs text-needs")],
+            [clashText(clashes)],
+          ),
+    ],
+  )
+}
+
 /** H-016: a second install on this Mac may hold too. Shown only when one exists. */
 const holdsCaveat = (loaded: Loaded, h: H): Html =>
   loaded.saved.otherChannel === null
@@ -406,6 +540,8 @@ const fieldRow = (settings: SettingsModel, loaded: Loaded, field: SettingsField,
         return listRow(settings, loaded, field, isDisabled, h)
       case "choice":
         return choiceRow(loaded, field, isDisabled, h)
+      case "shortcut":
+        return shortcutRow(settings, loaded, field, h)
     }
   })()
   return h.div(
@@ -522,6 +658,9 @@ const groupSection = (
       ),
       ...fields.map((f) => fieldRow(model.settings, loaded, f, h)),
       group === "sessions" ? mutedProjects(model, h) : h.empty,
+      group === "shortcuts"
+        ? h.p([h.Class("text-xs text-subtle-foreground")], [FIXED_KEYS_TEXT])
+        : h.empty,
     ],
   )
 }

@@ -92,6 +92,7 @@ import {
   workingSessions,
 } from "./selectors.ts"
 import { initSettings, SettingsMessage, updateSettings } from "./settings.ts"
+import { bindingsInSettings, DEFAULT_BINDINGS, mergeBindings } from "./shortcuts.ts"
 import { Toast, type ToastPayload } from "./toast.ts"
 
 export type UpdateReturn = Update.Return<Model, Message, DaemonClient>
@@ -167,6 +168,7 @@ export const initialModel = (flags: Flags): Model => ({
   denyNote: "",
   maybeAdvanceFrom: Option.none(),
   history: initialHistory,
+  shortcuts: DEFAULT_BINDINGS,
 })
 
 export const initialHistory: HistoryModel = {
@@ -975,8 +977,18 @@ const fetchDoctor = (model: Model): UpdateReturn => ({
 
 const liftSettings = (model: Model, message: SettingsMessage): UpdateReturn => {
   const next = updateSettings(model.settings, message)
+  // A save the pane didn't drop as stale: its answer carries the shortcuts too (U-078).
+  const isCurrentSave =
+    message._tag === "SucceededSaveSettings" &&
+    message.seq >= (model.settings.saveSeq[message.key] ?? 0)
   return {
-    model: modifyFields(model, { settings: () => next.model }),
+    model: modifyFields(model, {
+      settings: () => next.model,
+      shortcuts: (current) =>
+        isCurrentSave
+          ? mergeBindings(current, bindingsInSettings(message.response.settings))
+          : current,
+    }),
     commands: Command.mapMessages(next.commands, (child) =>
       Message.GotSettingsMessage({ message: child }),
     ),
@@ -1309,6 +1321,13 @@ const receiveStreamMessage = (model: Model, streamMessage: StreamMessage): Updat
   }
   if (streamMessage._tag === "reset") {
     return { model, commands: [FetchSnapshot()] }
+  }
+  if (streamMessage._tag === "shortcuts") {
+    return {
+      model: modifyFields(model, {
+        shortcuts: (current) => mergeBindings(current, streamMessage.bindings),
+      }),
+    }
   }
   // notify/badge are for the shell (G-012).
   return { model }
@@ -1681,15 +1700,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       return { model: lifted.model, commands: lifted.commands }
     },
 
-    GotSettingsMessage: ({ message: settingsMessage }) => {
-      const next = updateSettings(model.settings, settingsMessage)
-      return {
-        model: modifyFields(model, { settings: () => next.model }),
-        commands: Command.mapMessages(next.commands, (child) =>
-          Message.GotSettingsMessage({ message: child }),
-        ),
-      }
-    },
+    GotSettingsMessage: ({ message: settingsMessage }) => liftSettings(model, settingsMessage),
 
     ClickedCheckForUpdates: () => checkForUpdates(model),
 
