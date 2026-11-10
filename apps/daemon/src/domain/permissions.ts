@@ -121,7 +121,7 @@ const WIDENS = /[*?[\]{}\\\n\r\0]/
 export const scopedAllowRule = (tool: string, input: unknown): string | null => {
   const spec = ruleSpecifier(tool, input)
   if (FILE_TOOLS.has(tool)) {
-    if (!spec || !spec.startsWith("/") || WIDENS.test(spec)) return null
+    if (!spec?.startsWith("/") || WIDENS.test(spec)) return null
     return `${tool}(/${spec})`
   }
   if (tool === "WebFetch") return spec && !WIDENS.test(spec) ? `WebFetch(${spec})` : null

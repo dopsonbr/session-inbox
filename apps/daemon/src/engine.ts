@@ -1980,9 +1980,10 @@ export class Engine {
   }
 
   /**
-   * GET /v1/hooks/decision/:requestId?wait=s. `signal` is the request's: a PermissionRequest
-   * hook that goes away mid-wait was answered in Claude first (D-070). A PreToolUse hook that
-   * goes away keeps its hold until expiry, as before (it may re-poll).
+   * GET /v1/hooks/decision/:requestId?wait=s. `signal` is the request's. A poll that closes
+   * early is given POLL_DROP_GRACE_MS to come back (the hook retries, H-050); after that a
+   * PermissionRequest counts as answered in Claude (D-070) and a PreToolUse hold just waits
+   * for the no-poll lapse (D-080). While stopping, a closed poll means nothing.
    */
   async waitDecision(
     requestId: string,
