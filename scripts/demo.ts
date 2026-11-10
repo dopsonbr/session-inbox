@@ -101,7 +101,29 @@ const hook: typeof post = async (sid, project, event, payload = {}, entrypoint) 
   const first = await post(sid, project, event, payload, entrypoint)
   if (event !== "PreToolUse") return first
   const { tool_use_id: _id, ...request } = payload
-  return post(sid, project, "PermissionRequest", request, entrypoint)
+  const asked = await post(sid, project, "PermissionRequest", request, entrypoint)
+  if (asked.requestId) void keepPolling(asked.requestId)
+  return asked
+}
+
+/**
+ * Wait on a request the way a real `inbox-hook` does. Without a waiting hook the daemon takes
+ * the request for orphaned after 20 seconds and hands it to Claude's own prompt (D-080), and
+ * the seeded approvals could no longer be answered from the page.
+ */
+const keepPolling = async (requestId: string) => {
+  for (;;) {
+    try {
+      const r = await fetch(
+        `http://localhost/v1/hooks/decision/${encodeURIComponent(requestId)}?wait=25`,
+        { unix: c.socketPath },
+      )
+      const body = (await r.json()) as { decision?: string } | null
+      if (!r.ok || (body?.decision && body.decision !== "pending")) return
+    } catch {
+      return
+    }
+  }
 }
 
 const session = async (sid: string, project: string, prompt: string, entrypoint?: string) => {
