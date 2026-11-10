@@ -390,6 +390,7 @@ try {
   const write = find(items, "a new file", summary("Wants to create"))
   const review = find(items, "a review", summary("Added a Reprint button"))
   const failed = find(items, "a failure", (i) => i.kind === "failed")
+  const stuck = find(items, "a call that runs long", (i) => i.kind === "stuck")
   const denied = await pastItem("push")
   const allowed = await pastItem("KeyRotationTest")
 
@@ -498,6 +499,13 @@ try {
       size: wide,
       scheme: "light",
       ready: detailReady("Claude's last message"),
+    },
+    {
+      name: "tour-stuck",
+      path: `/#/item/${stuck}`,
+      size: wide,
+      scheme: "light",
+      ready: detailReady("No result yet"),
     },
     {
       name: "tour-review",

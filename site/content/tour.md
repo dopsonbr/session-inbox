@@ -58,6 +58,12 @@ When a session stops cleanly it lands in **Review** as **Ready to review**. The 
 
 [[screenshot tour-review.png 1440x900 The Review tab with Add receipt reprint button selected and a second row, Try the receipt layout in the browser, Running npm run dev. On the right, Ready for your review with the Done, Snooze and Open in Claude buttons, a Claude's last message box reading Added a Reprint button; tests pass., a Short reply box and the session's activity.]]
 
+## A command that never returns
+
+When one tool call has been running for more than 5 minutes, such as a dev server started in the foreground, it shows up in **Review** marked **Still running**, with one notification. The item says what is running and for how long, shows the command and when it started, and offers **Done** (it's meant to keep running), **Snooze** and **Open in Claude** (to stop it there). See [when a command hangs](using-it.md#when-a-command-hangs).
+
+[[screenshot tour-stuck.png 1440x900 A Still running item selected: the title Running npm run dev for 12 min, the Done, Snooze and Open in Claude buttons, a card with the command npm run dev, the line Started at a time. No result yet., and the hint to choose Done if it is meant to keep running or to open the session in Claude to stop it.]]
+
 ## Stopped with errors
 
 A turn that ended on an error comes to **Needs you** as **Stopped with errors**, with Claude's last message so you can see what went wrong. It has the same **Done** button and reply box.

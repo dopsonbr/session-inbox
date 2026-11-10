@@ -382,6 +382,24 @@ describe("a decided approval reads as decided (U-064, UX-016, UX-027)", () => {
     })
   }
 
+  test("a hold that lapsed to Claude's own prompt is waiting, not decided (UX-066)", () => {
+    const base = showing("i-ravelo-migrate")
+    const baseDetail = detailOf(base)
+    if (baseDetail.approval === null) throw new Error("no approval")
+    // What the daemon sends for a lapsed hold: its own "ask", the item still open, not live.
+    const model = showing("i-ravelo-migrate", {
+      item: { ...baseDetail.item, state: "open", queue: "needs-you", live: false },
+      approval: { ...baseDetail.approval, decision: "ask", decidedAt: NOW - 60_000 },
+    })
+    const detail = detailOf(model)
+    if (detail.approval === null) throw new Error("no approval")
+    const view = approvalCard(model, detail, detail.approval, h)
+    const text = textOf(view)
+    expect(text).not.toContain("Decided here")
+    expect(text).toContain("Claude is asking in its own window. Answer there.")
+    expect(findAll(view, "button").map((b) => textOf(b))).toEqual(["Open in Claude"])
+  })
+
   test("words, no buttons, no Always-allow sentence, no Needs-you border", () => {
     const model = decided()
     const detail = detailOf(model)

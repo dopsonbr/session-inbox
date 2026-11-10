@@ -241,7 +241,7 @@ export const SHORTCUT_LABELS: Readonly<Record<ShortcutAction, string>> = {
   deny: "Deny",
   next: "Next item in the list",
   previous: "Previous item in the list",
-  done: "Done: clear a review or failed item",
+  done: "Done: clear a review, failed or still-running item",
   settings: "Open Settings",
   help: "Show the shortcut list",
 }

@@ -2738,7 +2738,7 @@ export class Engine {
       ...(lastMessage ? { lastMessage } : {}),
       ...(running ? { running } : {}),
       ...(replyUnavailable ? { replyUnavailable } : {}),
-      item: toItem(r, live, this.store.questionCount(itemId)),
+      item: this.store.withRunning(r, toItem(r, live, this.store.questionCount(itemId))),
       session,
       project: toProject(p),
       questions: this.store.questions(itemId).map(toQuestion),

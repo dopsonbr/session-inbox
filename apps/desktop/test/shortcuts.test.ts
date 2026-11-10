@@ -376,7 +376,7 @@ describe("views print the current key presses", () => {
       "Also set for Next item in the list. Only the first one listed will work.",
     )
     expect(text).toContain(
-      "Also set for Done: clear a review or failed item. Only the first one listed will work.",
+      "Also set for Done: clear a review, failed or still-running item. Only the first one listed will work.",
     )
   })
 

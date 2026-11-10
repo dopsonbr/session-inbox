@@ -121,7 +121,7 @@ The item shows the command (or URL, or tool) and when it started. What you do ne
 - **It's hung**: choose **Open in Claude** and stop it there. The inbox can't interrupt a command.
 - **Not now**: **Snooze** it.
 
-If the call finishes by itself, the item leaves Review and its notification is taken back. You can't reply to this kind of item, because the session is busy with the call.
+If the call finishes by itself, the item leaves Review and its notification is taken back. In [History](#history) such an item is labelled **Ran long**. You can't reply to this kind of item, because the session is busy with the call.
 
 Time the session spent waiting for you to allow the call doesn't count. Subagents, Claude's questions and commands Claude started in the background are never flagged. Turn this off, or change the limit (1 to 240 minutes), with **Tell me when a tool call runs long** in [Settings](settings.md#notifications).
 
@@ -179,7 +179,7 @@ These are the defaults. Each one can be changed or turned off under **Shortcuts*
 | <kbd>⌘</kbd><kbd>↵</kbd> | Send answers, allow once, or send the reply: whichever is the main action of the selected item. While you're typing it works only from the reply box or a question's **Other** field. |
 | <kbd>⌘</kbd><kbd>⌫</kbd> | Deny the permission request on screen. Ignored while you're typing, so it still deletes text. |
 | <kbd>J</kbd> <kbd>K</kbd> | Next and previous item in the list on screen: the queue, the sessions under **Working**, or the entries in History |
-| <kbd>E</kbd> | **Done**: clear the selected review or failed item |
+| <kbd>E</kbd> | **Done**: clear the selected review, failed or still-running item |
 | <kbd>?</kbd> | Show the list of shortcuts. **Shortcuts** at the bottom of the left side opens it too. |
 | <kbd>↑</kbd> <kbd>↓</kbd> | Move through the session tree |
 | <kbd>⌘</kbd><kbd>,</kbd> | Open [Settings](settings.md) |

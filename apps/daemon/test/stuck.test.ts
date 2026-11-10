@@ -61,6 +61,7 @@ describe("stuck calls (D-099)", () => {
     expect(sent[0]?.critical).toBe(0)
 
     const detail = h.engine.itemDetail(item?.id ?? "")
+    expect(detail.item.runningSince).toBe(startedAt)
     expect(detail.running?.tool).toBe("Bash")
     expect(detail.running?.since).toBe(startedAt)
     expect(detail.running?.preview).toMatchObject({ _tag: "command", command: "npm run dev" })

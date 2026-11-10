@@ -73,7 +73,7 @@ Every shortcut the app defines can be changed or turned off here. Each row shows
 | **Deny** | <kbd>⌘</kbd><kbd>⌫</kbd> |
 | **Next item in the list** | <kbd>J</kbd> |
 | **Previous item in the list** | <kbd>K</kbd> |
-| **Done: clear a review or failed item** | <kbd>E</kbd> |
+| **Done: clear a review, failed or still-running item** | <kbd>E</kbd> |
 | **Open Settings** | <kbd>⌘</kbd><kbd>,</kbd> |
 | **Show the shortcut list** | <kbd>?</kbd> |
 

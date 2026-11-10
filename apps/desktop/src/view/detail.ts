@@ -838,7 +838,10 @@ export const approvalCard = (model: Model, detail: ItemDetail, approval: Approva
   const isSending = model.submission._tag === "Sending" && model.submission.action === "decision"
   // Decided here a moment ago (the item may still be on its way to done) reads like a finished
   // one: the decision in words, no buttons, no Needs-you border (U-064).
-  const isDecided = approval.decision !== null || detail.item.queue === "done"
+  // A hold that lapsed carries the daemon's own "ask" while its item is still open: that is
+  // Claude's prompt waiting, not a decision made here (UX-066).
+  const isDecided =
+    detail.item.queue === "done" || (approval.decision !== null && approval.decision !== "ask")
   // Not held and not finished: Claude's own prompt is what's waiting (observed prompt, lapsed
   // hold, observer channel). Buttons here couldn't reach it (U-043).
   const isWaitingInClaude = !detail.item.live && !isDecided

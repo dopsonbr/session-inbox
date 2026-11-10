@@ -120,6 +120,7 @@ Starting point unless stated: the inbox window is open on **Needs you** with the
 - **UX-061** (fixed 2026-11-10) A finished item's activity was headed "Since you left · 1 min"; it is headed "Session activity".
 - **UX-062** (open) A question's detail says the count twice: the title "Claude has 2 questions for you" and the "2 questions" badge under it.
 - **UX-063** (open) The activity heading "Since you left · 1 min" doesn't say what you left; the number is the age of the oldest line shown.
+- **UX-066** (fixed 2026-11-10) Regression in 0.3.0 from the decided-card clean-up (U-064): an open item whose hold had lapsed to Claude's own prompt read "Decided here: Left to Claude's own prompt at …" and lost its Open in Claude button in the card. It reads "Claude is asking in its own window. Answer there." again. Found by the docs tour's screenshots.
 - **UX-055** (open) An item you just cleared with Done still shows its "Ready to review" badge and no "Dismissed" until you find it in History.
 - **UX-056** (open) Opening History selects nothing; the inbox selects the first item for you.
 - **UX-057** (open) History has no project or date filter; a project's name in the search box does the first.
