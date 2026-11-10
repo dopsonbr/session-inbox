@@ -18,6 +18,8 @@ import {
   type ClaudeCliShape,
   Clock,
   type ClockShape,
+  Files,
+  type FilesShape,
   Git,
   type GitShape,
   Logger,
@@ -48,6 +50,8 @@ export interface DaemonServices {
   readonly notifier: NotifierShape
   readonly opener: OpenerShape
   readonly log: LoggerShape
+  /** Preview reads (D-056); the live filesystem when omitted. */
+  readonly files?: FilesShape
 }
 
 export interface DaemonHandle {
@@ -153,6 +157,7 @@ export const daemonProgram = (opts: DaemonOptions) =>
       notifier: yield* Notifier,
       opener: yield* Opener,
       log: yield* Logger,
+      files: yield* Files,
     }
     const handle = yield* Effect.acquireRelease(
       Effect.promise(() => startDaemon(opts, svc)),

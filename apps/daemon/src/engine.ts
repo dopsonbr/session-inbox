@@ -35,6 +35,7 @@ import {
   UserPromptSubmitPayload,
 } from "@session-inbox/contracts"
 import { Result, Schema } from "effect"
+import { computePreview } from "./approvalPreview.ts"
 import {
   type LifecycleEvent,
   type LifecycleState,
@@ -59,6 +60,7 @@ import {
 import type {
   ClaudeCliShape,
   ClockShape,
+  FilesShape,
   GitInfo,
   GitShape,
   LoggerShape,
@@ -93,6 +95,8 @@ export interface EngineDeps {
   readonly notifier: NotifierShape
   readonly opener: OpenerShape
   readonly log: LoggerShape
+  /** Preview reads (D-056); the live filesystem when omitted. */
+  readonly files?: FilesShape
   /** Usually ~/.claude; injectable so tests never read the real one. */
   readonly claudeConfigDir: string
   readonly settings: Settings
@@ -919,6 +923,18 @@ export class Engine {
           ? (questions[0]?.text ?? null)
           : questions.map((q) => q.header ?? q.text).join(" · ")
       : permissionSummary(tool, p.tool_input)
+    // Preview now, before Claude can touch the file (D-056). Never throws; bounded reads.
+    const pv =
+      hold && !isQuestion
+        ? computePreview(this.deps.files, this.deps.log, {
+            tool,
+            input: p.tool_input,
+            cwd: p.cwd ?? session.cwd,
+            roots: [session.worktree, project.root_path],
+            transcriptPath: p.transcript_path ?? session.transcript_path,
+            toolUseId,
+          })
+        : null
     const kind: AttentionKind = isQuestion ? "question" : "permission"
     const { row, created } = this.openItem(c, {
       sessionId: session.id,
@@ -927,7 +943,7 @@ export class Engine {
       dedupeKey: isQuestion
         ? this.dedupeKey(session.id, agentId, "question")
         : this.dedupeKey(session.id, agentId, "permission", toolUseId ?? newId("tu")),
-      summary,
+      summary: pv?.summary ?? summary,
     })
     if (isQuestion) {
       this.store.run("DELETE FROM questions WHERE item_id = ?", row.id)
@@ -955,6 +971,13 @@ export class Engine {
         toolUseId,
         this.now() + this.settings["holds.budgetMs"],
       )
+      if (pv?.preview || pv?.context)
+        this.store.run(
+          "UPDATE approvals SET preview_json = ?, context = ? WHERE item_id = ?",
+          pv.preview ? JSON.stringify(pv.preview) : null,
+          pv.context,
+          row.id,
+        )
       this.setSessionState(c, session.id, "waiting")
       this.setAgentState(c, agentId, "waiting")
     }

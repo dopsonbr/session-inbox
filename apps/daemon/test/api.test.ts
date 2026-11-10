@@ -179,6 +179,39 @@ describe("hooks + UI round trips", () => {
     ).toBe(409)
   })
 
+  test("held Edit: detail serves the preview stored at hold time, after the file changed", async () => {
+    const esid = "aaaaaaaa-0000-4000-8000-0000000000e1"
+    const file = join(projectDir(), "notes.txt")
+    writeFileSync(file, "alpha\nbeta\ngamma\n")
+    const ing = await hook("PreToolUse", {
+      session_id: esid,
+      cwd: projectDir(),
+      tool_name: "Edit",
+      tool_use_id: "tu_edit",
+      tool_input: { file_path: file, old_string: "beta", new_string: "BETA" },
+    })
+    expect(ing.requestId).not.toBeNull()
+    // Claude applies the edit once allowed; the stored preview must not change.
+    writeFileSync(file, "alpha\nBETA\ngamma\n")
+    const snap = (await (await api("/v1/snapshot")).json()) as {
+      items: { id: string; sessionId: string; summary: string }[]
+    }
+    const item = snap.items.find((i) => i.sessionId === esid)
+    expect(item?.summary).toBe("Wants to edit notes.txt +1 −1")
+    const detail = (await (await api(Routes.item(item?.id ?? ""))).json()) as {
+      approval: { preview?: { _tag: string; hunks: { lines: { kind: string; text: string }[] }[] } }
+    }
+    expect(detail.approval.preview?._tag).toBe("diff")
+    expect(detail.approval.preview?.hunks[0]?.lines).toEqual([
+      { kind: "context", text: "alpha" },
+      { kind: "del", text: "beta" },
+      { kind: "add", text: "BETA" },
+      { kind: "context", text: "gamma" },
+    ])
+    await post(Routes.decision(item?.id ?? ""), { idempotencyKey: "d-edit", decision: "allow" })
+    expect((await poll(ing.requestId ?? "", 1)).decision).toBe("allow")
+  })
+
   test("allow rules in Claude settings mean no hold", async () => {
     const ing = await hook("PreToolUse", {
       session_id: sid,

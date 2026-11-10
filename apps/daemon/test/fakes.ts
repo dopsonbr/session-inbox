@@ -3,9 +3,11 @@ import { mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { openDb } from "../src/db/db.ts"
+import type { ReadResult } from "../src/domain/preview.ts"
 import { Engine } from "../src/engine.ts"
 import type {
   ClaudeCliShape,
+  FilesShape,
   GitInfo,
   GitShape,
   LoggerShape,
@@ -69,6 +71,25 @@ export class FakeOpener implements OpenerShape {
   }
 }
 
+/** In-memory files: path → text, or "unreadable". Anything else is missing. */
+export class FakeFiles implements FilesShape {
+  files: Record<string, string | "unreadable"> = {}
+  tails: Record<string, string> = {}
+  reads: string[] = []
+  read = (path: string, maxBytes: number): ReadResult => {
+    this.reads.push(path)
+    const f = this.files[path]
+    if (f === undefined) return { _tag: "missing" }
+    if (f === "unreadable") return { _tag: "unreadable", reason: "fake" }
+    if (Buffer.byteLength(f) > maxBytes) return { _tag: "unreadable", reason: "too large" }
+    return { _tag: "ok", text: f }
+  }
+  tail = (path: string, bytes: number): string | null => {
+    const t = this.tails[path]
+    return t === undefined ? null : t.slice(-bytes)
+  }
+}
+
 export const silentLog: LoggerShape = { info: () => {}, warn: () => {}, error: () => {} }
 
 export interface Harness {
@@ -78,12 +99,14 @@ export interface Harness {
   claude: FakeClaude
   notifier: FakeNotifier
   opener: FakeOpener
+  files: FakeFiles
   claudeDir: string
 }
 
 export const makeHarness = (
   opts: { settings?: Partial<Settings>; git?: FakeGit; dbFile?: string } = {},
 ): Harness => {
+  const files = new FakeFiles()
   const clock = new FakeClock()
   const git = opts.git ?? new FakeGit()
   const claude = new FakeClaude()
@@ -98,10 +121,11 @@ export const makeHarness = (
     notifier,
     opener,
     log: silentLog,
+    files,
     claudeConfigDir: claudeDir,
     settings: { ...DEFAULT_SETTINGS, "questions.answerModeByRuntime": {}, ...opts.settings },
   })
-  return { engine, clock, git, claude, notifier, opener, claudeDir }
+  return { engine, clock, git, claude, notifier, opener, files, claudeDir }
 }
 
 export const env = (entrypoint: string | null = "cli", hostSessionId: string | null = null) => ({
