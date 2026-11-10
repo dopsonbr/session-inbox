@@ -9,6 +9,12 @@ section: Reference
 
 What changed in each release, newest first. Versions are tagged on [GitHub Releases](https://github.com/dopsonbr/session-inbox/releases), where you can download them.
 
+## Unreleased
+
+On `main`, not in a release yet.
+
+- **History and search.** A **History** view in the inbox window lists finished items, newest first, with how each ended (allowed, denied, answered, handled in Claude and so on), and searches what the inbox showed you and what you answered. It is not a transcript search. See [Using it](using-it.md#history).
+
 ## 0.2.0
 
 Published 2026-11-10: [v0.2.0 on GitHub](https://github.com/dopsonbr/session-inbox/releases/tag/v0.2.0). The first packaged release. Before this, Session Inbox was installed from a source checkout.

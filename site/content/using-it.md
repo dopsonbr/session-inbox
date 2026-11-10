@@ -66,7 +66,7 @@ The selected item shows when and where the session runs (the desktop app or the 
 
 Session titles come from the Claude desktop app's own title for the session when there is one. Otherwise they start as your first prompt and are replaced a moment later by a short title written by Claude, which needs the `claude` CLI to be logged in. Turn that off with **Generate short session titles** in [Settings](settings.md).
 
-The left side also has a **Setup check** entry that opens the [Setup page](troubleshooting.md#the-setup-check-in-the-app).
+The left side also has a **History** entry (see [History](#history)) and a **Setup check** entry that opens the [Setup page](troubleshooting.md#the-setup-check-in-the-app).
 
 ## Answering questions
 
@@ -116,6 +116,26 @@ Each item has a **Snooze** menu for putting it aside:
 - **Mute** the project stops that project's items from notifying and from being answered here. Claude behaves as if Session Inbox weren't there for that project. The same menu says **Unmute** once it's muted, and [Settings](settings.md) lists muted projects with an **Unmute** button.
 
 **Pause notifications** in the menu-bar menu silences everything except permission requests, until you turn it off.
+
+## History
+
+Once you answer an item, or Claude moves on without it, the item leaves the queues. **History** in the left side of the inbox window lists those finished items, newest first and grouped by day, each with how it ended:
+
+| It says | What happened |
+| --- | --- |
+| **Allowed**, **Always allowed**, **Denied** | Your decision on a tool call, made in the inbox or from its notification. |
+| **Answered** | You answered Claude's questions here. |
+| **Replied** | You sent a reply from the inbox. |
+| **Handled in Claude** | A question or permission request that was settled in Claude, not here. |
+| **Session moved on** | A finished or failed session that carried on without a reply from the inbox. |
+| **Not answered** | A tool call the inbox was holding (classic mode) was released unanswered because the turn or the session ended first. |
+| **Dismissed** | You dismissed it. |
+
+Type in **Search history** to narrow the list. Every word has to match, in any of: the item's summary, the session's title, branch and folder, the project's name, a question, its options and your answers, a tool call's name and input (commands and file paths included), a deny reason, or a reply you sent. When a word matched somewhere the row doesn't show, the row adds a line such as "Matched in answer: …". The chips **All**, **Questions**, **Permissions**, **Reviews** and **Errors** filter by kind. **Load more** fetches older entries.
+
+Select an entry to see it as it was: the questions with the answers that were sent, or the tool call with its preview and the decision, plus the session's activity and **Open in Claude**. A finished item has nothing left to answer, so there are no Allow, Deny or Snooze controls on it.
+
+History searches what the inbox showed you and what you answered. It doesn't search Claude's messages or transcripts; for those, open the session in Claude. It reaches back as far as finished items are kept, 14 days unless you change **Keep history for** in [Settings](settings.md), and everything stays on this Mac.
 
 ## Open in Claude
 
