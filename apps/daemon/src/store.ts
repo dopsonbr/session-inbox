@@ -21,6 +21,8 @@ import type {
   Session,
   SessionState,
 } from "@session-inbox/contracts"
+import { ApprovalPreview } from "@session-inbox/contracts"
+import { Option, Schema } from "effect"
 
 export interface ProjectRow {
   id: string
@@ -83,6 +85,9 @@ export interface ApprovalRow {
   live: number
   decided_at: number | null
   expires_at: number
+  /** Migration 003 (D-056). */
+  preview_json?: string | null
+  context?: string | null
 }
 export interface QuestionRow {
   item_id: string
@@ -184,13 +189,29 @@ export const toItem = (r: ItemRow, live: boolean, questionCount = 0): Item => ({
   updatedAt: r.updated_at,
 })
 
-export const toApproval = (r: ApprovalRow): Approval => ({
-  tool: r.tool,
-  input: JSON.parse(r.input_json) as unknown,
-  decision: r.decision as Decision | null,
-  decidedAt: r.decided_at,
-  expiresAt: r.expires_at,
-})
+const decodePreview = Schema.decodeUnknownOption(ApprovalPreview)
+/** A stored preview, or undefined when absent or no longer matching the contract. */
+const previewOf = (json: string | null | undefined): ApprovalPreview | undefined => {
+  if (!json) return undefined
+  try {
+    return Option.getOrUndefined(decodePreview(JSON.parse(json)))
+  } catch {
+    return undefined
+  }
+}
+
+export const toApproval = (r: ApprovalRow): Approval => {
+  const preview = previewOf(r.preview_json)
+  return {
+    tool: r.tool,
+    input: JSON.parse(r.input_json) as unknown,
+    decision: r.decision as Decision | null,
+    decidedAt: r.decided_at,
+    expiresAt: r.expires_at,
+    ...(preview ? { preview } : {}),
+    ...(r.context ? { context: r.context } : {}),
+  }
+}
 
 export const toQuestion = (r: QuestionRow): Question => ({
   idx: r.idx,

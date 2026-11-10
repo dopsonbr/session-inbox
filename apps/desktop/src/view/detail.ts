@@ -21,6 +21,7 @@ import {
   sessionTone,
   toneText,
 } from "./parts.ts"
+import { contextLine, previewView } from "./preview.ts"
 
 type H = HtmlBuilder<Message>
 
@@ -428,27 +429,31 @@ const approvalCard = (model: Model, detail: ItemDetail, approval: Approval, h: H
   const isDecided = approval.decision !== null || detail.item.queue === "done"
   const disabled = isSending || isDecided
   const secondsLeft = Math.max(0, Math.round((approval.expiresAt - model.now) / 1000))
+  // Daemon-computed preview (U-031); older approvals without one keep the plain block.
+  const preview = previewView(h, approval, model.isPreviewExpanded)
   return h.section(
     [
       h.AriaLabel("Permission request"),
-      h.Class("flex flex-col gap-3 rounded-[14px] border-2 border-needs-strong p-4"),
+      h.Class("flex min-w-0 flex-col gap-3 rounded-[14px] border-2 border-needs-strong p-4"),
     ],
     [
       h.div(
         [h.Class("flex items-center gap-2 text-[13px] text-muted-foreground")],
         [
           h.span([h.Class("font-semibold text-foreground")], [approval.tool]),
-          description === null ? h.empty : `· ${description}`,
+          description === null || preview !== null ? h.empty : `· ${description}`,
         ],
       ),
-      h.pre(
-        [
-          h.Class(
-            "m-0 overflow-x-auto rounded-lg bg-code px-3 py-2 font-mono text-[13px] whitespace-pre-wrap",
-          ),
-        ],
-        [h.code([], [command])],
-      ),
+      contextLine(h, approval),
+      preview ??
+        h.pre(
+          [
+            h.Class(
+              "m-0 overflow-x-auto rounded-lg bg-code px-3 py-2 font-mono text-[13px] whitespace-pre-wrap",
+            ),
+          ],
+          [h.code([], [command])],
+        ),
       h.p(
         [h.Class("text-[13px] text-muted-foreground")],
         [

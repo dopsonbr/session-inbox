@@ -61,6 +61,7 @@ export const Message = defineMessageUnion({
   UpdatedReply: { value: Schema.String },
   CompletedWaitBeforeDraftSave: { version: Schema.Number },
   CompletedSaveDraft: {},
+  ToggledPreviewExpanded: {},
 
   SubmittedAnswers: {},
   ClickedDecision: { decision: Decision },

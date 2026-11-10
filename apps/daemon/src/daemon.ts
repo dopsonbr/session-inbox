@@ -18,6 +18,8 @@ import {
   type ClaudeCliShape,
   Clock,
   type ClockShape,
+  Files,
+  type FilesShape,
   Git,
   type GitShape,
   Logger,
@@ -55,6 +57,8 @@ export interface DaemonServices {
   readonly log: LoggerShape
   /** Absent (dev runs, most tests) ⇒ updates are "unsupported" (D-035). */
   readonly updater?: UpdaterShape | null
+  /** Preview reads (D-056); the live filesystem when omitted. */
+  readonly files?: FilesShape
 }
 
 export interface DaemonHandle {
@@ -184,6 +188,7 @@ export const daemonProgram = (opts: DaemonOptions) =>
       opener: yield* Opener,
       log: yield* Logger,
       updater: Option.getOrNull(yield* Effect.serviceOption(Updater)),
+      files: yield* Files,
     }
     const handle = yield* Effect.acquireRelease(
       Effect.promise(() => startDaemon(opts, svc)),

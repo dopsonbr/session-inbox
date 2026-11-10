@@ -12,6 +12,7 @@ import type {
   Session,
   TimelineEntry,
 } from "@session-inbox/contracts"
+import { bashPreview, makePreviewFixtures } from "./previewFixtures.ts"
 
 const MIN = 60_000
 
@@ -262,6 +263,8 @@ export const makeFixtures = (now: number): Fixtures => {
         decision: null,
         decidedAt: null,
         expiresAt: now + 100_000,
+        preview: bashPreview,
+        context: "The export tables are in place and tests pass. Applying the migrations next.",
       },
     },
     "i-hooks-failed": { ...none, openUrl: null },
@@ -341,5 +344,14 @@ export const makeFixtures = (now: number): Fixtures => {
     }
   }
 
-  return { projects, sessions, agents, items, extras, timelines }
+  // Approval-preview variety (U-031), appended so the mockup's items keep their order.
+  const pv = makePreviewFixtures(now)
+  return {
+    projects,
+    sessions: [...sessions, ...pv.sessions],
+    agents: [...agents, ...pv.agents],
+    items: [...items, ...pv.items],
+    extras: { ...extras, ...pv.extras },
+    timelines: { ...timelines, ...pv.timelines },
+  }
 }

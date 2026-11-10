@@ -92,6 +92,8 @@ export const Model = Schema.Struct({
   expandedNodes: Schema.Array(Schema.String),
   maybeFocusedNode: Schema.Option(Schema.String),
   maybeForm: Schema.Option(Form),
+  /** "Show all N lines" on the selected item's approval preview; reset on selection change. */
+  isPreviewExpanded: Schema.Boolean,
   draftVersion: Schema.Number,
   submission: Submission,
   jumpDialog: Dialog.Model,

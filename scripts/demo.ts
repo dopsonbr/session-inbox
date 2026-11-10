@@ -7,7 +7,7 @@
  *   bun run --cwd apps/desktop build   # once, so there is a UI to serve
  *   bun scripts/demo.ts                # prints the URL; Ctrl-C to stop
  */
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 import type { Connection } from "../packages/contracts/src/index.ts"
 
@@ -156,6 +156,96 @@ await hook(
 const s4 = "44444444-0000-4000-8000-000000000004"
 await session(s4, "agent-kit", "Session tree parser")
 await tool(s4, "agent-kit", "Read", { file_path: "src/tree.ts" })
+
+// 5 · Held Edit against a real file under the throwaway home → a real diff (D-056), with
+// a transcript so the card can quote what Claude said first.
+const s5 = "55555555-0000-4000-8000-000000000005"
+await session(s5, "order-up-api", "Validate delivery windows")
+const windowTs = join(proj("order-up-api"), "src", "window.ts")
+mkdirSync(join(proj("order-up-api"), "src"), { recursive: true })
+writeFileSync(
+  windowTs,
+  [
+    'import { addMinutes } from "date-fns"',
+    "",
+    "export const DEFAULT_PREP_MINUTES = 15",
+    "",
+    "export const deliveryWindow = (order: Order, now: Date) => {",
+    "  const start = addMinutes(now, order.prepMinutes ?? DEFAULT_PREP_MINUTES)",
+    "  const end = addMinutes(start, 30)",
+    "  return { start, end }",
+    "}",
+    "",
+  ].join("\n"),
+)
+const transcript = join(home, "transcript-s5.jsonl")
+writeFileSync(
+  transcript,
+  `${[
+    { type: "user", message: { role: "user", content: "Validate delivery windows" } },
+    {
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text: "The window end is hard-coded to 30 minutes. I'll make it configurable and reject windows that end before they start.",
+          },
+          { type: "tool_use", id: "e1", name: "Edit" },
+        ],
+      },
+    },
+  ]
+    .map((e) => JSON.stringify(e))
+    .join("\n")}\n`,
+)
+await hook(s5, "order-up-api", "PreToolUse", {
+  tool_name: "Edit",
+  tool_use_id: "e1",
+  transcript_path: transcript,
+  tool_input: {
+    file_path: windowTs,
+    old_string: "  const end = addMinutes(start, 30)\n  return { start, end }",
+    new_string: [
+      "  const end = addMinutes(start, order.windowMinutes ?? 30)",
+      "  if (end <= start) throw new WindowError(order.id)",
+      "  return { start, end }",
+    ].join("\n"),
+  },
+})
+
+// 6 · Held Write of a new file, and a held WebFetch.
+const s6 = "66666666-0000-4000-8000-000000000006"
+await session(s6, "agent-kit", "Changelog script", "cli")
+await hook(
+  s6,
+  "agent-kit",
+  "PreToolUse",
+  {
+    tool_name: "Write",
+    tool_use_id: "w1",
+    tool_input: {
+      file_path: join(proj("agent-kit"), "scripts", "changelog.ts"),
+      content: 'import { $ } from "bun"\n\nconsole.log(await $`git log --oneline -n 20`.text())\n',
+    },
+  },
+  "cli",
+)
+await hook(
+  s6,
+  "agent-kit",
+  "PreToolUse",
+  {
+    tool_name: "WebFetch",
+    tool_use_id: "f1",
+    tool_input: {
+      url: "https://keepachangelog.com/en/1.1.0/",
+      prompt: "Which section headings does the format use?",
+    },
+  },
+  "cli",
+)
 
 console.log(`\nSession Inbox demo running: http://127.0.0.1:${c.httpPort}/`)
 console.log(`  compact: http://127.0.0.1:${c.httpPort}/?view=compact`)

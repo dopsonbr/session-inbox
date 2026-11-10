@@ -116,12 +116,76 @@ export const Question = Schema.Struct({
 })
 export type Question = typeof Question.Type
 
+/** One rendered diff line. `noEol`: the line has no trailing newline (end of file). */
+export const DiffLine = Schema.Struct({
+  kind: Schema.Literals(["context", "add", "del"]),
+  text: Schema.String,
+  noEol: Schema.optional(Schema.Boolean),
+})
+export type DiffLine = typeof DiffLine.Type
+
+/** A unified-diff hunk; starts are 1-based (0 when that side is empty). */
+export const DiffHunk = Schema.Struct({
+  oldStart: Schema.Number,
+  oldLines: Schema.Number,
+  newStart: Schema.Number,
+  newLines: Schema.Number,
+  lines: Schema.Array(DiffLine),
+})
+export type DiffHunk = typeof DiffHunk.Type
+
+/**
+ * What a held tool call would do, computed by the daemon when the hold is created
+ * (C-019). The UI renders it as given.
+ */
+export const ApprovalPreview = Schema.Union([
+  Schema.TaggedStruct("diff", {
+    path: Schema.String,
+    /** `path` relative to the session's worktree/project/cwd when inside it. */
+    displayPath: Schema.String,
+    isNewFile: Schema.Boolean,
+    /** The file couldn't be read or the edit didn't match: old vs new text only, lines from 1. */
+    approximate: Schema.Boolean,
+    /** NUL bytes on either side: no hunks. */
+    binary: Schema.Boolean,
+    hunks: Schema.Array(DiffHunk),
+    /** Counts over the whole change, even when `hunks` were cut. */
+    added: Schema.Number,
+    removed: Schema.Number,
+    /** Hunks were cut at the line/byte cap. */
+    truncated: Schema.Boolean,
+  }),
+  Schema.TaggedStruct("command", {
+    command: Schema.String,
+    description: Schema.NullOr(Schema.String),
+    cwd: Schema.NullOr(Schema.String),
+    /** `cwd` relative to the project root when inside it ("." for the root). */
+    displayCwd: Schema.NullOr(Schema.String),
+    background: Schema.optional(Schema.Boolean),
+    timeoutMs: Schema.optional(Schema.Number),
+  }),
+  Schema.TaggedStruct("fetch", {
+    url: Schema.String,
+    prompt: Schema.NullOr(Schema.String),
+  }),
+  Schema.TaggedStruct("generic", {
+    /** Pretty-printed tool input. */
+    text: Schema.String,
+    truncated: Schema.Boolean,
+  }),
+])
+export type ApprovalPreview = typeof ApprovalPreview.Type
+
 export const Approval = Schema.Struct({
   tool: Schema.String,
   input: Schema.Unknown,
   decision: Schema.NullOr(Decision),
   decidedAt: Schema.NullOr(Millis),
   expiresAt: Millis,
+  /** Computed and stored when the hold was created; absent for older rows or on failure. */
+  preview: Schema.optional(ApprovalPreview),
+  /** Claude's last text before this tool call (≤ ~600 chars), from the transcript tail. */
+  context: Schema.optional(Schema.String),
 })
 export type Approval = typeof Approval.Type
 

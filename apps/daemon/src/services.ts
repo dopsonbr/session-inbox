@@ -3,11 +3,12 @@
  * can swap in fakes (test/fakes.ts). Shapes are plain Promise-returning
  * functions: the engine core is synchronous and calls out only at its edges.
  */
-import { closeSync, existsSync, openSync, readFileSync } from "node:fs"
+import { closeSync, existsSync, openSync, readFileSync, statSync } from "node:fs"
 import { basename, dirname, join, resolve } from "node:path"
 import { INTERNAL_ENV } from "@session-inbox/contracts/paths"
 import { Context, Layer } from "effect"
-import { cleanGeneratedTitle, TITLE_INSTRUCTION } from "./domain/text.ts"
+import type { ReadResult } from "./domain/preview.ts"
+import { cleanGeneratedTitle, readTail, TITLE_INSTRUCTION } from "./domain/text.ts"
 
 export interface ClockShape {
   readonly now: () => number
@@ -76,6 +77,17 @@ export interface UpdaterShape {
   readonly readState: () => UpdateStateFile | null
 }
 export const Updater = Context.Service<UpdaterShape>("inboxd/Updater")
+/**
+ * Reads for approval previews (D-056). Synchronous on purpose: they run inside the ingest
+ * transaction, are size-capped, and never throw.
+ */
+export interface FilesShape {
+  /** UTF-8 text of a regular file up to `maxBytes`; bigger or unreadable ⇒ "unreadable". */
+  readonly read: (path: string, maxBytes: number) => ReadResult
+  /** The last `bytes` of a file (a transcript), or null. */
+  readonly tail: (path: string, bytes: number) => string | null
+}
+export const Files = Context.Service<FilesShape>("inboxd/Files")
 
 export interface LoggerShape {
   readonly info: (msg: string, data?: unknown) => void
@@ -321,6 +333,21 @@ export const makeLiveUpdater = (opts: {
   }
 }
 
+export const LiveFiles: FilesShape = {
+  read: (path, maxBytes) => {
+    try {
+      const st = statSync(path, { throwIfNoEntry: false })
+      if (!st) return { _tag: "missing" }
+      if (!st.isFile()) return { _tag: "unreadable", reason: "not a regular file" }
+      if (st.size > maxBytes) return { _tag: "unreadable", reason: `larger than ${maxBytes} bytes` }
+      return { _tag: "ok", text: readFileSync(path, "utf8") }
+    } catch (e) {
+      return { _tag: "unreadable", reason: e instanceof Error ? e.message : String(e) }
+    }
+  },
+  tail: (path, bytes) => readTail(path, bytes),
+}
+
 const line = (level: string, msg: string, data?: unknown) => {
   const extra =
     data === undefined ? "" : ` ${data instanceof Error ? data.message : JSON.stringify(data)}`
@@ -338,5 +365,6 @@ export const LiveServices = Layer.mergeAll(
   Layer.succeed(ClaudeCli)(makeLiveClaudeCli()),
   Layer.succeed(Notifier)(LiveNotifier),
   Layer.succeed(Opener)(LiveOpener),
+  Layer.succeed(Files)(LiveFiles),
   Layer.succeed(Logger)(StderrLogger),
 )
