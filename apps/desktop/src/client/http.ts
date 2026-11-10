@@ -6,6 +6,7 @@
  */
 import {
   ActionResponse,
+  DoctorReport,
   ItemDetail,
   OpenResponse,
   Routes,
@@ -14,8 +15,14 @@ import {
   StreamMessage,
   UpdateStatus,
 } from "@session-inbox/contracts"
-import { Effect, Queue, Schema, Stream } from "effect"
-import { DaemonClient, type DaemonClientShape, DaemonError } from "./daemonClient.ts"
+import { Effect, Option, Queue, Schema, Stream } from "effect"
+import {
+  DaemonClient,
+  type DaemonClientShape,
+  DaemonError,
+  TestNotifyResult,
+} from "./daemonClient.ts"
+import { withExtraSettings } from "./extraSettings.ts"
 import { feed, initialSseState, type SseState } from "./sse.ts"
 
 export const TOKEN_META_NAME = "session-inbox-token"
@@ -87,6 +94,16 @@ export const makeHttpClient = (config: HttpClientConfig): DaemonClientShape => {
         ),
       )
 
+  /** Settings keys newer than these contracts survive decoding when they are numbers. */
+  const settingsResponse = (effect: Effect.Effect<unknown, DaemonError>) =>
+    effect.pipe(
+      Effect.flatMap((json) =>
+        decoded(SettingsResponse)(Effect.succeed(json)).pipe(
+          Effect.map((response) => withExtraSettings(json, response)),
+        ),
+      ),
+    )
+
   const decodeStreamMessage = Schema.decodeUnknownOption(StreamMessage)
 
   const stream = (since: number | null): Stream.Stream<StreamMessage, DaemonError> =>
@@ -146,11 +163,20 @@ export const makeHttpClient = (config: HttpClientConfig): DaemonClientShape => {
     read: (itemId) => Effect.asVoid(request("POST", Routes.read(itemId), {})),
     open: (itemId) => decoded(OpenResponse)(request("POST", Routes.openInClaude(itemId), {})),
     mute: (projectId, body) => Effect.asVoid(request("POST", Routes.projectMute(projectId), body)),
-    getSettings: decoded(SettingsResponse)(request("GET", Routes.settings)),
-    putSettings: (patch) => decoded(SettingsResponse)(request("PUT", Routes.settings, patch)),
+    getSettings: settingsResponse(request("GET", Routes.settings)),
+    putSettings: (patch) => settingsResponse(request("PUT", Routes.settings, patch)),
     updateStatus: decoded(UpdateStatus)(request("GET", Routes.update)),
     updateCheck: decoded(UpdateStatus)(request("POST", Routes.updateCheck, {})),
     updateApply: (body) => decoded(UpdateStatus)(request("POST", Routes.updateApply, body)),
+    // An older daemon has no setup check: 404 means "unavailable", not an error (U-034).
+    doctor: decoded(DoctorReport)(request("GET", Routes.doctor)).pipe(
+      Effect.map(Option.some),
+      Effect.catchIf(
+        (error) => error.status === 404,
+        () => Effect.succeed(Option.none()),
+      ),
+    ),
+    doctorNotify: decoded(TestNotifyResult)(request("POST", Routes.doctorNotify, {})),
   }
 }
 

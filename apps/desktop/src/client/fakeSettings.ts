@@ -12,8 +12,11 @@ import {
 } from "@session-inbox/contracts"
 import { Effect } from "effect"
 import { DaemonError } from "./daemonClient.ts"
+import { EXTRA_NUMBER_SETTINGS } from "./extraSettings.ts"
 
-export const FAKE_SETTING_DEFAULTS: UserSettings = {
+// `storage.retentionDays` is the daemon's; until contracts list it, the fake reports it
+// as an extra key the way a newer daemon would (U-036). `as` keeps this compiling either way.
+export const FAKE_SETTING_DEFAULTS = {
   "holds.enabled": true,
   "holds.tools": [...HOLDABLE_TOOLS],
   "holds.budgetMs": 120_000,
@@ -23,10 +26,18 @@ export const FAKE_SETTING_DEFAULTS: UserSettings = {
   "titles.generate": true,
   "updates.check": true,
   "updates.auto": true,
+  "storage.retentionDays": 30,
+} as UserSettings
+
+const EXTRA_LIMITS: Record<string, { min: number; max: number }> = {
+  "storage.retentionDays": { min: 1, max: 365 },
 }
 
+const KNOWN_KEYS: ReadonlyArray<string> = [...USER_SETTING_KEYS, ...EXTRA_NUMBER_SETTINGS]
+
 const tidy = (key: string, value: unknown): unknown => {
-  const limits = (SETTING_LIMITS as Record<string, { min: number; max: number }>)[key]
+  const limits =
+    (SETTING_LIMITS as Record<string, { min: number; max: number }>)[key] ?? EXTRA_LIMITS[key]
   if (limits !== undefined && typeof value === "number") {
     return Math.round(Math.min(limits.max, Math.max(limits.min, value)))
   }
@@ -45,9 +56,7 @@ export const makeFakeSettings = (otherChannel: string | null = "beta") => {
     getSettings: Effect.sync(response),
     putSettings: (patch: UserSettingsPatch) =>
       Effect.suspend(() => {
-        const unknown = Object.keys(patch).filter(
-          (k) => !(USER_SETTING_KEYS as ReadonlyArray<string>).includes(k),
-        )
+        const unknown = Object.keys(patch).filter((k) => !KNOWN_KEYS.includes(k))
         if (unknown.length > 0) {
           return Effect.fail(
             new DaemonError({ message: `Unknown setting ${unknown.join(", ")}`, status: 400 }),

@@ -2,6 +2,7 @@ import { Combobox, Dialog, Menu, RadioGroup } from "@foldkit/ui"
 import {
   ActionResponse,
   Decision,
+  DoctorReport,
   ItemDetail,
   Snapshot,
   StreamMessage,
@@ -68,7 +69,8 @@ export const Message = defineMessageUnion({
   SubmittedReply: {},
   ClickedOpenInClaude: {},
   SucceededAction: { action: ActionKind, itemId: Schema.String, response: ActionResponse },
-  FailedAction: { action: ActionKind, error: Schema.String },
+  /** `status`: the HTTP status when the daemon answered (409 = it refused), else null. */
+  FailedAction: { action: ActionKind, error: Schema.String, status: Schema.NullOr(Schema.Number) },
   SucceededOpenInClaude: { url: Schema.NullOr(Schema.String) },
 
   PressedJumpShortcut: {},
@@ -88,6 +90,22 @@ export const Message = defineMessageUnion({
   SucceededUpdateRequest: { status: UpdateStatus },
   FailedUpdateRequest: { error: Schema.String },
   CompletedReload: {},
+
+  SucceededFetchDoctor: { report: DoctorReport },
+  /** The daemon has no setup check (404). */
+  FoundDoctorUnavailable: {},
+  FailedFetchDoctor: { error: Schema.String },
+  ClickedRecheck: {},
+  ClickedCopyFix: { checkId: Schema.String, value: Schema.String },
+  CompletedCopyFix: { checkId: Schema.String, value: Schema.String, isCopied: Schema.Boolean },
+  CompletedCopiedWait: { checkId: Schema.String },
+  ClickedTestNotification: {},
+  SucceededTestNotification: {
+    via: Schema.NullOr(Schema.String),
+    message: Schema.NullOr(Schema.String),
+  },
+  FailedTestNotification: { error: Schema.String },
+  ToggledLastMessageExpanded: {},
 
   CompletedMarkRead: {},
   CompletedSetHash: {},

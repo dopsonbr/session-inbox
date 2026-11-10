@@ -24,7 +24,55 @@ export type ItemExtras = {
   openUrl: string | null
   /** Seq of the timeline entry that created the item (the fake marks it `isSource`). */
   sourceSeq?: number
+  /** What Claude said last (C-023), Markdown. */
+  lastMessage?: string
+  /** Why a reply can't be sent from the inbox (C-023). */
+  replyUnavailable?: string
 }
+
+/** A long review message: >24 lines, every block kind, a relative link and a bare URL. */
+export const RECEIPTS_LAST_MESSAGE = `## ESC/POS driver is done
+
+The receipt printer driver now talks **ESC/POS** directly over USB, with a *fallback* to the system print queue when no printer answers within \`PRINTER_TIMEOUT_MS\`.
+
+### What changed
+- \`src/printer/escpos.ts\`: command builder (bold, cut, QR codes)
+- \`src/printer/usb.ts\`: device discovery and reconnect
+  - retries 3 times with backoff
+  - logs the vendor id on failure
+- \`src/printer/queue.ts\`: fallback path
+
+### How to try it
+1. Plug in the TM-T20III
+2. Run the demo:
+
+\`\`\`bash
+bun run printer:demo --copies 2
+\`\`\`
+
+3. Check the cut lands below the QR code
+
+| File | Lines |
+|------|-------|
+| escpos.ts | 412 |
+| usb.ts | 188 |
+
+Notes for review are in [docs/printer-handoff.md](docs/printer-handoff.md); the spec I followed is https://download4.epson.biz/sec_pubs/pos/reference_en/escpos/index.html.
+
+---
+
+Tests: 7 files changed, **38 passing**, 0 failing. Nothing is committed yet; I left the branch \`feat/escpos\` for you to look at before the PR.`
+
+const DOCS_LAST_MESSAGE =
+  "I drafted `README.md` for the hook installer: install, uninstall, and what each hook does. Have a read and tell me what to change."
+
+const HOOKS_LAST_MESSAGE = `I stopped: 3 tests in \`parser.spec.ts\` fail after the schema change.
+
+- \`parses SubagentStop\`: expected \`agent_type\`, got \`undefined\`
+- \`rejects unknown events\`: now accepted
+- \`keeps raw payload\`: snapshot changed
+
+Want me to update the snapshots, or fix the parser to keep the old field?`
 
 export type Fixtures = {
   projects: Array<Project>
@@ -130,6 +178,8 @@ export const makeFixtures = (now: number): Fixtures => {
     agent("a-sync-main", "s-pos-sync", "main", "running", null, 35),
     agent("a-sync-scout", "s-pos-sync", "conflict-scout", "waiting", "a-sync-main", 20),
     agent("a-sync-tests", "s-pos-sync", "test-runner", "running", "a-sync-main", 2),
+    // A subagent the hook couldn't name: the tree shows "agent" (U-040).
+    agent("a-sync-anon", "s-pos-sync", "", "done", "a-sync-main", 12),
     agent("a-receipts-main", "s-pos-receipts", "main", "done", null, 40),
     agent("a-bench-main", "s-pos-bench", "main", "running", null, 6),
   ]
@@ -187,7 +237,7 @@ export const makeFixtures = (now: number): Fixtures => {
       "a-hooks-main",
       "failed",
       "needs-you",
-      "3 tests failing in parser.spec.ts",
+      "3 tests failing in `parser.spec.ts`",
       41,
       { unread: false },
     ),
@@ -197,7 +247,7 @@ export const makeFixtures = (now: number): Fixtures => {
       "a-receipts-main",
       "review",
       "review",
-      "ESC/POS driver done · 7 files changed",
+      "**ESC/POS** driver done · 7 files changed in `src/printer`",
       23,
     ),
     item(
@@ -267,9 +317,15 @@ export const makeFixtures = (now: number): Fixtures => {
         context: "The export tables are in place and tests pass. Applying the migrations next.",
       },
     },
-    "i-hooks-failed": { ...none, openUrl: null },
-    "i-receipts-review": { ...none, openUrl: null },
-    "i-docs-review": { ...none, openUrl: "claude://code/session/local_s-agentkit-docs" },
+    "i-hooks-failed": { ...none, openUrl: null, lastMessage: HOOKS_LAST_MESSAGE },
+    "i-receipts-review": { ...none, openUrl: null, lastMessage: RECEIPTS_LAST_MESSAGE },
+    "i-docs-review": {
+      ...none,
+      openUrl: "claude://code/session/local_s-agentkit-docs",
+      lastMessage: DOCS_LAST_MESSAGE,
+      replyUnavailable:
+        "Replies are sent with the claude CLI, which isn't logged in on this Mac. Reply in Claude instead, or log in with claude /login in a terminal.",
+    },
     "i-sync-snoozed": {
       ...none,
       openUrl: "claude://code/session/local_s-pos-sync",

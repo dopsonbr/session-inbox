@@ -6,6 +6,7 @@ import type {
   ActionResponse,
   AnswersRequest,
   DecisionRequest,
+  DoctorReport,
   DraftRequest,
   ItemDetail,
   MuteRequest,
@@ -19,12 +20,23 @@ import type {
   UpdateStatus,
   UserSettingsPatch,
 } from "@session-inbox/contracts"
-import { Context, Data, type Effect, type Stream } from "effect"
+import { Context, Data, type Effect, type Option, Schema, type Stream } from "effect"
 
 export class DaemonError extends Data.TaggedError("DaemonError")<{
   readonly message: string
   readonly status: number | null
 }> {}
+
+/**
+ * What POST /v1/doctor/notify answered. The contracts don't type this body, so the UI reads
+ * it leniently: `via` is where the daemon sent the test (shell | fallback | none), when it
+ * says so (U-034).
+ */
+export const TestNotifyResult = Schema.Struct({
+  via: Schema.optional(Schema.String),
+  message: Schema.optional(Schema.String),
+})
+export type TestNotifyResult = typeof TestNotifyResult.Type
 
 export type DaemonClientShape = Readonly<{
   snapshot: Effect.Effect<Snapshot, DaemonError>
@@ -47,6 +59,9 @@ export type DaemonClientShape = Readonly<{
   updateStatus: Effect.Effect<UpdateStatus, DaemonError>
   updateCheck: Effect.Effect<UpdateStatus, DaemonError>
   updateApply: (body: UpdateApplyRequest) => Effect.Effect<UpdateStatus, DaemonError>
+  /** Setup check (C-021). None when this daemon has no /v1/doctor (404): show nothing. */
+  doctor: Effect.Effect<Option.Option<DoctorReport>, DaemonError>
+  doctorNotify: Effect.Effect<TestNotifyResult, DaemonError>
 }>
 
 export class DaemonClient extends Context.Service<DaemonClient, DaemonClientShape>()(

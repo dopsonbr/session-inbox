@@ -184,30 +184,69 @@ export const compactUpdateRowView = (model: Model, h: H): Html | null =>
     },
   })
 
-/** `v0.1.0 · 8ef7cf8` plus "Check for updates" when this install can update. */
+/** `version·build` → ["0.1.0", "8ef7cf8"]. */
+const splitBuildKey = (key: string): [string, string] => {
+  const [version = key, build = ""] = key.split("·")
+  return [version, build]
+}
+
+/**
+ * `v0.1.0 · 8ef7cf8` plus "Check for updates" when this install can update, and "What's new"
+ * right after an update. Never wraps; the build hash goes first when the header is narrow.
+ */
 export const versionView = (model: Model, h: H): Html | null => {
-  const label = Option.match(model.maybeUpdate, {
-    onSome: (s) => Option.some(`v${s.current} · ${s.build}`),
-    onNone: () => Option.map(model.maybeDaemonBuild, (key) => `v${key.replace("·", " · ")}`),
+  const parts = Option.match(model.maybeUpdate, {
+    onSome: (s): Option.Option<[string, string]> => Option.some([s.current, s.build]),
+    onNone: () => Option.map(model.maybeDaemonBuild, splitBuildKey),
   })
-  if (Option.isNone(label)) {
+  if (Option.isNone(parts)) {
     return null
   }
+  const [version, build] = parts.value
   const canCheck = Option.exists(model.maybeUpdate, (s) => s.state !== "unsupported")
   const isChecking =
     model.updateRequest === "Checking" ||
     Option.exists(model.maybeUpdate, (s) => s.state === "checking")
+  const whatsNew = Option.flatMap(
+    Option.filter(model.maybeUpdate, (s) => s.justUpdatedFrom !== null),
+    (s) => Option.fromNullishOr(s.notesUrl),
+  )
   return h.div(
-    [h.Class("flex items-center gap-2 text-xs text-subtle-foreground")],
+    [h.Class("flex shrink-0 items-center gap-2 text-xs whitespace-nowrap text-subtle-foreground")],
     [
-      h.span([h.Class("font-mono tabular-nums")], [label.value]),
+      h.span(
+        [
+          h.Class("font-mono tabular-nums"),
+          h.Title(build === "" ? `v${version}` : `v${version} · ${build}`),
+        ],
+        [
+          `v${version}`,
+          build === "" ? "" : h.span([h.Class("max-[900px]:hidden")], [` · ${build}`]),
+        ],
+      ),
+      ...Option.match(whatsNew, {
+        onNone: () => [],
+        onSome: (url) => [
+          h.a(
+            [
+              h.Href(url),
+              h.Target("_blank"),
+              h.Rel("noopener noreferrer"),
+              h.Class(
+                "inline-flex items-center gap-1 rounded px-1 text-xs font-medium text-foreground underline-offset-2 hover:underline",
+              ),
+            ],
+            ["What's new", Icon.external(h, "size-3")],
+          ),
+        ],
+      }),
       ...(canCheck
         ? [
             h.button(
               [
                 h.Type("button"),
                 h.Class(
-                  "cursor-pointer rounded px-1 text-xs text-subtle-foreground underline-offset-2 hover:text-foreground hover:underline disabled:cursor-default disabled:no-underline",
+                  "cursor-pointer rounded px-1 text-xs whitespace-nowrap text-subtle-foreground underline-offset-2 hover:text-foreground hover:underline disabled:cursor-default disabled:no-underline",
                 ),
                 h.Disabled(isChecking),
                 h.OnClick(Message.ClickedCheckForUpdates()),

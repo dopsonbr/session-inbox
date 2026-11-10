@@ -17,17 +17,21 @@ import { Command, type Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
 import { defineTaggedUnion } from "foldkit/schema"
 import { DaemonClient } from "./client/daemonClient.ts"
+import type { ExtraNumberSetting } from "./client/extraSettings.ts"
 
 // FIELDS
 //
 // The pane renders from this list. A new boolean setting is one entry here (plus the
 // key in contracts' UserSettings); a new group is one entry in SETTINGS_GROUPS.
 
-export type SettingsGroupId = "approvals" | "notifications" | "sessions" | "updates"
-export type FieldKind = "toggle" | "seconds" | "tools" | "list"
+export type SettingsGroupId = "approvals" | "notifications" | "sessions" | "storage" | "updates"
+export type FieldKind = "toggle" | "seconds" | "days" | "tools" | "list"
+
+/** A contracts key, or a number setting a newer daemon may report (U-036). */
+export type SettingKey = UserSettingKey | ExtraNumberSetting
 
 export type SettingsField = Readonly<{
-  key: UserSettingKey
+  key: SettingKey
   group: SettingsGroupId
   kind: FieldKind
   label: string
@@ -40,6 +44,7 @@ export const SETTINGS_GROUPS: ReadonlyArray<Readonly<{ id: SettingsGroupId; titl
   { id: "approvals", title: "Approvals" },
   { id: "notifications", title: "Notifications" },
   { id: "sessions", title: "Sessions" },
+  { id: "storage", title: "Storage" },
   { id: "updates", title: "Updates" },
 ]
 
@@ -97,6 +102,14 @@ export const SETTINGS_FIELDS: ReadonlyArray<SettingsField> = [
     help: "Runs claude -p with Haiku once per session.",
   },
   {
+    // Shown only when the daemon reports it (U-036).
+    key: "storage.retentionDays",
+    group: "storage",
+    kind: "days",
+    label: "Keep history for",
+    help: "Finished items, sessions and their events older than this are deleted. 1 to 365 days.",
+  },
+  {
     key: "updates.check",
     group: "updates",
     kind: "toggle",
@@ -114,6 +127,14 @@ export const SETTINGS_FIELDS: ReadonlyArray<SettingsField> = [
 
 export const fieldFor = (key: string): SettingsField | undefined =>
   SETTINGS_FIELDS.find((f) => f.key === key)
+
+/** A setting's value by key, including keys newer than these contracts. */
+export const settingValue = (settings: UserSettings, key: string): unknown =>
+  (settings as Readonly<Record<string, unknown>>)[key]
+
+/** Fields this daemon reports; one it doesn't know (an older daemon) isn't shown or sent. */
+export const presentFields = (response: SettingsResponse): ReadonlyArray<SettingsField> =>
+  SETTINGS_FIELDS.filter((f) => settingValue(response.settings, f.key) !== undefined)
 
 /** Status key for "Reset all to defaults". */
 export const RESET_ALL = "*"
@@ -166,6 +187,8 @@ export const initSettings = (): SettingsModel => ({
 
 export const SettingsMessage = defineMessageUnion({
   RequestedOpen: {},
+  /** Closed from outside the dialog (e.g. its "Setup check" link navigated away). */
+  RequestedClose: {},
   GotDialogMessage: { message: Dialog.Message },
   SucceededFetchSettings: { response: SettingsResponse },
   FailedFetchSettings: { error: Schema.String },
@@ -246,8 +269,15 @@ export const parseSeconds = (text: string): number | null => {
   return Math.round(Number(t) * 1000)
 }
 
-export const isDefault = (loaded: Loaded, key: UserSettingKey): boolean =>
-  JSON.stringify(loaded.shown[key]) === JSON.stringify(loaded.saved.defaults[key])
+/** Whole days, as typed: "30" → 30; anything else → null. The daemon clamps the range. */
+export const parseDays = (text: string): number | null => {
+  const t = text.trim()
+  return /^\d{1,4}$/.test(t) ? Number(t) : null
+}
+
+export const isDefault = (loaded: Loaded, key: string): boolean =>
+  JSON.stringify(settingValue(loaded.shown, key)) ===
+  JSON.stringify(settingValue(loaded.saved.defaults, key))
 
 const withoutKey = <V>(record: Readonly<Record<string, V>>, key: string) =>
   Object.fromEntries(Object.entries(record).filter(([k]) => k !== key))
@@ -279,19 +309,18 @@ const withLoaded = (model: SettingsModel, loaded: Loaded): SettingsModel => ({
 })
 
 /** Show `value` now, send `{ key: value }`; the daemon's answer replaces it either way. */
-const save = <K extends UserSettingKey>(
-  model: SettingsModel,
-  key: K,
-  value: UserSettings[K],
-): SettingsReturn => {
+const save = (model: SettingsModel, key: SettingKey, value: unknown): SettingsReturn => {
   const loaded = loadedOf(model)
   if (loaded === null) {
     return { model }
   }
-  const next = withLoaded(model, { ...loaded, shown: { ...loaded.shown, [key]: value } })
+  const next = withLoaded(model, {
+    ...loaded,
+    shown: { ...loaded.shown, [key]: value } as UserSettings,
+  })
   return {
     model: { ...next, status: { ...next.status, [key]: FieldStatus.Saving() } },
-    commands: [SaveSettings({ key, patch: { [key]: value } })],
+    commands: [SaveSettings({ key, patch: { [key]: value } as UserSettingsPatch })],
   }
 }
 
@@ -307,22 +336,29 @@ const commitDraft = (model: SettingsModel, key: string): SettingsReturn => {
     return { model }
   }
   const cleared = { ...model, drafts: withoutKey(model.drafts, key) }
-  if (field.kind === "seconds") {
-    const ms = parseSeconds(draft)
-    if (ms === null) {
-      return fail(cleared, key, "Enter a number of seconds.")
+  // A blur while the dialog closes (Esc) must not save what was being typed.
+  if (!model.dialog.isOpen) {
+    return { model: cleared }
+  }
+  const shown = settingValue(loaded.shown, field.key)
+  if (field.kind === "seconds" || field.kind === "days") {
+    const value = field.kind === "seconds" ? parseSeconds(draft) : parseDays(draft)
+    if (value === null) {
+      return fail(
+        cleared,
+        key,
+        field.kind === "seconds" ? "Enter a number of seconds." : "Enter a whole number of days.",
+      )
     }
-    return ms === loaded.shown[field.key]
-      ? { model: cleared }
-      : save(cleared, field.key, ms as never)
+    return value === shown ? { model: cleared } : save(cleared, field.key, value)
   }
   if (field.kind === "list") {
     const entry = draft.trim()
-    const list = loaded.shown[field.key] as ReadonlyArray<string>
+    const list = shown as ReadonlyArray<string>
     if (entry === "" || list.includes(entry)) {
       return { model: cleared }
     }
-    return save(cleared, field.key, [...list, entry] as never)
+    return save(cleared, field.key, [...list, entry])
   }
   return { model: cleared }
 }
@@ -334,7 +370,7 @@ const merge = (model: SettingsModel, response: SettingsResponse, settledKey: str
   if (loaded !== null) {
     for (const [key, status] of Object.entries(model.status)) {
       if (key !== settledKey && status._tag === "Saving" && key in loaded.shown) {
-        shown[key] = loaded.shown[key as UserSettingKey]
+        shown[key] = settingValue(loaded.shown, key)
       }
     }
   }
@@ -356,8 +392,19 @@ export const updateSettings = (model: SettingsModel, message: SettingsMessage): 
       }
     },
 
-    GotDialogMessage: ({ message: dialogMessage }) =>
-      liftDialog(model, Dialog.update(model.dialog, dialogMessage)),
+    GotDialogMessage: ({ message: dialogMessage }) => {
+      const next = liftDialog(model, Dialog.update(model.dialog, dialogMessage))
+      // Closing (Esc, backdrop, Close) discards text that was typed but not committed.
+      return next.model.dialog.isOpen ? next : { ...next, model: { ...next.model, drafts: {} } }
+    },
+
+    RequestedClose: () =>
+      model.dialog.isOpen
+        ? (() => {
+            const next = liftDialog(model, Dialog.close(model.dialog))
+            return { ...next, model: { ...next.model, drafts: {} } }
+          })()
+        : { model },
 
     SucceededFetchSettings: ({ response }) => ({
       model: withLoaded(model, { saved: response, shown: response.settings }),
@@ -369,9 +416,7 @@ export const updateSettings = (model: SettingsModel, message: SettingsMessage): 
         : { model: { ...model, load: SettingsLoad.Failed({ error }) } },
 
     ToggledSetting: ({ key, value }) =>
-      fieldFor(key)?.kind === "toggle"
-        ? save(model, key as UserSettingKey, value as never)
-        : { model },
+      fieldFor(key)?.kind === "toggle" ? save(model, key as SettingKey, value) : { model },
 
     ToggledTool: ({ tool, isChecked }) => {
       const loaded = loadedOf(model)
@@ -404,8 +449,12 @@ export const updateSettings = (model: SettingsModel, message: SettingsMessage): 
       if (loaded === null || field?.kind !== "list") {
         return { model }
       }
-      const list = loaded.shown[field.key] as ReadonlyArray<string>
-      return save(model, field.key, list.filter((v) => v !== value) as never)
+      const list = settingValue(loaded.shown, field.key) as ReadonlyArray<string>
+      return save(
+        model,
+        field.key,
+        list.filter((v) => v !== value),
+      )
     },
 
     ClickedReset: ({ key }) => {
@@ -416,7 +465,10 @@ export const updateSettings = (model: SettingsModel, message: SettingsMessage): 
       }
       const next = withLoaded(model, {
         ...loaded,
-        shown: { ...loaded.shown, [field.key]: loaded.saved.defaults[field.key] },
+        shown: {
+          ...loaded.shown,
+          [field.key]: settingValue(loaded.saved.defaults, field.key),
+        } as UserSettings,
       })
       return {
         model: {
@@ -424,7 +476,7 @@ export const updateSettings = (model: SettingsModel, message: SettingsMessage): 
           drafts: withoutKey(next.drafts, key),
           status: { ...next.status, [key]: FieldStatus.Saving() },
         },
-        commands: [SaveSettings({ key, patch: { [field.key]: null } })],
+        commands: [SaveSettings({ key, patch: { [field.key]: null } as UserSettingsPatch })],
       }
     },
 
@@ -433,7 +485,10 @@ export const updateSettings = (model: SettingsModel, message: SettingsMessage): 
       if (loaded === null) {
         return { model }
       }
-      const patch = Object.fromEntries(SETTINGS_FIELDS.map((f) => [f.key, null]))
+      // Only keys this daemon knows: an unknown key would fail the whole PUT.
+      const patch = Object.fromEntries(
+        presentFields(loaded.saved).map((f) => [f.key, null]),
+      ) as UserSettingsPatch
       return {
         model: {
           ...withLoaded(model, { ...loaded, shown: loaded.saved.defaults }),
@@ -457,10 +512,11 @@ export const updateSettings = (model: SettingsModel, message: SettingsMessage): 
         return { model }
       }
       // Put the control back to what the daemon last said.
-      const keys = key === RESET_ALL ? SETTINGS_FIELDS.map((f) => f.key) : [key as UserSettingKey]
+      const keys =
+        key === RESET_ALL ? presentFields(loaded.saved).map((f) => f.key) : [key as SettingKey]
       const shown: Record<string, unknown> = { ...loaded.shown }
       for (const k of keys) {
-        shown[k] = loaded.saved.settings[k]
+        shown[k] = settingValue(loaded.saved.settings, k)
       }
       return {
         model: {

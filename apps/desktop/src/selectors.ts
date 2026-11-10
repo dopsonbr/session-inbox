@@ -174,12 +174,49 @@ export const projectHasOnlyFailures = (snapshot: Snapshot, projectId: string): b
 
 // ROUTING
 
-export const itemIdFromHash = (hash: string): Option.Option<string> => {
+const SETUP_ITEM_ID = "setup"
+
+/**
+ * `#/setup` and `#/item/setup` (what a click on the test notification opens) are the Setup
+ * panel; `#/update` is the tray's "Check for Updates…"; `#/item/<id>` selects (U-034).
+ */
+export type HashRoute =
+  | Readonly<{ _tag: "item"; itemId: string }>
+  | Readonly<{ _tag: "setup" }>
+  | Readonly<{ _tag: "update" }>
+  | Readonly<{ _tag: "inbox" }>
+
+export const routeFromHash = (hash: string): HashRoute => {
+  if (/^#\/setup\/?$/.test(hash)) {
+    return { _tag: "setup" }
+  }
+  if (/^#\/update\/?$/.test(hash)) {
+    return { _tag: "update" }
+  }
   const match = /^#\/item\/([^/?#]+)/.exec(hash)
-  return match?.[1] === undefined ? Option.none() : Option.some(decodeURIComponent(match[1]))
+  if (match?.[1] === undefined) {
+    return { _tag: "inbox" }
+  }
+  let itemId = match[1]
+  try {
+    itemId = decodeURIComponent(match[1])
+  } catch {
+    // A malformed escape: use it as written.
+  }
+  return itemId === SETUP_ITEM_ID ? { _tag: "setup" } : { _tag: "item", itemId }
+}
+
+export const itemIdFromHash = (hash: string): Option.Option<string> => {
+  const route = routeFromHash(hash)
+  return route._tag === "item" ? Option.some(route.itemId) : Option.none()
 }
 
 export const hashForItem = (itemId: string) => `#/item/${encodeURIComponent(itemId)}`
+export const SETUP_HASH = "#/setup"
+
+/** A subagent the hook couldn't name still needs a label in the tree and breadcrumbs. */
+export const agentDisplayName = (agent: Agent): string =>
+  agent.name.trim() === "" ? "agent" : agent.name
 
 // FORM
 
@@ -230,16 +267,30 @@ export const draftBody = (form: Form): DraftBody => ({ answers: form.answers, re
 
 const MIN = 60_000
 
+/** Terse age for tight spots ("waiting 2m", popover rows): "<1m", "2m", "3h", "4d". */
 export const formatAge = (now: number, at: number): string => {
   const minutes = Math.max(0, Math.floor((now - at) / MIN))
   if (minutes < 1) {
-    return "now"
+    return "<1m"
   }
   if (minutes < 60) {
     return `${minutes}m`
   }
   const hours = Math.floor(minutes / 60)
   return hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d`
+}
+
+/** Relative time as a phrase: "just now", "2 min ago", "3 h ago", "4 d ago" (U-039). */
+export const formatAgo = (now: number, at: number): string => {
+  const minutes = Math.max(0, Math.floor((now - at) / MIN))
+  if (minutes < 1) {
+    return "just now"
+  }
+  if (minutes < 60) {
+    return `${minutes} min ago`
+  }
+  const hours = Math.floor(minutes / 60)
+  return hours < 24 ? `${hours} h ago` : `${Math.floor(hours / 24)} d ago`
 }
 
 export const formatClock = (at: number): string => {

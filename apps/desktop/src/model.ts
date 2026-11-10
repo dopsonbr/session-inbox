@@ -1,5 +1,5 @@
 import { Combobox, Dialog, Menu, RadioGroup } from "@foldkit/ui"
-import { ItemDetail, Snapshot, UpdateStatus } from "@session-inbox/contracts"
+import { DoctorReport, ItemDetail, Snapshot, UpdateStatus } from "@session-inbox/contracts"
 import { Schema } from "effect"
 import { defineTaggedUnion } from "foldkit/schema"
 import { SettingsModel } from "./settings.ts"
@@ -72,6 +72,22 @@ export const Submission = defineTaggedUnion({
 })
 export type Submission = typeof Submission.Type
 
+/** What the main window shows next to the tree: the inbox, or the Setup panel (U-034). */
+export const Route = Schema.Literals(["inbox", "setup"])
+export type Route = typeof Route.Type
+
+/** The daemon's setup check as last fetched (C-021); the UI only renders it. */
+export const DoctorState = defineTaggedUnion({
+  /** Not fetched yet: show nothing. */
+  Unknown: {},
+  /** This daemon has no /v1/doctor (404): show nothing. */
+  Unavailable: {},
+  /** `error`: the last refetch failed; the report is the one before it. */
+  Loaded: { report: DoctorReport, error: Schema.NullOr(Schema.String) },
+  Failed: { error: Schema.String },
+})
+export type DoctorState = typeof DoctorState.Type
+
 /** A check/apply request in flight (local UI state only; the daemon owns the status). */
 export const UpdateRequest = Schema.Literals(["Idle", "Checking", "Applying"])
 export type UpdateRequest = typeof UpdateRequest.Type
@@ -108,5 +124,15 @@ export const Model = Schema.Struct({
   /** "Not now" on the banner (its `state:version` key), for this page load only. */
   maybeDismissedUpdate: Schema.Option(Schema.String),
   updateRequest: UpdateRequest,
+  route: Route,
+  doctor: DoctorState,
+  isDoctorLoading: Schema.Boolean,
+  /** Check id whose "copy" fix was just copied: its button reads "Copied" for a moment. */
+  maybeCopiedFix: Schema.Option(Schema.String),
+  isTestNotifying: Schema.Boolean,
+  /** "Show all" on the selected item's last message (U-033); reset on selection change. */
+  isLastMessageExpanded: Schema.Boolean,
+  /** The daemon's 409 answer to a reply, shown under the reply box (U-035). */
+  maybeReplyError: Schema.Option(Schema.String),
 })
 export type Model = typeof Model.Type

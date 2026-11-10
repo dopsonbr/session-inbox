@@ -5,7 +5,7 @@ import { DaemonClient, type DaemonClientShape } from "./client/daemonClient.ts"
 import { makeHttpClient, readTokenFromDocument } from "./client/http.ts"
 import { Message } from "./message.ts"
 import { Model } from "./model.ts"
-import { itemIdFromHash } from "./selectors.ts"
+import { routeFromHash } from "./selectors.ts"
 import { subscriptions } from "./subscriptions.ts"
 import { type Flags, Flags as FlagsSchema, init, update } from "./update.ts"
 import { view } from "./view/index.ts"
@@ -20,17 +20,27 @@ const clientKind = params.get("client") ?? __SESSION_INBOX_DEFAULT_CLIENT__
 const loadClient = async (): Promise<DaemonClientShape> => {
   if (clientKind === "fake") {
     const { makeFakeClient } = await import("./client/fake.ts")
-    return makeFakeClient({ update: params.get("update") ?? "idle" })
+    return makeFakeClient({
+      update: params.get("update") ?? "idle",
+      setup: params.get("setup"),
+      reply: params.get("reply"),
+      needs: params.get("needs"),
+    })
   }
   return makeHttpClient({ token: readTokenFromDocument(document) })
 }
 
-const flags: Effect.Effect<Flags> = Effect.sync(() => ({
-  view: params.get("view") === "compact" ? "compact" : "full",
-  now: Date.now(),
-  maybeInitialItemId:
-    params.get("view") === "compact" ? Option.none() : itemIdFromHash(window.location.hash),
-}))
+const flags: Effect.Effect<Flags> = Effect.sync(() => {
+  const isCompact = params.get("view") === "compact"
+  const route = routeFromHash(window.location.hash)
+  return {
+    view: isCompact ? "compact" : "full",
+    now: Date.now(),
+    maybeInitialItemId:
+      isCompact || route._tag !== "item" ? Option.none() : Option.some(route.itemId),
+    initialRoute: isCompact || route._tag === "item" ? "inbox" : route._tag,
+  }
+})
 
 const client = await loadClient()
 

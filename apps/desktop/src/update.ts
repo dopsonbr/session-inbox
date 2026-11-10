@@ -15,7 +15,9 @@ import type { DaemonClient } from "./client/daemonClient.ts"
 import {
   ApplyUpdate,
   CheckForUpdates,
+  CopyFix,
   DismissItem,
+  FetchDoctor,
   FetchItemDetail,
   FetchSnapshot,
   FocusTreeNode,
@@ -26,11 +28,13 @@ import {
   SaveDraft,
   SendDecision,
   SendReply,
+  SendTestNotification,
   SetHash,
   SnoozeItem,
   SubmitAnswers,
   WaitBeforeDraftSave,
   WaitBeforeSnapshotRetry,
+  WaitCopied,
 } from "./command.ts"
 import { Message, type SnoozeAction, type TreeKey } from "./message.ts"
 import {
@@ -39,11 +43,13 @@ import {
   AppView,
   Connection,
   DetailState,
+  DoctorState,
   type Form,
   type Model,
   Submission,
 } from "./model.ts"
 import {
+  agentDisplayName,
   areAnswersComplete,
   draftBody,
   extendOrder,
@@ -52,13 +58,14 @@ import {
   firstOpenItemForSession,
   formFromDetail,
   hashForItem,
-  itemIdFromHash,
   mergeDelta,
   projectNodeId,
+  routeFromHash,
+  SETUP_HASH,
   sessionNodeId,
   visibleTreeNodes,
 } from "./selectors.ts"
-import { initSettings, updateSettings } from "./settings.ts"
+import { initSettings, SettingsMessage, updateSettings } from "./settings.ts"
 import { Toast, type ToastPayload } from "./toast.ts"
 
 export type UpdateReturn = Update.Return<Model, Message, DaemonClient>
@@ -70,6 +77,8 @@ export const Flags = Schema.Struct({
   view: AppView,
   now: Schema.Number,
   maybeInitialItemId: Schema.Option(Schema.String),
+  /** From the boot hash: `#/setup` opens Setup, `#/update` checks for updates (U-034). */
+  initialRoute: Schema.optional(Schema.Literals(["inbox", "setup", "update"])),
 })
 export type Flags = typeof Flags.Type
 
@@ -111,11 +120,25 @@ export const initialModel = (flags: Flags): Model => ({
   maybeUpdate: Option.none(),
   maybeDaemonBuild: Option.none(),
   maybeDismissedUpdate: Option.none(),
-  updateRequest: "Idle",
+  updateRequest: flags.initialRoute === "update" ? "Checking" : "Idle",
+  route: flags.initialRoute === "setup" && flags.view === "full" ? "setup" : "inbox",
+  doctor: DoctorState.Unknown(),
+  isDoctorLoading: false,
+  maybeCopiedFix: Option.none(),
+  isTestNotifying: false,
+  isLastMessageExpanded: false,
+  maybeReplyError: Option.none(),
 })
 
 export const init = (flags: Flags): UpdateReturn => {
   const model = initialModel(flags)
+  // The doctor report itself comes with every stream `hello` (U-034).
+  const routeCommands: Commands =
+    flags.view !== "full"
+      ? []
+      : flags.initialRoute === "update"
+        ? [CheckForUpdates(), SetHash({ hash: "#/" })]
+        : []
   return {
     model,
     commands: [
@@ -124,6 +147,7 @@ export const init = (flags: Flags): UpdateReturn => {
         onNone: () => [],
         onSome: (itemId) => [FetchItemDetail({ itemId })],
       }),
+      ...routeCommands,
     ],
   }
 }
@@ -208,7 +232,11 @@ export const selectItem = (
       isSame && detail._tag === "Loaded" ? detail : DetailState.Loading({ itemId }),
     maybeForm: (form) => (isSame ? form : Option.none()),
     isPreviewExpanded: (expanded) => isSame && expanded,
+    isLastMessageExpanded: (expanded) => isSame && expanded,
+    maybeReplyError: (error) => (isSame ? error : Option.none()),
     submission: (submission) => (isSame ? submission : Submission.Idle()),
+    // Picking an item is a user intent: it leaves the Setup panel. Boot/hash selections don't.
+    route: (route) => (options.updateHash ? "inbox" : route),
   })
   const hashCommands: Commands =
     options.updateHash && model.view === "full" ? [SetHash({ hash: hashForItem(itemId) })] : []
@@ -228,6 +256,8 @@ const selectSession = (model: Model, sessionId: string): UpdateReturn =>
             detail: () => DetailState.Idle(),
             maybeForm: () => Option.none(),
             submission: () => Submission.Idle(),
+            maybeReplyError: () => Option.none(),
+            route: () => "inbox",
           }),
         }),
       }),
@@ -296,7 +326,9 @@ const submitReply = (model: Model): UpdateReturn =>
   Option.match(model.maybeForm, {
     onNone: () => ({ model }),
     onSome: (form) =>
-      isSending(model) || form.reply.trim() === ""
+      isSending(model) ||
+      form.reply.trim() === "" ||
+      Option.exists(loadedDetail(model), (d) => d.replyUnavailable !== undefined)
         ? { model }
         : {
             model: startAction(model, "reply"),
@@ -304,9 +336,9 @@ const submitReply = (model: Model): UpdateReturn =>
           },
   })
 
-/** ⌘↵ means "the primary action of whatever the detail pane shows". */
+/** ⌘↵ means "the primary action of whatever the detail pane shows" (none on Setup). */
 const submitShortcut = (model: Model): UpdateReturn =>
-  Option.match(loadedDetail(model), {
+  Option.match(model.route === "setup" ? Option.none() : loadedDetail(model), {
     onNone: () => ({ model }),
     onSome: (detail) => {
       if (detail.item.kind === "question" && detail.questions.length > 0) {
@@ -324,7 +356,7 @@ const agentLabel = (detail: ItemDetail, snapshot: Option.Option<Snapshot>): stri
     Option.flatMap(snapshot, (s) =>
       Option.map(
         Arr.findFirst(s.agents, (a) => a.id === detail.item.agentId && a.parentAgentId !== null),
-        (a) => a.name,
+        agentDisplayName,
       ),
     ),
     () => detail.session.title ?? "the session",
@@ -659,6 +691,119 @@ const updateRequestDone = (model: Model, status: UpdateStatus): UpdateReturn => 
   return withCommands(ret, received.commands ?? [])
 }
 
+const checkForUpdates = (model: Model): UpdateReturn =>
+  model.updateRequest !== "Idle"
+    ? { model }
+    : {
+        model: modifyFields(model, { updateRequest: () => "Checking" }),
+        commands: [CheckForUpdates()],
+      }
+
+// SETUP CHECK (U-034): render the daemon's DoctorReport; refetch on hello, `doctor`, open.
+
+const fetchDoctor = (model: Model): UpdateReturn => ({
+  model: modifyFields(model, { isDoctorLoading: () => true }),
+  commands: [FetchDoctor()],
+})
+
+const liftSettings = (model: Model, message: SettingsMessage): UpdateReturn => {
+  const next = updateSettings(model.settings, message)
+  return {
+    model: modifyFields(model, { settings: () => next.model }),
+    commands: Command.mapMessages(next.commands, (child) =>
+      Message.GotSettingsMessage({ message: child }),
+    ),
+  }
+}
+
+const selectedHash = (model: Model): string =>
+  Option.match(model.maybeSelectedItemId, { onNone: () => "#/", onSome: hashForItem })
+
+/** Show the Setup panel: closes Settings (its footer links here) and refetches the report. */
+const openSetup = (model: Model, hash: string): UpdateReturn => {
+  const routed = modifyFields(model, { route: () => "setup" })
+  const closed = routed.settings.dialog.isOpen
+    ? liftSettings(routed, SettingsMessage.RequestedClose())
+    : { model: routed }
+  const fetched = fetchDoctor(closed.model)
+  return {
+    model: fetched.model,
+    commands: [
+      ...(closed.commands ?? []),
+      ...(fetched.commands ?? []),
+      // `#/item/setup` (a test-notification click) settles on `#/setup`.
+      ...(hash === SETUP_HASH ? [] : [SetHash({ hash: SETUP_HASH })]),
+    ],
+  }
+}
+
+const changeHash = (model: Model, hash: string): UpdateReturn => {
+  const route = routeFromHash(hash)
+  const toInbox = modifyFields(model, { route: () => "inbox" })
+  switch (route._tag) {
+    case "setup":
+      return model.view === "full" ? openSetup(model, hash) : { model }
+    case "update":
+      // The tray's "Check for Updates…": the main view, with a check running.
+      return withCommands(checkForUpdates(toInbox), [SetHash({ hash: selectedHash(model) })])
+    case "item":
+      return Option.contains(model.maybeSelectedItemId, route.itemId)
+        ? { model: toInbox }
+        : selectItem(toInbox, route.itemId, { updateHash: false })
+    case "inbox":
+      return model.route === "setup" && Option.isSome(model.maybeSelectedItemId)
+        ? { model: toInbox, commands: [SetHash({ hash: selectedHash(model) })] }
+        : { model: toInbox }
+  }
+}
+
+/** What the test notification toast says, literally, for each answer of the daemon. */
+export const testNotifyToast = (
+  via: string | null,
+  message: string | null,
+): { payload: ToastPayload; variant: "Info" | "Success" | "Warning" } => {
+  if (via === "shell") {
+    return {
+      payload: {
+        title: "Test notification sent",
+        description:
+          message ??
+          "Look for a Session Inbox banner at the top right of the screen. Clicking it opens Setup.",
+      },
+      variant: "Success",
+    }
+  }
+  if (via === "fallback") {
+    return {
+      payload: {
+        title: "Sent as a plain macOS notification",
+        description:
+          message ??
+          "The menu-bar app couldn't post it, so macOS shows it as coming from Script Editor, and clicking it won't open the inbox.",
+      },
+      variant: "Info",
+    }
+  }
+  if (via === "none") {
+    return {
+      payload: {
+        title: "No notification was sent",
+        description:
+          message ??
+          "Neither the menu-bar app nor the plain macOS fallback can post one right now. The checks below say why.",
+      },
+      variant: "Warning",
+    }
+  }
+  return {
+    payload: {
+      title: "Test notification sent",
+      description: message ?? "The daemon sent it the way it sends every notification.",
+    },
+    variant: "Info",
+  }
+}
+
 // UPDATE
 
 export const update = (model: Model, message: Message): UpdateReturn =>
@@ -674,7 +819,19 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
     ReceivedStreamMessage: ({ message: streamMessage }) => {
       if (streamMessage._tag === "hello") {
-        return onHello(modifyFields(model, { connection: () => Connection.Live() }), streamMessage)
+        // Every (re)connect refetches the setup check: the daemon may have restarted.
+        const hello = onHello(
+          modifyFields(model, { connection: () => Connection.Live() }),
+          streamMessage,
+        )
+        const fetched = fetchDoctor(hello.model)
+        return {
+          model: fetched.model,
+          commands: [...(hello.commands ?? []), ...(fetched.commands ?? [])],
+        }
+      }
+      if (streamMessage._tag === "doctor") {
+        return fetchDoctor(model)
       }
       if (streamMessage._tag === "update") {
         return receiveUpdate(model, streamMessage.status)
@@ -726,14 +883,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         sessionId,
       ),
 
-    ChangedHash: ({ hash }) =>
-      Option.match(itemIdFromHash(hash), {
-        onNone: () => ({ model }),
-        onSome: (itemId) =>
-          Option.contains(model.maybeSelectedItemId, itemId)
-            ? { model }
-            : selectItem(model, itemId, { updateHash: false }),
-      }),
+    ChangedHash: ({ hash }) => changeHash(model, hash),
 
     SelectedQueueTab: ({ tab }) => ({ model: modifyFields(model, { queueTab: () => tab }) }),
 
@@ -825,7 +975,11 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     UpdatedReply: ({ value }) =>
       Option.match(model.maybeForm, {
         onNone: () => ({ model }),
-        onSome: (form) => bumpDraft(model, { ...form, reply: value }),
+        onSome: (form) =>
+          bumpDraft(modifyFields(model, { maybeReplyError: () => Option.none() }), {
+            ...form,
+            reply: value,
+          }),
       }),
 
     CompletedWaitBeforeDraftSave: ({ version }) =>
@@ -847,7 +1001,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     PressedSubmitShortcut: () => submitShortcut(model),
     ClickedDecision: ({ decision }) => sendDecision(model, decision),
     PressedDenyShortcut: () =>
-      Option.exists(loadedDetail(model), (d) => d.approval !== null)
+      model.route === "inbox" && Option.exists(loadedDetail(model), (d) => d.approval !== null)
         ? sendDecision(model, "deny")
         : { model },
     SubmittedReply: () => submitReply(model),
@@ -868,6 +1022,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
           action === "reply"
             ? Option.map(maybeForm, (form) => ({ ...form, reply: "" }))
             : maybeForm,
+        maybeReplyError: (error) => (action === "reply" ? Option.none() : error),
       })
       const refetch: Commands = Option.contains(model.maybeSelectedItemId, itemId)
         ? [FetchItemDetail({ itemId })]
@@ -877,11 +1032,28 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       return toast === null ? base : showToasts(base, [{ payload: toast, variant: "Success" }])
     },
 
-    FailedAction: ({ action, error }) =>
-      showToasts(
-        { model: modifyFields(model, { submission: () => Submission.Failed({ action, error }) }) },
-        [{ payload: { title: "Couldn't reach the daemon", description: error }, variant: "Error" }],
-      ),
+    FailedAction: ({ action, error, status }) =>
+      // A reply the daemon refused (409) says why under the reply box, not in a toast (U-035).
+      action === "reply" && status === 409
+        ? {
+            model: modifyFields(model, {
+              submission: () => Submission.Failed({ action, error }),
+              maybeReplyError: () => Option.some(error),
+            }),
+          }
+        : showToasts(
+            {
+              model: modifyFields(model, {
+                submission: () => Submission.Failed({ action, error }),
+              }),
+            },
+            [
+              {
+                payload: { title: "Couldn't reach the daemon", description: error },
+                variant: "Error",
+              },
+            ],
+          ),
 
     ClickedOpenInClaude: () =>
       Option.match(model.maybeSelectedItemId, {
@@ -979,13 +1151,87 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       }
     },
 
-    ClickedCheckForUpdates: () =>
-      model.updateRequest !== "Idle"
+    ClickedCheckForUpdates: () => checkForUpdates(model),
+
+    SucceededFetchDoctor: ({ report }) => ({
+      model: modifyFields(model, {
+        doctor: () => DoctorState.Loaded({ report, error: null }),
+        isDoctorLoading: () => false,
+      }),
+    }),
+
+    FoundDoctorUnavailable: () => ({
+      model: modifyFields(model, {
+        doctor: () => DoctorState.Unavailable(),
+        isDoctorLoading: () => false,
+      }),
+    }),
+
+    FailedFetchDoctor: ({ error }) => ({
+      model: modifyFields(model, {
+        doctor: (doctor) =>
+          doctor._tag === "Loaded"
+            ? DoctorState.Loaded({ report: doctor.report, error })
+            : DoctorState.Failed({ error }),
+        isDoctorLoading: () => false,
+      }),
+    }),
+
+    ClickedRecheck: () => fetchDoctor(model),
+
+    ClickedCopyFix: ({ checkId, value }) => ({ model, commands: [CopyFix({ checkId, value })] }),
+
+    CompletedCopyFix: ({ checkId, value, isCopied }) =>
+      isCopied
+        ? {
+            model: modifyFields(model, { maybeCopiedFix: () => Option.some(checkId) }),
+            commands: [WaitCopied({ checkId })],
+          }
+        : showToast(
+            model,
+            { title: "Couldn't copy", description: `Run this yourself: ${value}` },
+            "Error",
+          ),
+
+    CompletedCopiedWait: ({ checkId }) => ({
+      model: modifyFields(model, {
+        maybeCopiedFix: (copied) => (Option.contains(copied, checkId) ? Option.none() : copied),
+      }),
+    }),
+
+    ClickedTestNotification: () =>
+      model.isTestNotifying
         ? { model }
         : {
-            model: modifyFields(model, { updateRequest: () => "Checking" }),
-            commands: [CheckForUpdates()],
+            model: modifyFields(model, { isTestNotifying: () => true }),
+            commands: [SendTestNotification()],
           },
+
+    SucceededTestNotification: ({ via, message: detail }) => {
+      const toast = testNotifyToast(via, detail)
+      const shown = showToast(
+        modifyFields(model, { isTestNotifying: () => false }),
+        toast.payload,
+        toast.variant,
+      )
+      // The notifications check may read differently now.
+      const fetched = fetchDoctor(shown.model)
+      return {
+        model: fetched.model,
+        commands: [...(shown.commands ?? []), ...(fetched.commands ?? [])],
+      }
+    },
+
+    FailedTestNotification: ({ error }) =>
+      showToast(
+        modifyFields(model, { isTestNotifying: () => false }),
+        { title: "Couldn't send a test notification", description: error },
+        "Error",
+      ),
+
+    ToggledLastMessageExpanded: () => ({
+      model: modifyFields(model, { isLastMessageExpanded: (expanded) => !expanded }),
+    }),
 
     ClickedUpdateNow: () =>
       model.updateRequest !== "Idle"

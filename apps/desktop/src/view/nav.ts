@@ -4,6 +4,7 @@ import type { Html, HtmlBuilder } from "foldkit/html"
 import { Message, type TreeKey } from "../message.ts"
 import type { Model } from "../model.ts"
 import {
+  agentDisplayName,
   findItem,
   needsYouCountForProject,
   projectHasOnlyFailures,
@@ -13,6 +14,7 @@ import {
 } from "../selectors.ts"
 import { SettingsMessage } from "../settings.ts"
 import { dot, Icon, kbd, type Tone } from "./parts.ts"
+import { setupNavEntry } from "./setup.ts"
 import { versionView } from "./update.ts"
 
 type H = HtmlBuilder<Message>
@@ -46,7 +48,7 @@ export const headerView = (model: Model, h: H): Html => {
         [
           h.Type("button"),
           h.Class(
-            "ml-auto flex h-9 w-64 max-w-full cursor-pointer items-center gap-2 rounded-[10px] border border-input bg-background px-3 text-left text-[13px] text-subtle-foreground hover:bg-accent",
+            "ml-auto flex h-9 w-64 min-w-44 max-w-full shrink cursor-pointer items-center gap-2 rounded-[10px] border border-input bg-background px-3 text-left text-[13px] whitespace-nowrap text-subtle-foreground hover:bg-accent",
           ),
           h.AriaKeyshortcuts("Meta+K"),
           h.AriaHasPopup("dialog"),
@@ -183,7 +185,7 @@ const nodeContent = (h: H, snapshot: Snapshot, node: TreeNode, isExpanded: boole
         : state === "running"
           ? h.span([h.Class("text-working")], [Icon.circle(h, "size-3")])
           : dot(h, agentTone(state)),
-    label: `${agent?.name ?? id} · ${agentStateWord[state] ?? state}`,
+    label: `${agent === undefined ? id : agentDisplayName(agent)} · ${agentStateWord[state] ?? state}`,
     trailing: null,
     emphasis: state === "waiting",
   }
@@ -343,6 +345,7 @@ const whereSessionsRun = (model: Model, h: H): Html => {
             : h.empty,
         ],
       ),
+      setupNavEntry(model, h),
     ],
   )
 }

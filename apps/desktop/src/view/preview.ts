@@ -5,7 +5,9 @@
  */
 import type { Approval, ApprovalPreview, DiffHunk, DiffLine } from "@session-inbox/contracts"
 import type { Html, HtmlBuilder } from "foldkit/html"
+import { parseInline } from "../markdown.ts"
 import { Message } from "../message.ts"
+import { inlinesView } from "./markdown.ts"
 
 type H = HtmlBuilder<Message>
 type Diff = Extract<ApprovalPreview, { _tag: "diff" }>
@@ -251,7 +253,10 @@ export const contextLine = (h: H, approval: Approval): Html =>
     ? h.empty
     : h.blockquote(
         [h.Class("m-0 border-l-2 border-rail pl-3 text-[13px] text-muted-foreground")],
-        [h.span([h.Class("font-semibold")], ["Claude: "]), approval.context],
+        [
+          h.span([h.Class("font-semibold")], ["Claude: "]),
+          ...inlinesView(h, parseInline(approval.context)),
+        ],
       )
 
 /** The preview body, or null when the daemon sent none (older rows): the caller falls back. */
