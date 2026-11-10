@@ -7,14 +7,22 @@ import { fakeDoctorReport } from "../src/client/fakeDoctor.ts"
 import { makeHttpClient } from "../src/client/http.ts"
 import { Message } from "../src/message.ts"
 import type { Model } from "../src/model.ts"
-import { agentDisplayName, formatAgo, routeFromHash, visibleTreeNodes } from "../src/selectors.ts"
+import {
+  agentDisplayName,
+  answersUnavailable,
+  formatAgo,
+  routeFromHash,
+  visibleTreeNodes,
+} from "../src/selectors.ts"
 import { presentFields, SettingsMessage } from "../src/settings.ts"
 import { initialModel, type UpdateReturn, update } from "../src/update.ts"
 import {
   approvalCard,
   contextStrip,
   lastMessageView,
+  questionForm,
   replyForm,
+  splitAlwaysAllow,
   WAITING_IN_CLAUDE_TEXT,
 } from "../src/view/detail.ts"
 import { navView } from "../src/view/nav.ts"
@@ -167,7 +175,7 @@ describe("approval card honesty (U-043)", () => {
 
   test("not live: ⌘↵ and ⌘⌫ decide nothing", () => {
     const model = notLive(showing("i-pv-edit"))
-    expect(names(update(model, Message.PressedSubmitShortcut()))).toEqual([])
+    expect(names(update(model, Message.PressedSubmitShortcut({ typing: "none" })))).toEqual([])
     expect(names(update(model, Message.PressedDenyShortcut()))).toEqual([])
     expect(names(update(showing("i-pv-edit"), Message.PressedDenyShortcut()))).not.toEqual([])
   })
@@ -189,6 +197,87 @@ describe("approval card honesty (U-043)", () => {
   })
 })
 
+describe("Always allow says what it adds (C-026)", () => {
+  const card = (model: Model) => {
+    const detail = loadedDetail(model)
+    if (detail.approval === null) throw new Error("no approval")
+    return approvalCard(model, detail, detail.approval, h)
+  }
+
+  test("offered: the button and the daemon's words, the rule code-styled", () => {
+    const view = card(showing("i-ravelo-migrate"))
+    const text = textOf(view)
+    expect(text).toContain("Always allow")
+    expect(text).toContain(
+      "Always allow adds Bash(bun run migrate) in this project's .claude/settings.local.json.",
+    )
+    expect(textOf(findAll(view, "code"))).toContain("Bash(bun run migrate)")
+    expect(text).not.toContain("the rule Claude itself suggests")
+    expect(findAll(view, "button")).toHaveLength(3)
+  })
+
+  test("not offered: no button and no hint", () => {
+    const view = card(showing("i-pv-write"))
+    const text = textOf(view)
+    expect(text).toContain("Allow once")
+    expect(text).not.toContain("Always allow")
+    expect(findAll(view, "button").length).toBe(2)
+  })
+
+  test("splitAlwaysAllow", () => {
+    expect(splitAlwaysAllow("Read(//tmp/p/**) for this session")).toEqual({
+      rule: "Read(//tmp/p/**)",
+      rest: " for this session",
+    })
+    expect(splitAlwaysAllow("Bash(echo (a b)) in x")).toEqual({
+      rule: "Bash(echo (a b))",
+      rest: " in x",
+    })
+    expect(splitAlwaysAllow("Edit for this session")).toBeNull()
+    expect(splitAlwaysAllow("Read(x)")).toBeNull()
+  })
+})
+
+describe("a question Claude is asking in its own window (U-047)", () => {
+  const waiting = () => {
+    const start = showing("i-retry-questions")
+    const detail = loadedDetail(start)
+    return showing("i-retry-questions", {
+      item: { ...detail.item, live: false },
+      replyUnavailable: WAITING_IN_CLAUDE_TEXT,
+    })
+  }
+  const form = (model: Model) =>
+    questionForm(model, loadedDetail(model), Option.getOrThrow(model.maybeForm), h)
+
+  test("the questions, the quiet line and Open in Claude; no form", () => {
+    const view = form(waiting())
+    const text = textOf(view)
+    expect(text).toContain("Which integration tests should I run")
+    expect(text).toContain(WAITING_IN_CLAUDE_TEXT)
+    expect(text).toContain("Open in Claude")
+    expect(text).not.toContain("Send answers")
+    expect(findAll(view, "form")).toHaveLength(0)
+    expect(findAll(view, "input")).toHaveLength(0)
+    expect(findAll(view, "button")).toHaveLength(1)
+  })
+
+  test("⌘↵ and Send answers send nothing", () => {
+    const model = run(waiting(), Message.UpdatedOther({ idx: 0, value: "a" })).model
+    const both = run(model, Message.UpdatedOther({ idx: 1, value: "b" })).model
+    expect(names(update(both, Message.PressedSubmitShortcut({ typing: "none" })))).toEqual([])
+    expect(names(update(both, Message.SubmittedAnswers()))).toEqual([])
+  })
+
+  test("a live question, or one the daemon can deliver, keeps its form", () => {
+    // (The form itself has radio submodels inertHtml can't render; the gate is what matters.)
+    expect(answersUnavailable(loadedDetail(showing("i-retry-questions")))).toBeNull()
+    const detail = loadedDetail(showing("i-retry-questions"))
+    expect(answersUnavailable({ ...detail, item: { ...detail.item, live: false } })).toBeNull()
+    expect(answersUnavailable(loadedDetail(waiting()))).toBe(WAITING_IN_CLAUDE_TEXT)
+  })
+})
+
 describe("reply box honesty", () => {
   test("replyUnavailable replaces the textarea with the reason and Open in Claude", () => {
     const view = detailParts(showing("i-docs-review"))
@@ -201,7 +290,9 @@ describe("reply box honesty", () => {
   test("⌘↵ doesn't send a reply the daemon said it can't deliver", () => {
     const model = showing("i-docs-review")
     const typed = update(model, Message.UpdatedReply({ value: "ship it" })).model
-    expect(names(update(typed, Message.PressedSubmitShortcut()))).not.toContain("SendReply")
+    expect(names(update(typed, Message.PressedSubmitShortcut({ typing: "none" })))).not.toContain(
+      "SendReply",
+    )
   })
 
   test("a 409 answer shows under the reply box, not as a toast; typing clears it", () => {

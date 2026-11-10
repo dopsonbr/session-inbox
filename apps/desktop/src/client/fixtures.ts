@@ -315,6 +315,7 @@ export const makeFixtures = (now: number): Fixtures => {
         expiresAt: now + 100_000,
         preview: bashPreview,
         context: "The export tables are in place and tests pass. Applying the migrations next.",
+        alwaysAllow: "Bash(bun run migrate) in this project's .claude/settings.local.json",
       },
     },
     "i-hooks-failed": { ...none, openUrl: null, lastMessage: HOOKS_LAST_MESSAGE },

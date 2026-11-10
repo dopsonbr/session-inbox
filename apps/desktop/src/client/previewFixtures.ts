@@ -180,6 +180,7 @@ export const makePreviewFixtures = (now: number) => {
     input: unknown,
     preview: ApprovalPreview,
     context?: string,
+    alwaysAllow?: string,
   ): ItemExtras => ({
     questions: [],
     outbox: [],
@@ -193,6 +194,8 @@ export const makePreviewFixtures = (now: number) => {
       expiresAt: now + 100_000,
       preview,
       ...(context ? { context } : {}),
+      // Some offer Always allow (the daemon names the rule), some don't (C-026).
+      ...(alwaysAllow ? { alwaysAllow } : {}),
     },
   })
   const extras: Record<string, ItemExtras> = {
@@ -201,6 +204,7 @@ export const makePreviewFixtures = (now: number) => {
       { file_path: editPreview._tag === "diff" ? editPreview.path : "" },
       editPreview,
       "The window end is hard-coded to 30 minutes, so stores with longer prep times get windows that end before they start. I'll make it configurable and fail loudly on inverted windows.",
+      "Edit(src/delivery/**) in this project's .claude/settings.local.json",
     ),
     "i-pv-write": approval(
       "Write",
@@ -218,6 +222,7 @@ export const makePreviewFixtures = (now: number) => {
       { url: fetchPreview._tag === "fetch" ? fetchPreview.url : "" },
       fetchPreview,
       "Let me check Square's docs before changing the paging loop.",
+      "WebFetch(domain:developer.squareup.com) in this project's .claude/settings.local.json",
     ),
   }
   const timelines: Record<string, TimelineEntry[]> = {}

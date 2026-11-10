@@ -13,12 +13,14 @@ import { Message, type SnoozeAction } from "../message.ts"
 import type { AnswerDraft, Form, Model } from "../model.ts"
 import {
   agentDisplayName,
+  answersUnavailable,
   areAnswersComplete,
   findAgent,
   findSession,
   formatAgo,
   formatClock,
 } from "../selectors.ts"
+import { DETAIL_FORM } from "../shortcuts.ts"
 import { QuestionRadioGroup, SnoozeMenu } from "../update.ts"
 import { markdownView } from "./markdown.ts"
 import {
@@ -429,13 +431,42 @@ const deliveryNote = (model: Model, detail: ItemDetail, h: H): Html => {
   )
 }
 
-const questionForm = (model: Model, detail: ItemDetail, form: Form, h: H): Html => {
+/** Claude's own question prompt (or no way to send): the questions, the reason, Open in Claude. */
+const questionsWaitingView = (model: Model, detail: ItemDetail, reason: string, h: H): Html =>
+  h.section(
+    [
+      h.AriaLabel("Claude's questions"),
+      h.Class("flex flex-col gap-3 rounded-[14px] border-2 border-needs-strong p-4"),
+    ],
+    [
+      h.ul(
+        [h.Class("m-0 flex list-none flex-col gap-1.5 p-0")],
+        detail.questions.map((q) =>
+          h.li(
+            [h.Class("text-[14px] text-foreground")],
+            [
+              q.header === undefined
+                ? h.empty
+                : h.span([h.Class("mr-2 font-semibold")], [q.header]),
+              q.text,
+            ],
+          ),
+        ),
+      ),
+      ...waitingInClaudeFooter(model, h, reason),
+    ],
+  )
+
+export const questionForm = (model: Model, detail: ItemDetail, form: Form, h: H): Html => {
+  const unavailable = answersUnavailable(detail)
+  if (unavailable !== null) return questionsWaitingView(model, detail, unavailable, h)
   const isSending = model.submission._tag === "Sending" && model.submission.action === "answers"
   const isComplete = areAnswersComplete(form)
   const isClosed = detail.item.queue === "done"
   return h.form(
     [
       h.AriaLabel("Answer Claude's questions"),
+      h.DataAttribute(DETAIL_FORM, ""),
       h.Class("flex flex-col gap-4 rounded-[14px] border-2 border-needs-strong p-4"),
       h.OnSubmit(Message.SubmittedAnswers()),
     ],
@@ -489,10 +520,14 @@ const commandPreview = (approval: Approval): { command: string; description: str
 /** One quiet line and Open in Claude: the item is Claude's own prompt, answered there (U-043). */
 export const WAITING_IN_CLAUDE_TEXT = "Claude is asking in its own window. Answer there."
 
-const waitingInClaudeFooter = (model: Model, h: H): ReadonlyArray<Html> => {
+const waitingInClaudeFooter = (
+  model: Model,
+  h: H,
+  text: string = WAITING_IN_CLAUDE_TEXT,
+): ReadonlyArray<Html> => {
   const isOpening = model.submission._tag === "Sending" && model.submission.action === "open"
   return [
-    h.p([h.Class("text-[13px] text-muted-foreground")], [WAITING_IN_CLAUDE_TEXT]),
+    h.p([h.Class("text-[13px] text-muted-foreground")], [text]),
     h.div(
       [h.Class("flex flex-wrap items-center gap-2")],
       [
@@ -523,6 +558,8 @@ const decisionFooter = (
   const within = secondsLeft > 0 ? `about ${Math.max(1, Math.round(secondsLeft / 60))} min` : null
   // The daemon says how this request reached us; the words follow it (U-045).
   const viaRequest = approval.via === "permissionRequest"
+  // Offered only when the daemon says exactly which rule it would write (C-026).
+  const alwaysAllow = approval.alwaysAllow
   const liveLine = viaRequest
     ? `Claude is asking in its own window too; whichever is answered first wins.${within === null ? "" : ` The inbox can answer for ${within}.`}`
     : `Claude is paused on this. If you don't answer${within === null ? " soon" : ` within ${within}`}, Claude's own prompt takes over.`
@@ -551,18 +588,20 @@ const decisionFooter = (
           ],
           ["Allow once", kbd(h, "⌘↵")],
         ),
-        h.button(
-          [
-            h.Type("button"),
-            h.Class("btn"),
-            h.DataAttribute("variant", "outline"),
-            h.DataAttribute("size", "lg"),
-            h.Disabled(disabled),
-            h.Title("Adds an allow rule to this project's .claude/settings.local.json"),
-            h.OnClick(Message.ClickedDecision({ decision: "allow-always" })),
-          ],
-          ["Always allow"],
-        ),
+        alwaysAllow === undefined
+          ? h.empty
+          : h.button(
+              [
+                h.Type("button"),
+                h.Class("btn"),
+                h.DataAttribute("variant", "outline"),
+                h.DataAttribute("size", "lg"),
+                h.Disabled(disabled),
+                h.Title(`Adds ${alwaysAllow}`),
+                h.OnClick(Message.ClickedDecision({ decision: "allow-always" })),
+              ],
+              ["Always allow"],
+            ),
         h.button(
           [
             h.Type("button"),
@@ -577,15 +616,42 @@ const decisionFooter = (
         ),
       ],
     ),
-    h.p(
-      [h.Class("text-xs text-subtle-foreground")],
-      [
-        viaRequest
-          ? "Always allow applies the rule Claude itself suggests for this request."
-          : "Always allow adds a rule to this project's .claude/settings.local.json.",
-      ],
-    ),
+    alwaysAllow === undefined ? h.empty : alwaysAllowHint(alwaysAllow, h),
   ]
+}
+
+/**
+ * `Read(//tmp/p/**) for this session` → the rule and where it goes. Splits at the first space
+ * after the parenthesis that closes the first `(`; null when there's no such shape.
+ */
+export const splitAlwaysAllow = (text: string): { rule: string; rest: string } | null => {
+  const open = text.indexOf("(")
+  if (open <= 0) return null
+  let depth = 0
+  for (let i = open; i < text.length; i++) {
+    const c = text[i]
+    if (c === "(") depth++
+    else if (c === ")" && --depth === 0) {
+      const space = text.indexOf(" ", i)
+      return space === -1 ? null : { rule: text.slice(0, space), rest: text.slice(space) }
+    }
+  }
+  return null
+}
+
+/** What Always allow will write, in the daemon's words (C-026, U-048). */
+const alwaysAllowHint = (alwaysAllow: string, h: H): Html => {
+  const split = splitAlwaysAllow(alwaysAllow)
+  return h.p(
+    [h.Class("text-xs text-subtle-foreground")],
+    split === null
+      ? [`Always allow adds ${alwaysAllow}.`]
+      : [
+          "Always allow adds ",
+          h.code([h.Class("rounded bg-code px-1 font-mono")], [split.rule]),
+          `${split.rest}.`,
+        ],
+  )
 }
 
 export const approvalCard = (model: Model, detail: ItemDetail, approval: Approval, h: H): Html => {
@@ -664,6 +730,7 @@ export const replyForm = (model: Model, detail: ItemDetail, form: Form, h: H): H
   return h.form(
     [
       h.AriaLabel("Reply to Claude"),
+      h.DataAttribute(DETAIL_FORM, ""),
       h.Class("flex flex-col gap-2"),
       h.OnSubmit(Message.SubmittedReply()),
     ],

@@ -225,6 +225,8 @@ export const SettingsModel = Schema.Struct({
   /** Text typed into seconds fields and the add-command field, by setting key. */
   drafts: Schema.Record(Schema.String, Schema.String),
   status: Schema.Record(Schema.String, FieldStatus),
+  /** The latest save sent per key; an answer to an older one is stale and ignored (U-050). */
+  saveSeq: Schema.Record(Schema.String, Schema.Number),
   unmuting: Schema.Array(Schema.String),
 })
 export type SettingsModel = typeof SettingsModel.Type
@@ -234,6 +236,7 @@ export const initSettings = (): SettingsModel => ({
   load: SettingsLoad.Idle(),
   drafts: {},
   status: {},
+  saveSeq: {},
   unmuting: [],
 })
 
@@ -254,8 +257,12 @@ export const SettingsMessage = defineMessageUnion({
   RemovedListEntry: { key: Schema.String, value: Schema.String },
   ClickedReset: { key: Schema.String },
   ClickedResetAll: {},
-  SucceededSaveSettings: { key: Schema.String, response: OpenSettingsResponse },
-  FailedSaveSettings: { key: Schema.String, error: Schema.String },
+  SucceededSaveSettings: {
+    key: Schema.String,
+    seq: Schema.Number,
+    response: OpenSettingsResponse,
+  },
+  FailedSaveSettings: { key: Schema.String, seq: Schema.Number, error: Schema.String },
   ClickedUnmute: { projectId: Schema.String },
   CompletedUnmute: { projectId: Schema.String, error: Schema.NullOr(Schema.String) },
 })
@@ -282,16 +289,16 @@ export const FetchSettings = Command.define("FetchSettings", {
 })
 
 export const SaveSettings = Command.define("SaveSettings", {
-  args: { key: Schema.String, patch: UserSettingsPatch },
+  args: { key: Schema.String, seq: Schema.Number, patch: UserSettingsPatch },
   messages: [SettingsMessage.SucceededSaveSettings, SettingsMessage.FailedSaveSettings],
-  execute: ({ key, patch }) =>
+  execute: ({ key, seq, patch }) =>
     Effect.gen(function* () {
       const client = yield* DaemonClient
       const response = yield* client.putSettings(patch)
-      return SettingsMessage.SucceededSaveSettings({ key, response })
+      return SettingsMessage.SucceededSaveSettings({ key, seq, response })
     }).pipe(
       Effect.catch((error) =>
-        Effect.succeed(SettingsMessage.FailedSaveSettings({ key, error: describe(error) })),
+        Effect.succeed(SettingsMessage.FailedSaveSettings({ key, seq, error: describe(error) })),
       ),
     ),
 })
@@ -375,6 +382,23 @@ const withLoaded = (model: SettingsModel, loaded: Loaded): SettingsModel => ({
   load: SettingsLoad.Loaded({ loaded }),
 })
 
+/** Number this save of `key` and mark it Saving; returns the model and the command. */
+const sendSave = (model: SettingsModel, key: string, patch: UserSettingsPatch): SettingsReturn => {
+  const seq = (model.saveSeq[key] ?? 0) + 1
+  return {
+    model: {
+      ...model,
+      status: { ...model.status, [key]: FieldStatus.Saving() },
+      saveSeq: { ...model.saveSeq, [key]: seq },
+    },
+    commands: [SaveSettings({ key, seq, patch })],
+  }
+}
+
+/** An answer to a save of `key` older than the latest one sent: ignore it (U-050). */
+const isStale = (model: SettingsModel, key: string, seq: number): boolean =>
+  seq < (model.saveSeq[key] ?? 0)
+
 /** Show `value` now, send `{ key: value }`; the daemon's answer replaces it either way. */
 const save = (model: SettingsModel, key: SettingKey, value: unknown): SettingsReturn => {
   const loaded = loadedOf(model)
@@ -385,10 +409,7 @@ const save = (model: SettingsModel, key: SettingKey, value: unknown): SettingsRe
     ...loaded,
     shown: { ...loaded.shown, [key]: value } as UserSettings,
   })
-  return {
-    model: { ...next, status: { ...next.status, [key]: FieldStatus.Saving() } },
-    commands: [SaveSettings({ key, patch: { [key]: value } as UserSettingsPatch })],
-  }
+  return sendSave(next, key, { [key]: value } as UserSettingsPatch)
 }
 
 const fail = (model: SettingsModel, key: string, error: string): SettingsReturn => ({
@@ -560,14 +581,9 @@ export const updateSettings = (model: SettingsModel, message: SettingsMessage): 
           [field.key]: settingValue(loaded.saved.defaults, field.key),
         } as UserSettings,
       })
-      return {
-        model: {
-          ...next,
-          drafts: withoutKey(next.drafts, key),
-          status: { ...next.status, [key]: FieldStatus.Saving() },
-        },
-        commands: [SaveSettings({ key, patch: { [field.key]: null } as UserSettingsPatch })],
-      }
+      return sendSave({ ...next, drafts: withoutKey(next.drafts, key) }, key, {
+        [field.key]: null,
+      } as UserSettingsPatch)
     },
 
     ClickedResetAll: () => {
@@ -579,26 +595,30 @@ export const updateSettings = (model: SettingsModel, message: SettingsMessage): 
       const patch = Object.fromEntries(
         presentFields(loaded.saved).map((f) => [f.key, null]),
       ) as UserSettingsPatch
-      return {
-        model: {
+      return sendSave(
+        {
           ...withLoaded(model, { ...loaded, shown: loaded.saved.defaults }),
           drafts: {},
-          status: { [RESET_ALL]: FieldStatus.Saving() },
+          status: {},
         },
-        commands: [SaveSettings({ key: RESET_ALL, patch })],
-      }
+        RESET_ALL,
+        patch,
+      )
     },
 
-    SucceededSaveSettings: ({ key, response }) => ({
-      model: {
-        ...withLoaded(model, merge(model, response, key)),
-        status: { ...model.status, [key]: FieldStatus.Saved() },
-      },
-    }),
+    SucceededSaveSettings: ({ key, seq, response }) =>
+      isStale(model, key, seq)
+        ? { model }
+        : {
+            model: {
+              ...withLoaded(model, merge(model, response, key)),
+              status: { ...model.status, [key]: FieldStatus.Saved() },
+            },
+          },
 
-    FailedSaveSettings: ({ key, error }) => {
+    FailedSaveSettings: ({ key, seq, error }) => {
       const loaded = loadedOf(model)
-      if (loaded === null) {
+      if (loaded === null || isStale(model, key, seq)) {
         return { model }
       }
       // Put the control back to what the daemon last said.

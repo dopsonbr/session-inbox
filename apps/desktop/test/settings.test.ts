@@ -14,14 +14,19 @@ const response = (): SettingsResponse => Effect.runSync(client().getSettings)
 
 const s = (message: SettingsMessage): Message => Message.GotSettingsMessage({ message })
 const names = (ret: UpdateReturn) => (ret.commands ?? []).map((c) => c.name)
-const saveArgs = (ret: UpdateReturn) => {
+const saveCommand = (ret: UpdateReturn) => {
   const command = (ret.commands ?? []).find((c) => c.name === "SaveSettings") as unknown as
-    | { args: { key: string; patch: UserSettingsPatch } }
+    | { args: { key: string; seq: number; patch: UserSettingsPatch } }
     | undefined
   if (command === undefined) {
     throw new Error("expected SaveSettings")
   }
   return command.args
+}
+/** The save as the daemon sees it (without the UI's sequence number). */
+const saveArgs = (ret: UpdateReturn) => {
+  const { key, patch } = saveCommand(ret)
+  return { key, patch }
 }
 const run = (start: Model, ...messages: ReadonlyArray<Message>): UpdateReturn =>
   messages.reduce<UpdateReturn>((acc, m) => update(acc.model, m), { model: start })
@@ -80,17 +85,74 @@ describe("settings: edit → save → saved / error", () => {
     const answer = { ...response(), settings: { ...response().settings, "holds.enabled": false } }
     const done = update(
       ret.model,
-      s(SettingsMessage.SucceededSaveSettings({ key: "holds.enabled", response: answer })),
+      s(
+        SettingsMessage.SucceededSaveSettings({
+          key: "holds.enabled",
+          seq: saveCommand(ret).seq,
+          response: answer,
+        }),
+      ),
     )
     expect(done.model.settings.status["holds.enabled"]?._tag).toBe("Saved")
     expect(loaded(done.model).saved.settings["holds.enabled"]).toBe(false)
   })
 
+  test("two quick saves of one key: an answer to the older one never wins (U-050)", () => {
+    const first = update(
+      opened(),
+      s(SettingsMessage.ToggledSetting({ key: "holds.enabled", value: false })),
+    )
+    const second = update(
+      first.model,
+      s(SettingsMessage.ToggledSetting({ key: "holds.enabled", value: true })),
+    )
+    const [seq1, seq2] = [saveCommand(first).seq, saveCommand(second).seq]
+    expect(seq2).toBeGreaterThan(seq1)
+    const answer = (value: boolean) => ({
+      ...response(),
+      settings: { ...response().settings, "holds.enabled": value },
+    })
+    const ok = (seq: number, value: boolean) =>
+      s(
+        SettingsMessage.SucceededSaveSettings({
+          key: "holds.enabled",
+          seq,
+          response: answer(value),
+        }),
+      )
+    // Newer answer first, then the older one arrives late.
+    const outOfOrder = run(second.model, ok(seq2, true), ok(seq1, false)).model
+    expect(loaded(outOfOrder).shown["holds.enabled"]).toBe(true)
+    expect(loaded(outOfOrder).saved.settings["holds.enabled"]).toBe(true)
+    expect(outOfOrder.settings.status["holds.enabled"]?._tag).toBe("Saved")
+    // The older answer first: still Saving and showing the newer value until its answer comes.
+    const inOrder = update(second.model, ok(seq1, false)).model
+    expect(loaded(inOrder).shown["holds.enabled"]).toBe(true)
+    expect(inOrder.settings.status["holds.enabled"]?._tag).toBe("Saving")
+    // A late failure of the older save doesn't undo the newer one either.
+    const lateFail = run(
+      second.model,
+      ok(seq2, true),
+      s(SettingsMessage.FailedSaveSettings({ key: "holds.enabled", seq: seq1, error: "boom" })),
+    ).model
+    expect(loaded(lateFail).shown["holds.enabled"]).toBe(true)
+    expect(lateFail.settings.status["holds.enabled"]?._tag).toBe("Saved")
+  })
+
   test("a failed save puts the control back to the daemon's value and shows the error", () => {
-    const ret = run(
+    const toggled = update(
       opened(),
       s(SettingsMessage.ToggledTool({ tool: "Write", isChecked: false })),
-      s(SettingsMessage.FailedSaveSettings({ key: "holds.tools", error: "boom" })),
+    )
+    const ret = update(
+      toggled.model,
+      s(
+        SettingsMessage.FailedSaveSettings({
+          key: "holds.tools",
+          seq: saveCommand(toggled).seq,
+          error: "boom",
+        }),
+      ),
     )
     expect(loaded(ret.model).shown["holds.tools"]).toContain("Write")
     expect(ret.model.settings.status["holds.tools"]).toEqual({ _tag: "Failed", error: "boom" })

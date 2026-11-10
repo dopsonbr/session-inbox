@@ -12,7 +12,8 @@ type H = HtmlBuilder<Message>
 // (whether it's available, whether it installs by itself) is the daemon's.
 
 const SOURCE_HINT = "git pull && bun scripts/install.ts --yes --app"
-const CLI_HINT = "session-inbox update"
+/** `--yes`: without it the command is a dry run (U-049). */
+export const CLI_HINT = "session-inbox update --yes"
 
 const PROGRESS: Record<string, string> = {
   downloading: "Downloading",
