@@ -51,6 +51,7 @@ import {
 } from "./domain/lifecycle.ts"
 import { allowAlwaysRule, appendAllowRule, ruleVerdict } from "./domain/permissions.ts"
 import { displayPathFor } from "./domain/preview.ts"
+import { matchPrompt, type PromptCandidate, promptTool } from "./domain/prompts.ts"
 import {
   type AnswerMode,
   encodeLiveAnswers,
@@ -1007,15 +1008,15 @@ export class Engine {
 
     this.setSessionState(c, session.id, "waiting")
     if (isPermission) {
-      // Already tracked: a live hold, or one that just lapsed into Claude's own prompt. A lapsed
-      // AskUserQuestion hold also reaches us as a permission prompt (D-034).
-      const recent = this.store.one<{ n: number }>(
-        `SELECT COUNT(*) AS n FROM attention_items WHERE session_id = ? AND kind IN ('permission','question')
-           AND (state IN ('open','snoozed') OR updated_at > ?)`,
-        session.id,
-        this.now() - 30_000,
-      )
-      if ((recent?.n ?? 0) > 0) return
+      // Already tracked only when it's the same prompt: an open item for the same tool, or a
+      // hold of that tool that lapsed into Claude's own prompt (D-067). A lapsed AskUserQuestion
+      // hold also reaches us as "…permission to use AskUserQuestion" (D-034).
+      const match = matchPrompt(this.promptCandidates(session.id), promptTool(message), this.now())
+      if (match) {
+        const row = match.open ? this.store.item(match.itemId) : null
+        if (row) this.apply(c, row, { _tag: "Refresh" })
+        return
+      }
       const { row, created } = this.openItem(c, {
         sessionId: session.id,
         agentId,
@@ -1040,6 +1041,47 @@ export class Engine {
       summary: message || "Waiting for your input",
     })
     if (created) this.queueNotification(c, row)
+  }
+
+  /**
+   * The session's permission/question items a new permission prompt could be about (D-067):
+   * open ones, and ones whose hold ended in `ask` in the last day.
+   */
+  private promptCandidates(sessionId: string): PromptCandidate[] {
+    const rows = this.store.all<{
+      id: string
+      kind: string
+      state: string
+      agent_id: string | null
+      tool: string | null
+      decision: string | null
+      decided_at: number | null
+    }>(
+      `SELECT i.id, i.kind, i.state, i.agent_id, a.tool, a.decision, a.decided_at
+         FROM attention_items i LEFT JOIN approvals a ON a.item_id = i.id
+         WHERE i.session_id = ? AND i.kind IN ('permission','question')
+           AND (i.state IN ('open','snoozed') OR (a.decision = 'ask' AND a.decided_at > ?))
+         ORDER BY i.updated_at DESC`,
+      sessionId,
+      this.now() - 24 * 3600_000,
+    )
+    return rows.map((r) => ({
+      itemId: r.id,
+      open: r.state === "open" || r.state === "snoozed",
+      tool: r.tool ?? (r.kind === "question" ? "AskUserQuestion" : null),
+      decision: r.decision,
+      decidedAt: r.decided_at,
+      activitySince:
+        r.decided_at !== null &&
+        this.store.one(
+          `SELECT 1 AS x FROM events WHERE session_id = ? AND received_at > ? AND (
+             hook IN ('UserPromptSubmit','Stop','SessionEnd')
+             OR (hook IN ('PreToolUse','PostToolUse') AND agent_id IS ?)) LIMIT 1`,
+          sessionId,
+          r.decided_at,
+          r.agent_id,
+        ) !== null,
+    }))
   }
 
   /** Would Claude ask here? Holding also needs `holds.enabled` (an observer channel only shows it). */

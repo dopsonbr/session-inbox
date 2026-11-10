@@ -74,6 +74,21 @@ describe("synthetic fixture replay", () => {
     expect((await h.engine.waitDecision(r.requestIds[0] ?? "", 5)).decision).toBe("ask")
   })
 
+  test("a prompt for another tool right after an allowed hold opens a new item (D-067)", async () => {
+    const h = makeHarness()
+    const r = await replay(h, fx("permission-prompt-after-allow"))
+    const { items, notifications } = rows(h)
+    expect(r.requestIds).toHaveLength(1)
+    expect(items.map((i) => [i.kind, i.state, i.summary])).toEqual([
+      ["permission", "resolved", "Wants to create notes.md +1 −0"],
+      ["permission", "open", "Claude needs your permission to use Read"],
+    ])
+    expect(notifications).toHaveLength(2)
+    const read = notifications.find((n) => n.item_id === items[1]?.id)
+    expect(JSON.parse(read?.actions_json ?? "[]")).toEqual(["open"])
+    expect(h.engine.snapshot().counts.needsYou).toBe(1)
+  })
+
   test("clean stop → review, one quiet grouped notification after the window", async () => {
     const h = makeHarness()
     await replay(h, fx("review"))
