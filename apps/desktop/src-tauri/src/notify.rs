@@ -5,7 +5,7 @@ use mac_notification_sys::{MainButton, Notification, NotificationResponse};
 use tauri::AppHandle;
 
 pub fn init() {
-    if let Err(e) = mac_notification_sys::set_application("com.sessioninbox.app") {
+    if let Err(e) = mac_notification_sys::set_application(crate::channel::current().identifier) {
         eprintln!("notification setup failed: {e}");
     }
 }
