@@ -324,6 +324,38 @@ describe("approval context", () => {
     expect(context).toBe("The off-by-one is in parse(). I'll fix it.")
   })
 
+  test("text written to the transcript after the hold is picked up when the item is opened", async () => {
+    // Found live: the hook fires before Claude has flushed its message (D-066).
+    const h = setup()
+    h.files.tails["/t/s.jsonl"] = [user("make the change")].join("\n")
+    h.files.files[FILE] = "a\n"
+    const first = await hold(
+      h,
+      "Edit",
+      { file_path: FILE, old_string: "a", new_string: "b" },
+      { tool_use_id: "tu_9" },
+    )
+    expect(first.context).toBeUndefined()
+    const item = h.engine.snapshot().items.find((i) => i.kind === "permission")
+    // Later text with no sign of this call must not be taken for its context.
+    h.files.tails["/t/s.jsonl"] = [
+      user("make the change"),
+      asst([{ type: "text", text: "Something about another call." }]),
+    ].join("\n")
+    expect(h.engine.itemDetail(item?.id ?? "").approval?.context).toBeUndefined()
+    h.files.tails["/t/s.jsonl"] = [
+      user("make the change"),
+      asst([{ type: "text", text: "I'll change a to b." }]),
+      asst([{ type: "tool_use", id: "tu_9", name: "Edit" }]),
+      user([{ type: "tool_result", tool_use_id: "tu_9", content: "ok" }]),
+      asst([{ type: "text", text: "Done." }]),
+    ].join("\n")
+    expect(h.engine.itemDetail(item?.id ?? "").approval?.context).toBe("I'll change a to b.")
+    // Stored: a transcript that has since moved on doesn't lose it.
+    h.files.tails["/t/s.jsonl"] = ""
+    expect(h.engine.itemDetail(item?.id ?? "").approval?.context).toBe("I'll change a to b.")
+  })
+
   test("pure helper: skips tool results, stops at a typed prompt, trims at a word", () => {
     const tail = [
       asst([{ type: "text", text: "old turn" }]),

@@ -290,11 +290,14 @@ const blocksOf = (entry: Record<string, unknown>): Block[] | string | null => {
  * What Claude said just before a tool call (D-057): the last assistant text in the
  * transcript tail before the `tool_use` block with `toolUseId` (or before the end when that
  * block isn't there yet), never reaching back past a typed user prompt. Null when none.
+ * With `requireToolUse` the block must be in the tail: a later read (D-066) must not mistake
+ * what Claude said after the call for what it said before it.
  */
 export const lastAssistantText = (
   tail: string | null,
   toolUseId: string | null,
   max = CONTEXT_MAX_CHARS,
+  opts: { requireToolUse?: boolean } = {},
 ): string | null => {
   if (!tail) return null
   const entries = tailEntries(tail)
@@ -303,6 +306,7 @@ export const lastAssistantText = (
     return Array.isArray(b) && b.some((x) => x.type === "tool_use" && x.id === toolUseId)
   }
   const at = toolUseId ? entries.findLastIndex(hasToolUse) : -1
+  if (opts.requireToolUse && at < 0) return null
   const end = at >= 0 ? at + 1 : entries.length
   for (let i = end - 1; i >= 0; i--) {
     const entry = entries[i] as Record<string, unknown>

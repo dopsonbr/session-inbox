@@ -61,6 +61,7 @@ import {
 import {
   cleanPromptText,
   firstLine,
+  lastAssistantText,
   lastTurnErrored,
   permissionSummary,
   provisionalTitle,
@@ -1699,12 +1700,36 @@ export class Engine {
     }
   }
 
+  /**
+   * Claude often writes its message to the transcript only after the PreToolUse hook has
+   * fired, so the context read at hold time comes back empty (found live, D-066). Read it
+   * again when the item is opened; unlike the diff it doesn't depend on the file's state.
+   */
+  private withContext<
+    A extends { item_id: string; context?: string | null; tool_use_id: string | null },
+  >(a: A | null, transcriptPath: string | null): A | null {
+    if (!a || a.context || !a.tool_use_id || !transcriptPath) return a
+    try {
+      const text = lastAssistantText(
+        this.files.tail(transcriptPath, TRANSCRIPT_TAIL_BYTES),
+        a.tool_use_id,
+        undefined,
+        { requireToolUse: true },
+      )
+      if (!text) return a
+      this.store.run("UPDATE approvals SET context = ? WHERE item_id = ?", text, a.item_id)
+      return { ...a, context: text }
+    } catch {
+      return a
+    }
+  }
+
   itemDetail(itemId: string): ItemDetail {
     const r = this.requireItem(itemId)
     const s = this.store.session(r.session_id)
     const p = s ? this.store.project(s.project_id) : null
     if (!s || !p) throw notFound("session")
-    const a = this.store.approval(itemId)
+    const a = this.withContext(this.store.approval(itemId), s.transcript_path)
     const draft = this.store.one<{ body_json: string }>(
       "SELECT body_json FROM drafts WHERE item_id = ?",
       itemId,
