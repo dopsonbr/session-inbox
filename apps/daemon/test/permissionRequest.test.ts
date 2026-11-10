@@ -1,6 +1,6 @@
 /**
- * Claude's PermissionRequest hook (D-068..D-071): observe mode (default, always on) and the
- * experimental decide mode (`holds.via: "permissionRequest"`).
+ * Claude's PermissionRequest hook (D-068..D-071): observe mode (classic holds, or holds off) and the
+ * decide mode (`holds.via: "permissionRequest"`, the default since D-074).
  */
 import { describe, expect, test } from "bun:test"
 import { existsSync, mkdtempSync, readFileSync } from "node:fs"
