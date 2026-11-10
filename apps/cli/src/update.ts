@@ -34,6 +34,7 @@ import {
 import { compareSemver } from "./semver.ts"
 import {
   type InstallRecord,
+  mirrorEnv,
   readInstallRecord,
   updateLogPath,
   updatesDir,
@@ -53,8 +54,18 @@ export type UpdateContext = {
 }
 
 export const BETA_REFUSAL =
-  "the beta channel never updates from releases (G-029); reinstall it from your checkout " +
+  "the beta channel never updates from releases; reinstall it from your checkout " +
   "with `bun scripts/install.ts --channel beta --yes`"
+
+/**
+ * The release source for this home: the environment wins, else what install.json recorded
+ * (a mirror install), else GitHub. The daemon's plist carries the same variables.
+ */
+export const sourceEnv = (env: Env, rec: InstallRecord | null): Env => {
+  const keys = ["SESSION_INBOX_RELEASES_URL", "SESSION_INBOX_ASSET_URL", "SESSION_INBOX_REPO"]
+  if (keys.some((k) => env[k])) return env
+  return rec ? { ...env, ...mirrorEnv(rec) } : env
+}
 
 const currentOf = (rec: InstallRecord | null) => rec?.version ?? VERSION
 const sourceOf = (rec: InstallRecord | null) => rec?.source ?? "source"
@@ -66,7 +77,8 @@ export const check = async (ctx: UpdateContext, to: string | null): Promise<Chec
   if (ctx.channel === "beta" || rec?.channel === "beta")
     return checkResult(current, source, null, BETA_REFUSAL)
   try {
-    return checkResult(current, source, await fetchRelease(ctx.env, to, ctx.fetchImpl), null)
+    const env = sourceEnv(ctx.env, rec)
+    return checkResult(current, source, await fetchRelease(env, to, ctx.fetchImpl), null)
   } catch (e) {
     return checkResult(current, source, null, (e as Error).message)
   }
@@ -139,6 +151,11 @@ export const installArgs = (
     ...(rec && !rec.hooks ? ["--no-hooks"] : []),
     ...(app ? [] : ["--no-app"]),
     ...(holds ? ["--holds"] : []),
+    ...(rec?.label ? ["--label", rec.label] : []),
+    ...(rec?.releasesUrl ? ["--releases-url", rec.releasesUrl] : []),
+    ...(rec?.assetUrl ? ["--asset-url", rec.assetUrl] : []),
+    ...(rec?.repo ? ["--repo", rec.repo] : []),
+    ...Object.entries(rec?.daemonEnv ?? {}).flatMap(([k, v]) => ["--daemon-env", `${k}=${v}`]),
   ]
 }
 
@@ -150,9 +167,10 @@ export const apply = async (
   ctx: UpdateContext,
   opts: { to: string | null; yes: boolean },
 ): Promise<number> => {
-  const { home, env } = ctx
+  const { home } = ctx
   const fetchImpl = ctx.fetchImpl ?? fetch
   const rec = readInstallRecord(home)
+  const env = sourceEnv(ctx.env, rec)
   const channel = rec?.channel ?? ctx.channel
   if (ctx.channel === "beta" || channel === "beta") {
     ctx.say(BETA_REFUSAL)
@@ -228,7 +246,7 @@ export const apply = async (
       throw new Error(`payload says ${manifest.version}, release says ${version}`)
 
     state("installing")
-    const args = installArgs(payload, home, channel, rec, holdsNow(channel, home))
+    const args = installArgs(payload, home, channel, rec, holdsNow(channel, home, rec?.label))
     log(`running ${args.join(" ")}`)
     const out = openSync(logFile, "a")
     const { SESSION_INBOX_UPDATE_DETACHED: _, ...childEnv } = env

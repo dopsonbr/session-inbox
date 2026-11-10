@@ -32,7 +32,7 @@ import {
 import { atomicCopyFile, replaceDir } from "./fsx.ts"
 import { daemonPath, loadAgent, renderPlist } from "./launchd.ts"
 import { PAYLOAD_BINARIES, readPayload } from "./manifest.ts"
-import { type InstallSource, writeInstallRecord } from "./state.ts"
+import { type InstallSource, mirrorEnv, writeInstallRecord } from "./state.ts"
 
 export type InstallOptions = {
   payload: string
@@ -53,7 +53,37 @@ export type InstallOptions = {
   source: InstallSource
   /** During an update: reopen the app only if it was running (H-024). */
   updating: boolean
+  /** launchd label; null/undefined = the channel's default. A custom one skips PATH and app. */
+  label?: string | null
+  /** Release source ("install from a mirror"): recorded and written into the plist env. */
+  releasesUrl?: string | null
+  assetUrl?: string | null
+  repo?: string | null
+  /** Extra daemon environment for the plist (tests). */
+  daemonEnv?: Record<string, string>
 }
+
+/** Drop the browser-download quarantine flag so a tarball fetched with Safari still runs. */
+export const stripQuarantine = (path: string): void => {
+  Bun.spawnSync(["/usr/bin/xattr", "-dr", "com.apple.quarantine", path], {
+    stdout: "ignore",
+    stderr: "ignore",
+  })
+}
+
+/** The last lines of a release install: what happens next, in plain words. */
+export const nextSteps = (o: { channel: Channel; app: boolean; cli: string }): string[] => [
+  "",
+  "Session Inbox is installed. What happens next:",
+  ...(o.app
+    ? [
+        `  - ${CHANNELS[o.channel].title} is in the menu bar. macOS will ask to allow notifications: click Allow.`,
+      ]
+    : []),
+  "  - Restart any Claude Code sessions that were already open, so they pick up the hooks.",
+  `  - Check the setup any time with: ${o.cli} doctor`,
+  `  - To remove it: ${o.cli} uninstall --yes   (add --purge to delete the data too)`,
+]
 
 /** Does the settings file hold another channel's hooks? Then this one only observes (H-016). */
 export const otherChannelHooked = (settingsText: string | null, path: string, channel: Channel) => {
@@ -76,7 +106,16 @@ const appRunning = (title: string) =>
     .exitCode === 0
 
 export const install = async (o: InstallOptions, say: Say): Promise<void> => {
-  const { label, title } = CHANNELS[o.channel]
+  const { title } = CHANNELS[o.channel]
+  const label = o.label || CHANNELS[o.channel].label
+  // A custom label is an isolated extra install: no PATH link, no app in ~/Applications.
+  const customLabel = label !== CHANNELS[o.channel].label
+  const mirror = {
+    releasesUrl: o.releasesUrl || null,
+    assetUrl: o.assetUrl || null,
+    repo: o.repo || null,
+  }
+  const daemonEnv = { ...(o.daemonEnv ?? {}), ...mirrorEnv(mirror) }
   const apply = o.apply
   // A dry run may describe a payload that isn't built yet (scripts/install.ts builds on --yes).
   const built = apply || existsSync(join(o.payload, "manifest.json"))
@@ -108,6 +147,7 @@ export const install = async (o: InstallOptions, say: Say): Promise<void> => {
       continue
     }
     atomicCopyFile(src, dest)
+    stripQuarantine(dest)
     say(`copied ${dest}`)
     if (b === "inbox-hook") {
       // First exec of a new binary pays a one-off macOS scan; pay it now (H-005).
@@ -120,6 +160,7 @@ export const install = async (o: InstallOptions, say: Say): Promise<void> => {
   if (!apply) say(`would copy ${join(o.payload, "ui")} -> ${uiDest}`)
   else {
     replaceDir(join(o.payload, "ui"), uiDest)
+    stripQuarantine(uiDest)
     say(`copied ${uiDest}`)
   }
 
@@ -132,6 +173,7 @@ export const install = async (o: InstallOptions, say: Say): Promise<void> => {
       path: daemonPath(),
       channel: o.channel,
       settingDefaults,
+      env: daemonEnv,
     })
     if (!apply) {
       say(`would write ${target}`)
@@ -161,7 +203,8 @@ export const install = async (o: InstallOptions, say: Say): Promise<void> => {
   // 4. menu-bar app → ~/Applications (user-owned, stable path for the login item)
   const bundle = o.appBundle ?? join(o.payload, "app", `${title}.app`)
   let installedApp: string | null = null
-  if (o.app) {
+  if (o.app && customLabel) say(`custom launchd label ${label}: not installing the menu-bar app`)
+  else if (o.app) {
     const dest = appPath(title)
     if (!existsSync(bundle)) say(`no ${title}.app in this payload; skipping the menu-bar app`)
     else if (!apply) say(`would install ${dest} (quitting a running copy first)`)
@@ -175,6 +218,7 @@ export const install = async (o: InstallOptions, say: Say): Promise<void> => {
         await Bun.sleep(500)
       }
       replaceDir(bundle, dest)
+      stripQuarantine(dest)
       installedApp = dest
       say(`installed ${dest}`)
       if (!o.updating || wasRunning) {
@@ -185,7 +229,8 @@ export const install = async (o: InstallOptions, say: Say): Promise<void> => {
   }
 
   // 5. ~/.local/bin/session-inbox → <home>/bin/session-inbox, for the default home only
-  if (o.pathLink && o.home === CHANNELS[o.channel].home) linkOnPath(o, apply, say)
+  const linked = o.pathLink && !customLabel && o.home === CHANNELS[o.channel].home
+  if (linked) linkOnPath(o, apply, say)
 
   // 6. what was installed, so `update` can redo it the same way
   if (!apply || !manifest) say(`would write ${join(o.home, "install.json")}`)
@@ -202,8 +247,15 @@ export const install = async (o: InstallOptions, say: Say): Promise<void> => {
       app: installedApp !== null,
       appPath: installedApp,
       installedAt: new Date().toISOString(),
+      label: customLabel ? label : null,
+      ...mirror,
+      daemonEnv: o.daemonEnv ?? {},
     })
     say(`wrote ${join(o.home, "install.json")}`)
+  }
+  if (apply && o.source === "release" && !o.updating) {
+    const cli = linked ? pathLinkName(o.channel) : `"${join(o.home, "bin", "session-inbox")}"`
+    for (const line of nextSteps({ channel: o.channel, app: installedApp !== null, cli })) say(line)
   }
 }
 

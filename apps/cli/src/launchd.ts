@@ -31,9 +31,17 @@ export const renderPlist = (o: {
   path: string
   channel: Channel
   settingDefaults: Record<string, unknown>
+  /** More EnvironmentVariables: the release mirror (so the daemon's checks use it) and tests'. */
+  env?: Record<string, string>
 }): string =>
   template
-    .replaceAll("{{LABEL}}", o.label)
+    .replaceAll(
+      "{{EXTRA_ENV}}",
+      Object.entries(o.env ?? {})
+        .map(([k, v]) => `\n    <key>${xmlEscape(k)}</key>\n    <string>${xmlEscape(v)}</string>`)
+        .join(""),
+    )
+    .replaceAll("{{LABEL}}", xmlEscape(o.label))
     .replaceAll("{{HOME}}", xmlEscape(o.home))
     .replaceAll("{{PATH}}", xmlEscape(o.path))
     .replaceAll("{{CHANNEL}}", o.channel)
@@ -55,6 +63,19 @@ const launchctl = (...args: string[]) =>
   Bun.spawnSync(["/bin/launchctl", ...args], { stdout: "ignore", stderr: "ignore" }).exitCode
 
 export const isLoaded = (label: string) => launchctl("print", `gui/${uid()}/${label}`) === 0
+
+/** `launchctl print` of the job: loaded at all, and its pid when running. */
+export const jobState = (label: string): { loaded: boolean; pid: number | null } => {
+  const p = Bun.spawnSync(["/bin/launchctl", "print", `gui/${uid()}/${label}`], {
+    stderr: "ignore",
+  })
+  if (p.exitCode !== 0) return { loaded: false, pid: null }
+  const pid = /\bpid = (\d+)/.exec(p.stdout.toString())?.[1]
+  return { loaded: true, pid: pid ? Number(pid) : null }
+}
+
+/** A label launchd and a file name both accept. */
+export const isLabel = (s: string) => /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(s) && !s.includes("..")
 
 /**
  * Write the plist and (re)load the agent. bootout returns before the service is gone and

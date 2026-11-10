@@ -7,7 +7,9 @@
 #   curl -fsSL .../install.sh | sh -s -- --no-app        # options go to `session-inbox install`
 #
 # Environment: SESSION_INBOX_VERSION=v0.2.0 (default: latest release),
-# SESSION_INBOX_RELEASES_URL (GitHub API releases URL), SESSION_INBOX_ASSET_URL (download base).
+# SESSION_INBOX_RELEASES_URL (GitHub API releases URL), SESSION_INBOX_ASSET_URL (download base;
+# {tag} and {version} in it are filled in), SESSION_INBOX_REPO. Installing from a mirror: the
+# ones that are set are handed to the installer, which records them so updates use them too.
 set -eu
 
 REPO="${SESSION_INBOX_REPO:-dopsonbr/session-inbox}"
@@ -31,7 +33,12 @@ else
 fi
 version="${tag#v}"
 name="session-inbox-$version-macos-arm64.tar.gz"
-base="${SESSION_INBOX_ASSET_URL:-https://github.com/$REPO/releases/download/$tag}"
+if [ -n "${SESSION_INBOX_ASSET_URL:-}" ]; then
+  base=$(printf '%s' "$SESSION_INBOX_ASSET_URL" | sed -e "s|{tag}|$tag|g" -e "s|{version}|$version|g")
+else
+  base="https://github.com/$REPO/releases/download/$tag"
+fi
+base="${base%/}"
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/session-inbox.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT
@@ -50,4 +57,8 @@ tar -xzf "$tmp/$name" -C "$tmp"
 payload="$tmp/session-inbox-$version"
 [ -x "$payload/bin/session-inbox" ] || die "the release archive has no bin/session-inbox"
 
+# Install from a mirror: the same source for every later update.
+[ -n "${SESSION_INBOX_RELEASES_URL:-}" ] && set -- "$@" --releases-url "$SESSION_INBOX_RELEASES_URL"
+[ -n "${SESSION_INBOX_ASSET_URL:-}" ] && set -- "$@" --asset-url "$SESSION_INBOX_ASSET_URL"
+[ -n "${SESSION_INBOX_REPO:-}" ] && set -- "$@" --repo "$SESSION_INBOX_REPO"
 "$payload/bin/session-inbox" install --from "$payload" --yes "$@"
