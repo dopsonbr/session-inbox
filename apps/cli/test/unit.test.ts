@@ -16,7 +16,7 @@ import {
 import { join } from "node:path"
 import { CHANNELS } from "@session-inbox/contracts/paths"
 import { parseSidecar, replaceUserFile, sha256File, verifySha256 } from "../src/fsx.ts"
-import { loginItemIsFor, nextSteps } from "../src/install.ts"
+import { appEnv, loginItemIsFor, nextSteps } from "../src/install.ts"
 import {
   BootstrapError,
   isLabel,
@@ -583,6 +583,17 @@ describe("review fixes", () => {
     writeFileSync(join(d, "d.plist"), "not a plist")
     expect(loginItemIsFor(join(d, "d.plist"), bundle)).toBe(false)
     expect(loginItemIsFor(join(d, "missing.plist"), bundle)).toBe(false)
+  })
+
+  test("the app is started without the daemon's SESSION_INBOX_* variables", () => {
+    const env = appEnv({
+      HOME: "/Users/x",
+      PATH: "/usr/bin",
+      SESSION_INBOX_HOME: "/Users/x/Library/Application Support/SessionInbox",
+      SESSION_INBOX_CHANNEL: "ga",
+      UNSET: undefined,
+    })
+    expect(env).toEqual({ HOME: "/Users/x", PATH: "/usr/bin" })
   })
 
   test("--channel picks that channel's home, never the running binary's other-channel home", () => {

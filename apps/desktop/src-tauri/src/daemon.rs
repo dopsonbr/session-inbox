@@ -39,17 +39,28 @@ fn encode_component(s: &str) -> String {
         .collect()
 }
 
-/// `SESSION_INBOX_HOME` set means a dev/test daemon: no launchd, no login item.
+/// `SESSION_INBOX_HOME` pointing somewhere of its own means a dev/test daemon: no launchd,
+/// no login item. The installed daemon's home doesn't count: an app the updater starts
+/// inherits the daemon's environment through `open`, that variable included (S-033).
 pub fn dev_mode() -> bool {
-    std::env::var_os("SESSION_INBOX_HOME").is_some()
+    is_dev(std::env::var_os("SESSION_INBOX_HOME").as_deref(), &installed_home())
+}
+
+fn is_dev(home: Option<&std::ffi::OsStr>, installed: &Path) -> bool {
+    home.is_some_and(|h| Path::new(h) != installed)
+}
+
+/// Where this channel's installed daemon keeps its files.
+fn installed_home() -> PathBuf {
+    PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
+        .join("Library/Application Support")
+        .join(crate::channel::current().support_dir)
 }
 
 pub fn home_dir() -> PathBuf {
     match std::env::var_os("SESSION_INBOX_HOME") {
         Some(p) => PathBuf::from(p),
-        None => PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
-            .join("Library/Application Support")
-            .join(crate::channel::current().support_dir),
+        None => installed_home(),
     }
 }
 
@@ -235,6 +246,18 @@ pub fn stream_loop(mut on_connect: impl FnMut(&Connection), mut on_msg: impl FnM
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_home_of_its_own_is_a_dev_run() {
+        let installed = Path::new("/Users/x/Library/Application Support/SessionInbox");
+        let dev = |h: &str| is_dev(Some(std::ffi::OsStr::new(h)), installed);
+        assert!(!is_dev(None, installed));
+        // What an app started by the updater inherits from the daemon.
+        assert!(!dev("/Users/x/Library/Application Support/SessionInbox"));
+        assert!(!dev("/Users/x/Library/Application Support/SessionInbox/"));
+        assert!(dev("/tmp/si-demo-abc"));
+        assert!(dev("/Users/x/Library/Application Support/SessionInbox-beta"));
+    }
 
     fn feed_all(input: &str) -> Vec<SseEvent> {
         let mut p = SseParser::default();

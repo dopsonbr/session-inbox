@@ -148,6 +148,18 @@ export const quitApp = (app: string): void => {
   Bun.sleepSync(500)
 }
 
+/**
+ * The environment the menu-bar app is started with: ours without `SESSION_INBOX_*`. `open`
+ * hands its environment to the app, and during an update ours is the daemon's, whose
+ * `SESSION_INBOX_HOME` the app reads as "a development run" (H-054).
+ */
+export const appEnv = (env: Record<string, string | undefined>): Record<string, string> =>
+  Object.fromEntries(
+    Object.entries(env).filter(
+      (e): e is [string, string] => e[1] !== undefined && !e[0].startsWith("SESSION_INBOX_"),
+    ),
+  )
+
 /** The login item tauri-plugin-autostart writes: `~/Library/LaunchAgents/<Title>.plist`. */
 export const loginItemPath = (title: string) =>
   join(homedir(), "Library", "LaunchAgents", `${title}.plist`)
@@ -299,7 +311,7 @@ export const install = async (o: InstallOptions, say: Say): Promise<void> => {
         // A restart must not take the screen: the app comes back in the background and
         // reopens its window only if it was open (S-030). A first install shows the inbox.
         const how = wasRunning ? ["-g", dest, "--args", "--background"] : [dest]
-        const open = Bun.spawnSync(["/usr/bin/open", ...how])
+        const open = Bun.spawnSync(["/usr/bin/open", ...how], { env: appEnv(process.env) })
         say(`open ${dest} -> exit ${open.exitCode}`)
       }
     }
