@@ -73,4 +73,10 @@ mod tests {
         assert_eq!(GA.shortcut, "CmdOrCtrl+Shift+I");
         assert_eq!(GA.product_name, "Session Inbox");
     }
+
+    #[test]
+    fn current_follows_build_env() {
+        let expected = if option_env!("SESSION_INBOX_CHANNEL") == Some("beta") { &BETA } else { &GA };
+        assert_eq!(current().identifier, expected.identifier);
+    }
 }
