@@ -84,6 +84,7 @@ import {
   summaryLine,
   TITLE_HEAD_BYTES,
   TRANSCRIPT_TAIL_BYTES,
+  tailStartsAt,
   toolLine,
   toolUsesIn,
   transcriptTitle,
@@ -189,6 +190,9 @@ export const TEST_NOTIFICATION = {
 export const NO_POLL_LAPSE_MS = 20_000
 /** A poll that closed while the daemon runs gets this long to be re-polled (D-080). */
 export const POLL_DROP_GRACE_MS = 5_000
+
+/** A tail that starts this long after an item opened can no longer hold its call (D-089). */
+const TAIL_GONE_MS = 60_000
 
 /** How long an ingest waits for git before answering without it (D-081). */
 const GIT_WAIT_MS = 50
@@ -1799,9 +1803,12 @@ export class Engine {
     )
     const current = new Set(rows.map((r) => r.item_id))
     for (const id of this.contextTries.keys()) if (!current.has(id)) this.contextTries.delete(id)
-    if (rows.length === 0) return
+    for (const id of this.unfollowed) if (!current.has(id)) this.unfollowed.delete(id)
+    const followed = rows.filter((r) => !this.unfollowed.has(r.item_id))
+    if (followed.length === 0) return
     const bySession = new Map<string, typeof rows>()
-    for (const r of rows) bySession.set(r.session_id, [...(bySession.get(r.session_id) ?? []), r])
+    for (const r of followed)
+      bySession.set(r.session_id, [...(bySession.get(r.session_id) ?? []), r])
     for (const [, items] of bySession) {
       const first = items[0]
       if (!first?.transcript_path) continue
@@ -1826,6 +1833,8 @@ export class Engine {
   }
 
   private readonly contextTries = new Map<string, number>()
+  /** Items whose call's block scrolled out of the transcript tail: not read for again (D-089). */
+  private readonly unfollowed = new Set<string>()
 
   private followOne(
     a: ApprovalRow & { created_at: number; session_id: string },
@@ -1846,7 +1855,11 @@ export class Engine {
       (u) => u.at === null || u.at >= a.created_at - 5_000,
     )
     if (toolUseId) {
-      answered = uses.some((u) => u.id === toolUseId && u.hasResult)
+      // A result written before the item existed belongs to an earlier call (D-088).
+      answered = uses.some(
+        (u) =>
+          u.id === toolUseId && u.hasResult && (u.resultAt === null || u.resultAt >= a.created_at),
+      )
     } else {
       const claimed = new Set(
         this.store
@@ -1857,18 +1870,30 @@ export class Engine {
           )
           .map((r) => r.tool_use_id),
       )
-      const pending = uses.find((u) => !u.hasResult && !claimed.has(u.id))
-      const done = uses.find((u) => u.hasResult && !claimed.has(u.id))
-      const found = pending ?? done
+      // Only a call still waiting for its result can be the one Claude is asking about: an
+      // identical earlier call that already ran is not (D-088). Its PostToolUse, matched by
+      // input, still ends the item when the block was answered before we saw it.
+      const found = uses.find((u) => !u.hasResult && !claimed.has(u.id))
       if (found) {
         toolUseId = found.id
-        answered = found.hasResult
         this.store.run(
           "UPDATE approvals SET tool_use_id = ? WHERE item_id = ? AND tool_use_id IS NULL",
           found.id,
           a.item_id,
         )
       }
+    }
+    // The call's block can't be in the 64 KB tail any more: the tail now starts well after the
+    // item opened and the block isn't in it. Stop reading for it; other signals end it (D-089).
+    const startsAt = tailStartsAt(tail)
+    if (
+      !answered &&
+      !(toolUseId !== null && uses.some((u) => u.id === toolUseId)) &&
+      startsAt !== null &&
+      startsAt > a.created_at + TAIL_GONE_MS
+    ) {
+      this.unfollowed.add(a.item_id)
+      return
     }
     const waiting = a.via === "permissionRequest" || (a.decision === "ask" && a.live === 0)
     if (answered && waiting && now - a.created_at >= 2_000) {

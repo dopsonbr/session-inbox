@@ -324,17 +324,36 @@ type ToolBlock = {
   tool_use_id?: unknown
 }
 
-/** tool_use_ids that have a `tool_result` in the tail (ran, failed, or were denied). */
-export const toolResultIds = (tail: string | null): Set<string> => {
-  const out = new Set<string>()
+const entryAt = (e: Record<string, unknown>): number | null => {
+  const ts = typeof e.timestamp === "string" ? Date.parse(e.timestamp) : Number.NaN
+  return Number.isFinite(ts) ? ts : null
+}
+
+/**
+ * tool_use_ids that have a `tool_result` in the tail (ran, failed, or were denied), with the
+ * result entry's `timestamp` (epoch ms) when it has one.
+ */
+export const toolResultIds = (tail: string | null): Map<string, number | null> => {
+  const out = new Map<string, number | null>()
   if (!tail) return out
   for (const e of tailEntries(tail)) {
     const b = blocksOf(e)
     if (!Array.isArray(b)) continue
     for (const x of b as ToolBlock[])
-      if (x.type === "tool_result" && typeof x.tool_use_id === "string") out.add(x.tool_use_id)
+      if (x.type === "tool_result" && typeof x.tool_use_id === "string")
+        out.set(x.tool_use_id, entryAt(e))
   }
   return out
+}
+
+/** The timestamp of the oldest entry in the tail that has one (what the tail still covers). */
+export const tailStartsAt = (tail: string | null): number | null => {
+  if (!tail) return null
+  for (const e of tailEntries(tail)) {
+    const at = entryAt(e)
+    if (at !== null) return at
+  }
+  return null
 }
 
 /**
@@ -346,19 +365,25 @@ export const toolUsesIn = (
   tail: string | null,
   name: string,
   same: (input: unknown) => boolean,
-): Array<{ id: string; hasResult: boolean; at: number | null }> => {
+): Array<{ id: string; hasResult: boolean; at: number | null; resultAt: number | null }> => {
   if (!tail) return []
   const entries = tailEntries(tail)
   const results = toolResultIds(tail)
-  const out: Array<{ id: string; hasResult: boolean; at: number | null }> = []
+  const out: Array<{ id: string; hasResult: boolean; at: number | null; resultAt: number | null }> =
+    []
   for (let i = entries.length - 1; i >= 0; i--) {
     const e = entries[i] as Record<string, unknown>
     const b = blocksOf(e)
     if (!Array.isArray(b)) continue
-    const ts = typeof e.timestamp === "string" ? Date.parse(e.timestamp) : Number.NaN
+    const at = entryAt(e)
     for (const x of [...(b as ToolBlock[])].reverse())
       if (x.type === "tool_use" && x.name === name && typeof x.id === "string" && same(x.input))
-        out.push({ id: x.id, hasResult: results.has(x.id), at: Number.isFinite(ts) ? ts : null })
+        out.push({
+          id: x.id,
+          hasResult: results.has(x.id),
+          at,
+          resultAt: results.get(x.id) ?? null,
+        })
   }
   return out
 }
