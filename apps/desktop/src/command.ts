@@ -1,4 +1,4 @@
-import { Answer, Decision } from "@session-inbox/contracts"
+import { Answer, AttentionKind, Decision } from "@session-inbox/contracts"
 import { Clock, Effect, Option, Schema } from "effect"
 import { Command } from "foldkit"
 import * as Dom from "foldkit/dom"
@@ -293,6 +293,51 @@ export const SendTestNotification = Command.define("SendTestNotification", {
       Effect.succeed(Message.FailedTestNotification({ error: describe(error) })),
     ),
   ),
+})
+
+// HISTORY (C-027): one page of finished items. The request id lets update drop stale answers.
+
+export const FetchHistory = Command.define("FetchHistory", {
+  args: {
+    requestId: Schema.Number,
+    q: Schema.String,
+    kind: Schema.NullOr(AttentionKind),
+    before: Schema.NullOr(Schema.String),
+    limit: Schema.NullOr(Schema.Number),
+    append: Schema.Boolean,
+  },
+  messages: [Message.SucceededFetchHistory, Message.FailedFetchHistory],
+  execute: ({ requestId, q, kind, before, limit, append }) =>
+    Effect.gen(function* () {
+      const client = yield* DaemonClient
+      const page = yield* client.history({
+        q,
+        kind,
+        before,
+        ...(limit === null ? {} : { limit }),
+      })
+      return Message.SucceededFetchHistory({ requestId, page, append })
+    }).pipe(
+      Effect.catch((error) =>
+        Effect.succeed(
+          Message.FailedFetchHistory({
+            requestId,
+            error: describe(error),
+            status: statusOf(error),
+          }),
+        ),
+      ),
+    ),
+})
+
+/** The search field's debounce (U-053): only the latest keystroke's wait searches. */
+export const WaitBeforeHistorySearch = Command.define("WaitBeforeHistorySearch", {
+  args: { version: Schema.Number },
+  messages: [Message.CompletedWaitBeforeHistorySearch],
+  execute: ({ version }) =>
+    Effect.sleep("250 millis").pipe(
+      Effect.as(Message.CompletedWaitBeforeHistorySearch({ version })),
+    ),
 })
 
 export const FocusTreeNode = Command.define("FocusTreeNode", {

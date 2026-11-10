@@ -224,6 +224,14 @@ export const setupView = (model: Model, h: H): Html =>
     ],
   )
 
+/** A left-nav page link (Setup check, History); the current one reads as selected. */
+export const navEntryClass = (isCurrent: boolean): string =>
+  `mx-0 mt-2 flex min-h-8 items-center gap-2 rounded-lg border px-2 text-[13px] no-underline ${
+    isCurrent
+      ? "border-border bg-card font-semibold text-foreground"
+      : "border-transparent text-muted-foreground hover:bg-accent"
+  }`
+
 /** The left-nav entry under "Where sessions run": hidden until the daemon has a report. */
 export const setupNavEntry = (model: Model, h: H): Html => {
   if (model.doctor._tag === "Unknown" || model.doctor._tag === "Unavailable") {
@@ -235,13 +243,7 @@ export const setupNavEntry = (model: Model, h: H): Html => {
     [
       h.Href("#/setup"),
       ...(isCurrent ? [h.AriaCurrent("page")] : []),
-      h.Class(
-        `mx-0 mt-2 flex min-h-8 items-center gap-2 rounded-lg border px-2 text-[13px] no-underline ${
-          isCurrent
-            ? "border-border bg-card font-semibold text-foreground"
-            : "border-transparent text-muted-foreground hover:bg-accent"
-        }`,
-      ),
+      h.Class(navEntryClass(isCurrent)),
     ],
     [
       Icon.wrench(h),

@@ -5,6 +5,7 @@
 import type {
   Agent,
   Approval,
+  HistoryOutcome,
   Item,
   OutboxEntry,
   Project,
@@ -12,6 +13,7 @@ import type {
   Session,
   TimelineEntry,
 } from "@session-inbox/contracts"
+import { makeHistoryFixtures } from "./historyFixtures.ts"
 import { bashPreview, makePreviewFixtures } from "./previewFixtures.ts"
 
 const MIN = 60_000
@@ -28,6 +30,10 @@ export type ItemExtras = {
   lastMessage?: string
   /** Why a reply can't be sent from the inbox (C-023). */
   replyUnavailable?: string
+  /** How a finished item ended (C-027); the fake derives one from the state when absent. */
+  outcome?: HistoryOutcome
+  /** The reason given with a denial, searchable in History. */
+  denyReason?: string
 }
 
 /** A long review message: >24 lines, every block kind, a relative link and a bare URL. */
@@ -403,12 +409,14 @@ export const makeFixtures = (now: number): Fixtures => {
 
   // Approval-preview variety (U-031), appended so the mockup's items keep their order.
   const pv = makePreviewFixtures(now)
+  // Finished items for History (U-052), after everything the queues show.
+  const hx = makeHistoryFixtures(now)
   return {
     projects,
-    sessions: [...sessions, ...pv.sessions],
+    sessions: [...sessions, ...pv.sessions, ...hx.sessions],
     agents: [...agents, ...pv.agents],
-    items: [...items, ...pv.items],
-    extras: { ...extras, ...pv.extras },
-    timelines: { ...timelines, ...pv.timelines },
+    items: [...items, ...pv.items, ...hx.items],
+    extras: { ...extras, ...pv.extras, ...hx.extras },
+    timelines: { ...timelines, ...pv.timelines, ...hx.timelines },
   }
 }

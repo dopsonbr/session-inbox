@@ -1,8 +1,10 @@
 import { Combobox, Dialog, Menu, RadioGroup } from "@foldkit/ui"
 import {
   ActionResponse,
+  AttentionKind,
   Decision,
   DoctorReport,
+  HistoryPage,
   ItemDetail,
   Snapshot,
   StreamMessage,
@@ -111,6 +113,21 @@ export const Message = defineMessageUnion({
   },
   FailedTestNotification: { error: Schema.String },
   ToggledLastMessageExpanded: {},
+
+  UpdatedHistoryQuery: { value: Schema.String },
+  CompletedWaitBeforeHistorySearch: { version: Schema.Number },
+  SubmittedHistorySearch: {},
+  SelectedHistoryKind: { kind: Schema.NullOr(AttentionKind) },
+  ClickedLoadMoreHistory: {},
+  ClickedRetryHistory: {},
+  ClickedHistoryEntry: { itemId: Schema.String },
+  /** `append`: a "Load more" page, added after the entries already shown. */
+  SucceededFetchHistory: { requestId: Schema.Number, page: HistoryPage, append: Schema.Boolean },
+  FailedFetchHistory: {
+    requestId: Schema.Number,
+    error: Schema.String,
+    status: Schema.NullOr(Schema.Number),
+  },
 
   CompletedMarkRead: {},
   CompletedSetHash: {},

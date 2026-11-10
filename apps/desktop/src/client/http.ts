@@ -8,6 +8,7 @@
 import {
   ActionResponse,
   DoctorReport,
+  HistoryPage,
   ItemDetail,
   OpenResponse,
   Routes,
@@ -189,6 +190,7 @@ export const makeHttpClient = (config: HttpClientConfig): DaemonClientShape => {
       ),
     ),
     doctorNotify: decoded(TestNotifyResult)(request("POST", Routes.doctorNotify, {})),
+    history: (query) => decoded(HistoryPage)(request("GET", Routes.history(query))),
   }
 }
 

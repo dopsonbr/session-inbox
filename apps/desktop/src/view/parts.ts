@@ -1,4 +1,4 @@
-import type { Item, Session } from "@session-inbox/contracts"
+import type { AttentionKind, HistoryOutcome, Item, Session } from "@session-inbox/contracts"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import type { Message } from "../message.ts"
 
@@ -74,6 +74,8 @@ export const Icon = {
       ],
       c,
     ),
+  history: (h: H, c?: string) =>
+    icon(h, ["M3 12a9 9 0 1 0 2.6-6.4L3 8", "M3 3v5h5", "M12 7v5l3 2"], c),
   inbox: (h: H, c?: string) =>
     icon(h, ["M4 13l2.5-7h11L20 13v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z", "M4 13h4l1 2h6l1-2h4"], c),
 }
@@ -149,6 +151,86 @@ export const itemBadge = (h: H, item: Item): Html =>
   h.span(
     [h.Class(`inline-flex items-center gap-1 text-xs font-semibold ${toneText[itemTone(item)]}`)],
     [kindIcon(h, item, "size-3.5"), itemKindLabel(item)],
+  )
+
+// HISTORY OUTCOMES (C-027): the daemon decides the outcome; these only word it (U-056).
+
+export const OUTCOME_LABEL: Record<HistoryOutcome, string> = {
+  allowed: "Allowed",
+  "always-allowed": "Always allowed",
+  denied: "Denied",
+  answered: "Answered",
+  replied: "Replied",
+  "in-claude": "Handled in Claude",
+  "moved-on": "Session moved on",
+  expired: "Not answered",
+  dismissed: "Dismissed",
+}
+
+const OUTCOME_TONE: Record<HistoryOutcome, Tone> = {
+  allowed: "ready",
+  "always-allowed": "ready",
+  denied: "failed",
+  answered: "ready",
+  replied: "ready",
+  "in-claude": "neutral",
+  "moved-on": "neutral",
+  expired: "needs",
+  dismissed: "neutral",
+}
+
+const outcomeIcon = (h: H, outcome: HistoryOutcome, className?: string): Html => {
+  switch (outcome) {
+    case "allowed":
+    case "always-allowed":
+      return Icon.check(h, className)
+    case "denied":
+      return Icon.alert(h, className)
+    case "answered":
+    case "replied":
+      return Icon.send(h, className)
+    case "in-claude":
+      return Icon.external(h, className)
+    case "moved-on":
+      return Icon.chevronRight(h, className)
+    case "expired":
+      return Icon.clock(h, className)
+    case "dismissed":
+      return Icon.circle(h, className)
+  }
+}
+
+/** Icon + word, never colour alone. */
+export const outcomeBadge = (h: H, outcome: HistoryOutcome): Html =>
+  h.span(
+    [
+      h.Class(
+        `inline-flex items-center gap-1 text-xs font-semibold ${toneText[OUTCOME_TONE[outcome]]}`,
+      ),
+    ],
+    [outcomeIcon(h, outcome, "size-3.5"), OUTCOME_LABEL[outcome]],
+  )
+
+/** What kind of item it was, without its state: History rows and the kind filter. */
+export const KIND_WORD: Record<AttentionKind, string> = {
+  question: "Question",
+  permission: "Permission",
+  review: "Ready to review",
+  failed: "Stopped with errors",
+}
+
+const KIND_ICON: Record<AttentionKind, (h: H, c?: string) => Html> = {
+  question: Icon.question,
+  permission: Icon.shield,
+  review: Icon.check,
+  failed: Icon.alert,
+}
+
+/** A finished item's kind, quiet: icon + word. */
+export const kindBadge = (h: H, kind: AttentionKind): Html =>
+  h.span(
+    [h.Class("inline-flex items-center gap-1 text-xs font-semibold text-subtle-foreground")],
+    [KIND_ICON[kind](h, "size-3.5"), KIND_WORD[kind]],
   )
 
 export const sessionStateLabel = (session: Session): string =>

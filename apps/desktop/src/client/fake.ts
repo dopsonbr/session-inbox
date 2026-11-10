@@ -18,6 +18,7 @@ import type {
 import { Effect, Option, Queue, Stream } from "effect"
 import { DaemonClient, type DaemonClientShape, DaemonError } from "./daemonClient.ts"
 import { fakeDoctorReport, fakeSetupKind, fakeTestNotify } from "./fakeDoctor.ts"
+import { fakeHistoryPage } from "./fakeHistory.ts"
 import { makeFakeSettings } from "./fakeSettings.ts"
 import { type Fixtures, makeFixtures } from "./fixtures.ts"
 
@@ -37,7 +38,12 @@ export type FakeOptions = Readonly<{
   reply?: string | null
   /** `?needs=none`: start with nothing in Needs you (the popover's review list). */
   needs?: string | null
+  /** History's page size when the UI names none (`?historyPage=`); the daemon's is 50. */
+  historyPageSize?: number
 }>
+
+/** The snapshot is a 24-hour working set (D-025): older finished items are History only. */
+const SNAPSHOT_WINDOW_MS = 24 * 60 * 60_000
 
 const FAKE_VERSION = "0.1.0"
 const FAKE_BUILD = "fake000"
@@ -292,14 +298,25 @@ export const makeFakeClient = (options: FakeOptions = {}): FakeDaemon => {
     }, 15000)
   }
 
-  const snapshot = (): Snapshot => ({
-    seq,
-    projects: [...db.projects],
-    sessions: [...db.sessions],
-    agents: [...db.agents],
-    items: [...db.items],
-    counts: counts(),
-  })
+  const snapshot = (): Snapshot => {
+    const since = now() - SNAPSHOT_WINDOW_MS
+    return {
+      seq,
+      projects: [...db.projects],
+      sessions: db.sessions.filter((s) => s.state !== "ended" || s.lastEventAt >= since),
+      agents: [...db.agents],
+      items: db.items.filter((i) => i.queue !== "done" || i.updatedAt >= since),
+      counts: counts(),
+    }
+  }
+
+  const settings = makeFakeSettings()
+  const retentionDays = () => {
+    const value = (Effect.runSync(settings.getSettings).settings as Record<string, unknown>)[
+      "storage.retentionDays"
+    ]
+    return typeof value === "number" ? value : 14
+  }
 
   const client: DaemonClientShape = {
     snapshot: Effect.sync(snapshot),
@@ -476,7 +493,7 @@ export const makeFakeClient = (options: FakeOptions = {}): FakeDaemon => {
         }
       }),
 
-    ...makeFakeSettings(),
+    ...settings,
     updateStatus: Effect.sync(() => update),
     updateCheck: Effect.sync(() => {
       update = { ...update, checkedAt: now() }
@@ -508,6 +525,14 @@ export const makeFakeClient = (options: FakeOptions = {}): FakeDaemon => {
             }
             return fakeTestNotify(setup)
           }),
+    history: (query) =>
+      Effect.sync(() =>
+        fakeHistoryPage(db, query, {
+          now: now(),
+          retentionDays: retentionDays(),
+          ...(options.historyPageSize === undefined ? {} : { pageSize: options.historyPageSize }),
+        }),
+      ),
   }
 
   return {
