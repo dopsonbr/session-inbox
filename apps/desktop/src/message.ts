@@ -23,6 +23,10 @@ export const SnoozeAction = Schema.Literals([
 ])
 export type SnoozeAction = typeof SnoozeAction.Type
 
+/** Where a ⌘↵ came from: no field, a field of the detail pane's own form, or any other field. */
+export const ShortcutTyping = Schema.Literals(["none", "detailForm", "elsewhere"])
+export type ShortcutTyping = typeof ShortcutTyping.Type
+
 export const SnoozePreset = Schema.Literals(["15m", "1h", "tomorrow"])
 export type SnoozePreset = typeof SnoozePreset.Type
 
@@ -74,7 +78,8 @@ export const Message = defineMessageUnion({
   SucceededOpenInClaude: { url: Schema.NullOr(Schema.String) },
 
   PressedJumpShortcut: {},
-  PressedSubmitShortcut: {},
+  /** `typing`: where the key came from; ⌘↵ in a field counts only in the detail's own form. */
+  PressedSubmitShortcut: { typing: ShortcutTyping },
   PressedDenyShortcut: {},
   ClickedJumpField: {},
 

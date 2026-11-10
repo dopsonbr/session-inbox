@@ -36,7 +36,7 @@ import {
   WaitBeforeSnapshotRetry,
   WaitCopied,
 } from "./command.ts"
-import { Message, type SnoozeAction, type TreeKey } from "./message.ts"
+import { Message, type ShortcutTyping, type SnoozeAction, type TreeKey } from "./message.ts"
 import {
   type ActionKind,
   type AnswerDraft,
@@ -50,6 +50,7 @@ import {
 } from "./model.ts"
 import {
   agentDisplayName,
+  answersUnavailable,
   areAnswersComplete,
   draftBody,
   extendOrder,
@@ -309,7 +310,10 @@ const submitAnswers = (model: Model): UpdateReturn =>
   Option.match(Option.all([model.maybeForm, loadedDetail(model)]), {
     onNone: () => ({ model }),
     onSome: ([form, detail]) =>
-      isSending(model) || detail.item.kind !== "question" || !areAnswersComplete(form)
+      isSending(model) ||
+      detail.item.kind !== "question" ||
+      !areAnswersComplete(form) ||
+      answersUnavailable(detail) !== null
         ? { model }
         : {
             model: startAction(model, "answers"),
@@ -343,21 +347,38 @@ const submitReply = (model: Model): UpdateReturn =>
           },
   })
 
-/** ⌘↵ means "the primary action of whatever the detail pane shows" (none on Setup). */
-const submitShortcut = (model: Model): UpdateReturn =>
-  Option.match(model.route === "setup" ? Option.none() : loadedDetail(model), {
-    onNone: () => ({ model }),
-    onSome: (detail) => {
-      if (detail.item.kind === "question" && detail.questions.length > 0) {
-        return submitAnswers(model)
-      }
-      if (detail.approval !== null) {
-        // Not held: Claude's own prompt is answered in Claude, not here (U-043).
-        return detail.item.live ? sendDecision(model, "allow") : { model }
-      }
-      return submitReply(model)
+/** Settings, ⌘K or the snooze menu is over the detail pane: its shortcuts must not reach it. */
+export const isOverlayOpen = (model: Model): boolean =>
+  model.settings.dialog.isOpen || model.jumpDialog.isOpen || model.snoozeMenu.isOpen
+
+/**
+ * The detail pane's shortcuts apply only when it's what the person is looking at: on the inbox
+ * with nothing open over it (U-046).
+ */
+const detailHasKeys = (model: Model): boolean => model.route === "inbox" && !isOverlayOpen(model)
+
+/**
+ * ⌘↵ means "the primary action of whatever the detail pane shows". In a text field it counts
+ * only when that field is the detail's own form (reply box, a question's Other), never the
+ * jump box or a settings field (U-046).
+ */
+const submitShortcut = (model: Model, typing: ShortcutTyping): UpdateReturn =>
+  Option.match(
+    !detailHasKeys(model) || typing === "elsewhere" ? Option.none() : loadedDetail(model),
+    {
+      onNone: () => ({ model }),
+      onSome: (detail) => {
+        if (detail.item.kind === "question" && detail.questions.length > 0) {
+          return submitAnswers(model)
+        }
+        if (detail.approval !== null) {
+          // Not held: Claude's own prompt is answered in Claude, not here (U-043).
+          return detail.item.live ? sendDecision(model, "allow") : { model }
+        }
+        return submitReply(model)
+      },
     },
-  })
+  )
 
 const agentLabel = (detail: ItemDetail, snapshot: Option.Option<Snapshot>): string =>
   Option.getOrElse(
@@ -1013,10 +1034,10 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     }),
 
     SubmittedAnswers: () => submitAnswers(model),
-    PressedSubmitShortcut: () => submitShortcut(model),
+    PressedSubmitShortcut: ({ typing }) => submitShortcut(model, typing),
     ClickedDecision: ({ decision }) => sendDecision(model, decision),
     PressedDenyShortcut: () =>
-      model.route === "inbox" &&
+      detailHasKeys(model) &&
       Option.exists(loadedDetail(model), (d) => d.approval !== null && d.item.live)
         ? sendDecision(model, "deny")
         : { model },

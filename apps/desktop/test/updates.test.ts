@@ -5,6 +5,8 @@ import { fakeUpdateStatus, makeFakeClient } from "../src/client/fake.ts"
 import { Message } from "../src/message.ts"
 import type { Model } from "../src/model.ts"
 import { initialModel, type UpdateReturn, update, updateBannerKey } from "../src/update.ts"
+import { updateBannerView } from "../src/view/update.ts"
+import { h, textOf } from "./vnode.ts"
 
 const NOW = 1_800_000_000_000
 const fresh = (): Model =>
@@ -31,6 +33,13 @@ const toastTitles = (model: Model) =>
   (
     model.toasts as unknown as { entries: ReadonlyArray<{ payload: { title: string } }> }
   ).entries.map((e) => e.payload.title)
+
+describe("the failed banner's terminal hint (U-049)", () => {
+  test("names the command that installs, not the dry run", () => {
+    const model = update(fresh(), streamed(status("failed"))).model
+    expect(textOf(updateBannerView(model, h))).toContain("session-inbox update --yes")
+  })
+})
 
 describe("reload on a new daemon build", () => {
   test("first hello is remembered; the same build again does nothing", () => {

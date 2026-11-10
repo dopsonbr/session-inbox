@@ -259,7 +259,10 @@ await hook(
   "cli",
 )
 
-console.log(`\nSession Inbox demo running: http://127.0.0.1:${c.httpPort}/`)
-console.log(`  compact: http://127.0.0.1:${c.httpPort}/?view=compact`)
+// `?k=` proves the page may have the token (D-095); without it the daemon serves a notice.
+const k = encodeURIComponent(c.token)
+console.log(`\nSession Inbox demo running: http://127.0.0.1:${c.httpPort}/?k=${k}`)
+console.log(`  compact: http://127.0.0.1:${c.httpPort}/?view=compact&k=${k}`)
+console.log(`  home:    ${home}`)
 console.log("  approvals stay answerable for 10 minutes, then wait in Claude. Ctrl-C to stop.\n")
 await daemon.exited

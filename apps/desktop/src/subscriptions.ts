@@ -5,6 +5,7 @@ import { DaemonClient, DaemonError } from "./client/daemonClient.ts"
 import { Message } from "./message.ts"
 import type { Model } from "./model.ts"
 import { SettingsMessage } from "./settings.ts"
+import { shortcutTyping } from "./shortcuts.ts"
 import { Toast } from "./toast.ts"
 
 // SUBSCRIPTION
@@ -79,7 +80,8 @@ export const subscriptions = Subscription.aggregate(
                 keys: "Mod+Enter",
                 isEnabled: isFull,
                 whileTyping: "Allow",
-                mapEvent: () => Message.PressedSubmitShortcut(),
+                mapEvent: (event) =>
+                  Message.PressedSubmitShortcut({ typing: shortcutTyping(event.composedPath()) }),
               },
               {
                 // Suppressed while typing so ⌘⌫ still deletes a line in a text field.

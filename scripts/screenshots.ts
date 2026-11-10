@@ -43,8 +43,11 @@ process.on("SIGINT", () => {
   process.exit(130)
 })
 
-/** The demo prints its URL once the seed is in; read stdout until it shows up. */
-const baseUrl = async (): Promise<string> => {
+/**
+ * The demo prints its URLs and home once the seed is in; read stdout until the home shows up,
+ * then take the port and token from its connection.json (0600), never from a page (D-095).
+ */
+const demoConnection = async (): Promise<{ base: string; token: string }> => {
   const reader = demo.stdout.getReader()
   const decoder = new TextDecoder()
   let text = ""
@@ -53,11 +56,26 @@ const baseUrl = async (): Promise<string> => {
     const { value, done } = await reader.read()
     if (done) break
     text += decoder.decode(value)
-    // The demo prints the URLs last, after seeding.
-    const m = /(http:\/\/127\.0\.0\.1:\d+)\/\?view=compact/.exec(text)
-    if (m?.[1]) return m[1]
+    // The demo prints the home last, after seeding.
+    const m = /^ {2}home: +(\/\S+)$/m.exec(text)
+    if (m?.[1]) {
+      const conn = JSON.parse(readFileSync(join(m[1], "connection.json"), "utf8")) as {
+        httpPort: number
+        token: string
+      }
+      return { base: `http://127.0.0.1:${conn.httpPort}`, token: conn.token }
+    }
   }
-  throw new Error(`the demo daemon didn't print its URL:\n${text}`)
+  throw new Error(`the demo daemon didn't print its home:\n${text}`)
+}
+
+/** `path` with `k=<token>` added to its query, before any hash. */
+const withToken = (path: string, token: string): string => {
+  const hashAt = path.indexOf("#")
+  const [beforeHash, hash] =
+    hashAt === -1 ? [path, ""] : [path.slice(0, hashAt), path.slice(hashAt)]
+  const sep = beforeHash.includes("?") ? "&" : "?"
+  return `${beforeHash}${sep}k=${encodeURIComponent(token)}${hash}`
 }
 
 type Shot = {
@@ -67,7 +85,7 @@ type Shot = {
   scheme: "light" | "dark"
 }
 
-const capture = async (base: string, s: Shot) => {
+const capture = async (base: string, token: string, s: Shot) => {
   const file = join(out, `${s.name}.png`)
   const p = Bun.spawn(
     [
@@ -82,7 +100,7 @@ const capture = async (base: string, s: Shot) => {
       `--blink-settings=preferredColorScheme=${s.scheme === "dark" ? 0 : 1}`,
       "--virtual-time-budget=6000",
       `--screenshot=${file}`,
-      `${base}${s.path}`,
+      `${base}${withToken(s.path, token)}`,
     ],
     { stdout: "ignore", stderr: "ignore" },
   )
@@ -92,11 +110,8 @@ const capture = async (base: string, s: Shot) => {
 }
 
 try {
-  const base = await baseUrl()
+  const { base, token } = await demoConnection()
   // Ask the demo daemon which items it seeded, so the shots open the right ones.
-  const page = await (await fetch(`${base}/`)).text()
-  const token = /name="session-inbox-token"\s+content="([^"]+)"/.exec(page)?.[1]
-  if (!token) throw new Error("no token in the served page")
   const snap = (await (
     await fetch(`${base}/v1/snapshot`, { headers: { Authorization: `Bearer ${token}` } })
   ).json()) as { items: { id: string; kind: string; summary: string | null }[] }
@@ -119,7 +134,13 @@ try {
     { name: "setup", path: "/?client=fake&setup=attention#/setup", size: wide, scheme: "light" },
     { name: "popover", path: "/?view=compact", size: [380, 520], scheme: "light" },
   ]
-  for (const s of shots) await capture(base, s)
+  // Each page must be the app, not the "opened from the menu-bar app" notice (D-095).
+  for (const s of shots) {
+    const html = await (await fetch(`${base}${withToken(s.path, token)}`)).text()
+    if (!html.includes(`content="${token}"`))
+      throw new Error(`${s.name}: the daemon withheld the UI`)
+  }
+  for (const s of shots) await capture(base, token, s)
   // Fail loudly on a blank page: a real shot is never this small.
   for (const s of shots) {
     const bytes = readFileSync(join(out, `${s.name}.png`)).byteLength

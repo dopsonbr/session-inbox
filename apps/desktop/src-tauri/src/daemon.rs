@@ -17,9 +17,26 @@ impl Connection {
     pub fn base(&self) -> String {
         format!("http://127.0.0.1:{}", self.http_port)
     }
+    /// A UI page URL: `<base>/?[<query>&]k=<token>[<hash>]`. The daemon injects the token only
+    /// into a page that shows it (D-095); the page then drops `k` from its address.
+    pub fn page_url(&self, query: &str, hash: &str) -> String {
+        let k = encode_component(&self.token);
+        let q = if query.is_empty() { format!("k={k}") } else { format!("{query}&k={k}") };
+        format!("{}/?{q}{hash}", self.base())
+    }
     fn auth(&self) -> String {
         format!("Bearer {}", self.token)
     }
+}
+
+/// Percent-encode everything but RFC 3986 unreserved characters (the token is hex today).
+fn encode_component(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => (b as char).to_string(),
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
 }
 
 /// `SESSION_INBOX_HOME` set means a dev/test daemon: no launchd, no login item.
@@ -272,5 +289,15 @@ mod tests {
         assert_eq!((c.http_port, c.token.as_str()), (4123, "tok"));
         assert_eq!(c.base(), "http://127.0.0.1:4123");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn builds_page_urls_with_the_token() {
+        let c = Connection { http_port: 4123, token: "ab12".into() };
+        assert_eq!(c.page_url("", ""), "http://127.0.0.1:4123/?k=ab12");
+        assert_eq!(c.page_url("view=compact", ""), "http://127.0.0.1:4123/?view=compact&k=ab12");
+        assert_eq!(c.page_url("", "#/item/x-1"), "http://127.0.0.1:4123/?k=ab12#/item/x-1");
+        let odd = Connection { http_port: 1, token: "a b&c=/#".into() };
+        assert_eq!(odd.page_url("", ""), "http://127.0.0.1:1/?k=a%20b%26c%3D%2F%23");
     }
 }

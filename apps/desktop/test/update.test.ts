@@ -6,6 +6,8 @@ import { given, message, model, story } from "foldkit/story"
 import { makeFakeClient } from "../src/client/fake.ts"
 import { Message } from "../src/message.ts"
 import type { Model } from "../src/model.ts"
+import { SettingsMessage } from "../src/settings.ts"
+import { DETAIL_FORM_ATTR, shortcutTyping } from "../src/shortcuts.ts"
 import { deliveryToasts, init, initialModel, type UpdateReturn, update } from "../src/update.ts"
 import { activityEntries } from "../src/view/detail.ts"
 import { itemKindLabel } from "../src/view/parts.ts"
@@ -172,7 +174,7 @@ describe("answer form", () => {
       picked.model,
       Message.UpdatedOther({ idx: 1, value: "1, but only for idempotent GETs" }),
     )
-    const submitted = update(other.model, Message.PressedSubmitShortcut())
+    const submitted = update(other.model, Message.PressedSubmitShortcut({ typing: "none" }))
     expect(names(submitted)).toEqual(["SubmitAnswers"])
     expect(submitted.model.submission).toEqual({ _tag: "Sending", action: "answers" })
     const args = argsOf<{ answers: unknown }>(submitted)
@@ -246,7 +248,7 @@ describe("keyboard shortcuts", () => {
     ).model
 
   test("⌘↵ on a permission allows once; ⌘⌫ denies", () => {
-    const allow = update(permission(), Message.PressedSubmitShortcut())
+    const allow = update(permission(), Message.PressedSubmitShortcut({ typing: "none" }))
     expect(names(allow)).toEqual(["SendDecision"])
     expect(argsOf<{ decision: string }>(allow).decision).toBe("allow")
     const deny = update(permission(), Message.PressedDenyShortcut())
@@ -301,9 +303,79 @@ describe("keyboard shortcuts", () => {
       run(loaded(), Message.ClickedItem({ itemId: "i-receipts-review" })).model,
       Message.SucceededFetchItemDetail({ detail: detailOf("i-receipts-review") }),
     ).model
-    expect(names(update(start, Message.PressedSubmitShortcut()))).toEqual([])
+    expect(names(update(start, Message.PressedSubmitShortcut({ typing: "none" })))).toEqual([])
     const typed = update(start, Message.UpdatedReply({ value: "ship it" })).model
-    expect(names(update(typed, Message.PressedSubmitShortcut()))).toEqual(["SendReply"])
+    expect(names(update(typed, Message.PressedSubmitShortcut({ typing: "none" })))).toEqual([
+      "SendReply",
+    ])
+    // Typed in the reply box itself: still sends.
+    expect(names(update(typed, Message.PressedSubmitShortcut({ typing: "detailForm" })))).toEqual([
+      "SendReply",
+    ])
+  })
+})
+
+describe("shortcuts never reach the item behind an overlay (U-046)", () => {
+  const permission = () =>
+    update(
+      run(loaded(), Message.ClickedItem({ itemId: "i-ravelo-migrate" })).model,
+      Message.SucceededFetchItemDetail({ detail: detailOf("i-ravelo-migrate") }),
+    ).model
+  const submit = (typing: "none" | "detailForm" | "elsewhere") =>
+    Message.PressedSubmitShortcut({ typing })
+  const decides = (m: Model) => [
+    ...names(update(m, submit("none"))),
+    ...names(update(m, Message.PressedDenyShortcut())),
+  ]
+
+  test("baseline: a live approval is decided by ⌘↵ and ⌘⌫", () => {
+    expect(decides(permission())).toEqual(["SendDecision", "SendDecision"])
+  })
+
+  test("Settings open: nothing", () => {
+    const opened = update(
+      permission(),
+      Message.GotSettingsMessage({ message: SettingsMessage.RequestedOpen() }),
+    ).model
+    expect(opened.settings.dialog.isOpen).toBe(true)
+    expect(decides(opened)).toEqual([])
+    expect(names(update(opened, submit("elsewhere")))).toEqual([])
+  })
+
+  test("⌘K open: ⌘↵ in the jump box doesn't approve the item behind it", () => {
+    const opened = update(permission(), Message.PressedJumpShortcut()).model
+    expect(opened.jumpDialog.isOpen).toBe(true)
+    expect(names(update(opened, submit("elsewhere")))).toEqual([])
+    expect(decides(opened)).toEqual([])
+  })
+
+  test("snooze menu open: nothing", () => {
+    const start = permission()
+    const opened: Model = { ...start, snoozeMenu: { ...start.snoozeMenu, isOpen: true } }
+    expect(decides(opened)).toEqual([])
+  })
+
+  test("Setup route: nothing", () => {
+    const start = permission()
+    expect(decides({ ...start, route: "setup" })).toEqual([])
+  })
+
+  test("typing in a field outside the detail form: ⌘↵ does nothing", () => {
+    expect(names(update(permission(), submit("elsewhere")))).toEqual([])
+  })
+})
+
+describe("shortcutTyping", () => {
+  const field = (tagName: string, detail = false) => ({
+    tagName,
+    hasAttribute: (n: string) => detail && n === DETAIL_FORM_ATTR,
+  })
+  const plain = { tagName: "DIV", hasAttribute: () => false }
+  test("no field, a detail-form field, any other field", () => {
+    expect(shortcutTyping([plain, {}, null, "x"])).toBe("none")
+    expect(shortcutTyping([field("TEXTAREA"), field("FORM", true), plain])).toBe("detailForm")
+    expect(shortcutTyping([field("INPUT"), plain])).toBe("elsewhere")
+    expect(shortcutTyping([{ tagName: "DIV", isContentEditable: true }])).toBe("elsewhere")
   })
 })
 

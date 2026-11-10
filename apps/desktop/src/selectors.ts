@@ -260,6 +260,19 @@ export const formFromDetail = (detail: ItemDetail): Form => {
   }
 }
 
+/**
+ * A question the inbox can't answer: not live, still open, and the daemon says why answers
+ * can't go from here (Claude's own prompt, or no CLI for the reply). It renders the reason and
+ * Open in Claude instead of a form (U-047).
+ */
+export const answersUnavailable = (detail: ItemDetail): string | null =>
+  detail.item.kind === "question" &&
+  !detail.item.live &&
+  detail.item.queue !== "done" &&
+  detail.replyUnavailable !== undefined
+    ? detail.replyUnavailable
+    : null
+
 export const isAnswerComplete = (answer: AnswerDraft): boolean =>
   answer.selected.length > 0 || answer.other.trim() !== ""
 

@@ -1,7 +1,8 @@
 /**
  * DaemonClient over HTTP + SSE, same-origin (G-011). Every request is a
  * relative `/v1/...` URL with `Authorization: Bearer <token>`; the token comes
- * from the `<meta name="session-inbox-token">` the daemon injects. In dev the
+ * from the `<meta name="session-inbox-token">` the daemon injects (only into a page
+ * opened with `?k=<token>` or carrying its cookie, D-095). In dev the
  * Vite proxy adds the header instead, so an empty token is fine there.
  */
 import {
@@ -29,6 +30,17 @@ export const TOKEN_META_NAME = "session-inbox-token"
 
 export const readTokenFromDocument = (doc: Document): string =>
   doc.querySelector(`meta[name="${TOKEN_META_NAME}"]`)?.getAttribute("content") ?? ""
+
+/**
+ * The address without `k` (the token the shell or `session-inbox open` puts in the URL so the
+ * daemon will inject it, D-095); other params and the hash are kept. Null when there's no `k`.
+ */
+export const addressWithoutToken = (href: string): string | null => {
+  const url = new URL(href)
+  if (!url.searchParams.has("k")) return null
+  url.searchParams.delete("k")
+  return `${url.pathname}${url.search}${url.hash}`
+}
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
 

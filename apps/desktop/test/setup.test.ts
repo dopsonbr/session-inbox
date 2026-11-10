@@ -168,7 +168,7 @@ describe("setup check: routes", () => {
 
   test("⌘↵ and ⌘⌫ do nothing while Setup is showing", () => {
     const onSetup = update(fresh(), Message.ChangedHash({ hash: "#/setup" })).model
-    expect(names(update(onSetup, Message.PressedSubmitShortcut()))).toEqual([])
+    expect(names(update(onSetup, Message.PressedSubmitShortcut({ typing: "none" })))).toEqual([])
     expect(names(update(onSetup, Message.PressedDenyShortcut()))).toEqual([])
   })
 })
