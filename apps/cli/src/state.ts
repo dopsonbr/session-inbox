@@ -15,6 +15,8 @@ export type InstallRecord = {
   build: string
   channel: Channel
   source: InstallSource
+  /** The home as given at install time (hook commands use this spelling, not a realpath). */
+  home: string
   settingsPath: string
   launchd: boolean
   hooks: boolean
@@ -43,6 +45,7 @@ export const readInstallRecord = (home: string): InstallRecord | null => {
       build: typeof v.build === "string" ? v.build : "unknown",
       channel: v.channel,
       source: v.source === "release" ? "release" : "source",
+      home: typeof v.home === "string" ? v.home : home,
       settingsPath: typeof v.settingsPath === "string" ? v.settingsPath : "",
       launchd: v.launchd !== false,
       hooks: v.hooks !== false,

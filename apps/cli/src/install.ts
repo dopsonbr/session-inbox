@@ -195,6 +195,7 @@ export const install = async (o: InstallOptions, say: Say): Promise<void> => {
       build: manifest.build,
       channel: o.channel,
       source: o.source,
+      home: o.home,
       settingsPath: o.settingsPath,
       launchd: o.launchd,
       hooks: o.hooks,

@@ -53,8 +53,14 @@ const homeOfSelf = (): string | null => {
   if (!compiled()) return null
   const exe = self()
   if (basename(exe) !== "session-inbox" || basename(dirname(exe)) !== "bin") return null
-  const home = dirname(dirname(exe))
-  return existsSync(installJsonPath(home)) ? home : null
+  const found = dirname(dirname(exe))
+  if (!existsSync(installJsonPath(found))) return null
+  // The exe path may be a realpath (/private/tmp vs /tmp); the hooks use the home as installed.
+  const recorded = readInstallRecord(found)?.home
+  try {
+    if (recorded && realpathSync(recorded) === realpathSync(found)) return recorded
+  } catch {}
+  return found
 }
 
 /** For commands acting on an existing install: --home, else this binary's home, else default. */
