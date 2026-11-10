@@ -85,6 +85,7 @@ export const initialModel = (flags: Flags): Model => ({
   expandedNodes: [],
   maybeFocusedNode: Option.none(),
   maybeForm: Option.none(),
+  isPreviewExpanded: false,
   draftVersion: 0,
   submission: Submission.Idle(),
   jumpDialog: Dialog.init({
@@ -189,6 +190,7 @@ export const selectItem = (
     detail: (detail) =>
       isSame && detail._tag === "Loaded" ? detail : DetailState.Loading({ itemId }),
     maybeForm: (form) => (isSame ? form : Option.none()),
+    isPreviewExpanded: (expanded) => isSame && expanded,
     submission: (submission) => (isSame ? submission : Submission.Idle()),
   })
   const hashCommands: Commands =
@@ -739,6 +741,10 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       }),
 
     CompletedSaveDraft: () => ({ model }),
+
+    ToggledPreviewExpanded: () => ({
+      model: modifyFields(model, { isPreviewExpanded: (expanded) => !expanded }),
+    }),
 
     SubmittedAnswers: () => submitAnswers(model),
     PressedSubmitShortcut: () => submitShortcut(model),

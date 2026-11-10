@@ -192,3 +192,64 @@
     outline-offset: 2px;
   }
 }
+
+/* Approval preview diff (U-031): gutters, +/− tints from the status tokens, horizontal
+   scroll inside the card instead of wrapping. Text stays --foreground on the tints. */
+@layer components {
+  .diff-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    background: var(--card);
+  }
+  .diff {
+    min-width: 100%;
+    border-collapse: collapse;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+  .diff td {
+    padding: 0 0.5rem;
+    vertical-align: top;
+  }
+  .diff .diff-num {
+    width: 1%;
+    min-width: 2.5rem;
+    color: var(--subtle-foreground);
+    text-align: right;
+    user-select: none;
+    white-space: nowrap;
+  }
+  .diff .diff-sign {
+    width: 1%;
+    padding: 0 0.25rem;
+    user-select: none;
+  }
+  .diff-text {
+    color: var(--foreground);
+    white-space: pre;
+  }
+  .diff-add {
+    background: var(--ready-tint);
+  }
+  .diff-add .diff-sign {
+    color: var(--ready);
+  }
+  .diff-del {
+    background: var(--failed-tint);
+  }
+  .diff-del .diff-sign {
+    color: var(--failed);
+  }
+  .diff .diff-hunk td {
+    padding: 0.125rem 0.5rem;
+    background: var(--code-bg);
+    color: var(--muted-foreground);
+  }
+  .diff-noeol {
+    color: var(--subtle-foreground);
+    font-style: italic;
+  }
+}
