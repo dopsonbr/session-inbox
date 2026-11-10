@@ -215,7 +215,7 @@ export const transcriptTitle = (text: string | null): string | null => {
 }
 
 const BACKGROUND = /^Background \(from the session that started this one\):/i
-const LEADING_TAG = /^<([A-Za-z][\w:-]*)(?:\s[^>]*)?>/
+const LEADING_TAG = /^<([A-Za-z][\w:-]*)(?:\s[^>]*)?\/?>/
 
 /**
  * The part of a prompt worth titling a session after (D-060): leading `<tag>…</tag>` blocks

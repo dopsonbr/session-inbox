@@ -18,13 +18,14 @@ export const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0
 
 export const openDb = (file: string): Database => {
   const db = new Database(file, { create: true, strict: true })
+  // New files reclaim pruned pages without a full VACUUM (D-063). Only possible before the
+  // file has any content, so before switching to WAL too.
+  const empty = db.query("SELECT COUNT(*) AS n FROM sqlite_master").get() as { n: number }
+  if (empty.n === 0) db.exec("PRAGMA auto_vacuum = INCREMENTAL")
   db.exec("PRAGMA journal_mode = WAL")
   db.exec("PRAGMA foreign_keys = ON")
   db.exec("PRAGMA busy_timeout = 5000")
   db.exec("PRAGMA synchronous = NORMAL")
-  // New files reclaim pruned pages without a full VACUUM (D-063); only possible while empty.
-  const empty = db.query("SELECT COUNT(*) AS n FROM sqlite_master").get() as { n: number }
-  if (empty.n === 0) db.exec("PRAGMA auto_vacuum = INCREMENTAL")
   migrate(db)
   return db
 }
