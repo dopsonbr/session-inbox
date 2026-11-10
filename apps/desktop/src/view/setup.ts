@@ -17,10 +17,10 @@ export const attentionLabel = (n: number): string =>
   n === 1 ? "1 needs attention" : `${n} need attention`
 
 const STATUS: Record<DoctorStatus, { word: string; tone: string; glyph: (h: H) => Html }> = {
-  ok: { word: "OK", tone: "text-ready", glyph: (h) => Icon.check(h, "size-4") },
-  warn: { word: "Warning", tone: "text-needs", glyph: (h) => Icon.warn(h, "size-4") },
-  fail: { word: "Problem", tone: "text-failed", glyph: (h) => Icon.alert(h, "size-4") },
-  info: { word: "Info", tone: "text-subtle-foreground", glyph: (h) => Icon.info(h, "size-4") },
+  ok: { word: "OK", tone: "text-ready", glyph: (h) => Icon.check(h, "size-[14px]") },
+  warn: { word: "Warning", tone: "text-needs", glyph: (h) => Icon.warn(h, "size-[14px]") },
+  fail: { word: "Problem", tone: "text-failed", glyph: (h) => Icon.alert(h, "size-[14px]") },
+  info: { word: "Info", tone: "text-subtle-foreground", glyph: (h) => Icon.info(h, "size-[14px]") },
 }
 
 /** Schemes a `url` fix may open; anything else is shown as text to copy instead. */
@@ -39,7 +39,7 @@ const fixView = (model: Model, check: DoctorCheck, fix: DoctorFix, h: H): Html =
         h.DataAttribute("variant", "outline"),
         h.DataAttribute("size", "sm"),
       ],
-      [fix.label, Icon.external(h, "size-3")],
+      [fix.label, Icon.external(h, "size-[12px]")],
     )
   }
   const isCopied = Option.contains(model.maybeCopiedFix, check.id)
@@ -59,7 +59,9 @@ const fixView = (model: Model, check: DoctorCheck, fix: DoctorFix, h: H): Html =
           h.AriaLabel(isCopied ? `Copied: ${fix.value}` : `${fix.label}: ${fix.value}`),
           h.OnClick(Message.ClickedCopyFix({ checkId: check.id, value: fix.value })),
         ],
-        isCopied ? [Icon.check(h, "size-3"), "Copied"] : [Icon.copy(h, "size-3"), fix.label],
+        isCopied
+          ? [Icon.check(h, "size-[12px]"), "Copied"]
+          : [Icon.copy(h, "size-[12px]"), fix.label],
       ),
     ],
   )
@@ -282,7 +284,7 @@ export const compactSetupRowView = (model: Model, h: H): Html => {
         [h.Class("min-w-0 flex-1 truncate")],
         [`Setup: ${attention === 1 ? "1 check needs" : `${attention} checks need`} attention`],
       ),
-      Icon.chevronRight(h, "size-3"),
+      Icon.chevronRight(h, "size-[12px]"),
     ],
   )
 }

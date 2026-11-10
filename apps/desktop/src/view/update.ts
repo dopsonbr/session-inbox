@@ -61,7 +61,7 @@ const notesLink = (h: H, s: UpdateStatus): ReadonlyArray<Html> =>
               "inline-flex items-center gap-1 text-[13px] text-foreground underline-offset-2 hover:underline",
             ),
           ],
-          ["Release notes", Icon.external(h, "size-3")],
+          ["Release notes", Icon.external(h, "size-[12px]")],
         ),
       ]
 
@@ -237,7 +237,7 @@ export const versionView = (model: Model, h: H): Html | null => {
                 "inline-flex items-center gap-1 rounded px-1 text-xs font-medium text-foreground underline-offset-2 hover:underline",
               ),
             ],
-            ["What's new", Icon.external(h, "size-3")],
+            ["What's new", Icon.external(h, "size-[12px]")],
           ),
         ],
       }),
@@ -247,7 +247,7 @@ export const versionView = (model: Model, h: H): Html | null => {
               [
                 h.Type("button"),
                 h.Class(
-                  "cursor-pointer rounded px-1 text-xs whitespace-nowrap text-subtle-foreground underline-offset-2 hover:text-foreground hover:underline disabled:cursor-default disabled:no-underline",
+                  "min-h-[24px] cursor-pointer rounded px-1 text-xs whitespace-nowrap text-subtle-foreground underline-offset-2 hover:text-foreground hover:underline disabled:cursor-default disabled:no-underline",
                 ),
                 h.Disabled(isChecking),
                 h.OnClick(Message.ClickedCheckForUpdates()),
