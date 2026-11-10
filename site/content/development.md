@@ -123,7 +123,7 @@ Add `--publish` to also create the GitHub Release with `gh`, with the tarball, i
 bun scripts/release.ts --publish
 ```
 
-The other way is the **Release** workflow, run by hand from the repository's Actions tab with a patch, minor or major bump. It runs `scripts/bump.ts` to bump `VERSION` and commits it, runs the tests, typecheck, lint, smoke test and the Rust checks, builds with `scripts/release.ts`, verifies the result with `scripts/verify-release.ts --require-app`, then tags, pushes and publishes. Because it bumps first, a patch bump from `0.2.0` publishes `0.2.1`.
+The other way is the **Release** workflow, run by hand from the repository's Actions tab with a bump of patch, minor, major or none. It runs `scripts/bump.ts` to bump `VERSION` and commits it (none publishes `VERSION` as it stands and is the choice for the first release), stops at once if that version is already tagged, runs the tests, typecheck, lint, smoke test and the Rust checks, builds with `scripts/release.ts`, verifies the result with `scripts/verify-release.ts --require-app`, then tags, pushes and publishes. Because it bumps first, a patch bump from `0.2.0` publishes `0.2.1`; choose none to publish `0.2.0`.
 
 CI runs the same checks on every push and pull request, plus a `package` job that builds the full release and verifies it. Nothing is uploaded from CI. The installer and the in-app updater both read releases from GitHub. Write the release's notes in the [Changelog](changelog.md) as part of the change.
 

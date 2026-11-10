@@ -82,7 +82,7 @@ bun scripts/e2e-update.ts             # real-launchd update test against a local
 bun scripts/build-site.ts --check     # build the docs site and check every link
 ```
 
-When behaviour changes, update the matching page in `site/content/` in the same change. Releases: `bun scripts/release.ts --publish`, or the **Release** workflow (Actions, Release, Run: it bumps `VERSION`, runs every check, builds, tags and publishes). CI runs the same checks on every push.
+When behaviour changes, update the matching page in `site/content/` in the same change. Releases: `bun scripts/release.ts --publish`, or the **Release** workflow (Actions, Release, Run: it bumps `VERSION` unless you choose none, runs every check, builds, tags and publishes). CI runs the same checks on every push.
 
 | Path | What |
 | --- | --- |

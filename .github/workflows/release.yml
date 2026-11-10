@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: Version bump
+        description: "Version bump (none = publish VERSION as it stands, for the first release)"
         type: choice
-        options: [patch, minor, major]
+        options: [patch, minor, major, none]
         default: patch
 
 permissions:
@@ -36,9 +36,13 @@ jobs:
         run: |
           v=$(bun scripts/bump.ts "$BUMP")
           echo "version=$v" >> "$GITHUB_OUTPUT"
+          # Fail now, not after a ten-minute build, if this version is already out.
+          if git rev-parse -q --verify "refs/tags/v$v" >/dev/null; then
+            echo "::error::v$v is already released; pick a bump" && exit 1
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -am "Release v$v"
+          git diff --quiet || git commit -am "Release v$v"
 
       - run: bun test
       - run: bun run typecheck

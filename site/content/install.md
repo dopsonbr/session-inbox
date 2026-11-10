@@ -18,7 +18,7 @@ Session Inbox installs with one command on Apple silicon Macs. You need macOS an
 > bun scripts/release.ts --publish
 > ```
 >
-> Or open the repository's Actions tab and run the **Release** workflow. It bumps the version, runs every check, builds on a macOS runner, tags and publishes. Because it bumps first, a patch bump publishes 0.2.1 where the command above publishes the version in `VERSION` as it stands, 0.2.0.
+> Or open the repository's Actions tab and run the **Release** workflow. It bumps the version, runs every check, builds on a macOS runner, tags and publishes. Choose **none** as the bump to publish the version in `VERSION` as it stands, 0.2.0; the default, patch, bumps first and would publish 0.2.1.
 <!-- /REMOVE AFTER FIRST RELEASE -->
 
 ## One-line install
