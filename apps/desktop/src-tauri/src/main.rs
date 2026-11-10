@@ -4,6 +4,7 @@
 mod channel;
 mod daemon;
 mod notify;
+mod shortcut;
 
 use daemon::{Connection, Msg};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -32,6 +33,10 @@ struct Shell {
     last_blur: Mutex<Option<Instant>>,
     menu: Menu<Wry>,
     notif_off: MenuItem<Wry>,
+    /// The tray's "Open inbox" item, whose accelerator follows the binding.
+    open_item: MenuItem<Wry>,
+    /// The accelerator currently registered globally, if any.
+    open_shortcut: Mutex<Option<String>>,
     notif_off_shown: AtomicBool,
     version: String,
 }
@@ -216,6 +221,34 @@ fn create_windows(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Make `binding` (the daemon's grammar) the global "open the inbox" shortcut and
+/// the tray item's accelerator. Main thread only. A binding that is off, invalid
+/// or refused leaves nothing registered; the same one again does nothing.
+fn apply_open_shortcut(app: &AppHandle, binding: &str) {
+    let want = shortcut::to_accelerator(binding);
+    let shell = app.state::<Shell>();
+    let mut current = shell.open_shortcut.lock().unwrap();
+    if *current == want {
+        return;
+    }
+    if let Some(old) = current.take() {
+        if let Err(e) = app.global_shortcut().unregister(old.as_str()) {
+            eprintln!("global shortcut {old} not unregistered: {e}");
+        }
+    }
+    if let Some(new) = want {
+        match app.global_shortcut().register(new.as_str()) {
+            Ok(()) => *current = Some(new),
+            Err(e) => eprintln!("global shortcut {new} not registered: {e}"),
+        }
+    } else if !binding.is_empty() {
+        eprintln!("global shortcut {binding:?} ignored: not a key press the shell can register");
+    }
+    if let Err(e) = shell.open_item.set_accelerator(current.as_deref()) {
+        eprintln!("tray accelerator not updated: {e}");
+    }
+}
+
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.set_activation_policy(ActivationPolicy::Accessory);
     let h = app.handle().clone();
@@ -240,6 +273,8 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         last_blur: Mutex::new(None),
         menu: menu.clone(),
         notif_off,
+        open_item: open.clone(),
+        open_shortcut: Mutex::new(None),
         notif_off_shown: AtomicBool::new(false),
         version,
     });
@@ -274,8 +309,12 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .build(&h)?;
 
     // Non-essential from here on: log and keep going (another app may own the shortcut).
-    if let Err(e) = h.global_shortcut().register(ch.shortcut) {
-        eprintln!("global shortcut {} not registered: {e}", ch.shortcut);
+    match h.global_shortcut().register(ch.shortcut) {
+        Ok(()) => *h.state::<Shell>().open_shortcut.lock().unwrap() = Some(ch.shortcut.to_string()),
+        Err(e) => {
+            eprintln!("global shortcut {} not registered: {e}", ch.shortcut);
+            let _ = open.set_accelerator(None::<&str>);
+        }
     }
     let links = h.clone();
     h.deep_link().on_open_url(move |e| {
@@ -317,6 +356,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 Msg::Badge(n) => set_badge(&stream, n),
                 Msg::Notify(n) if !stream.state::<Shell>().paused.load(Ordering::Relaxed) || n.critical => notify::post(&n),
                 Msg::Unnotify(ids) => notify::clear(&ids),
+                Msg::OpenInboxShortcut(binding) => {
+                    let app = stream.clone();
+                    let _ = stream.run_on_main_thread(move || apply_open_shortcut(&app, &binding));
+                }
                 _ => {}
             },
         )
