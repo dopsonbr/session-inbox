@@ -5,7 +5,7 @@ import { Message } from "../message.ts"
 import type { Model } from "../model.ts"
 import { findProject, findSession, formatAge, hashForItem, itemsInQueue } from "../selectors.ts"
 import { inlineLineView } from "./markdown.ts"
-import { dot, itemKindLabel, itemTone, kbd } from "./parts.ts"
+import { dot, itemKindLabel, itemTone, keyshortcuts, shortcutHint } from "./parts.ts"
 import { compactSetupRowView } from "./setup.ts"
 import { compactUpdateRowView } from "./update.ts"
 
@@ -178,9 +178,9 @@ export const compactView = (model: Model, h: H): Html =>
                   h.Href("/"),
                   h.Class("btn w-full no-underline"),
                   h.DataAttribute("size", "lg"),
-                  h.AriaKeyshortcuts("Meta+Shift+I"),
+                  ...keyshortcuts(h, model.shortcuts.openInbox),
                 ],
-                ["Open inbox", kbd(h, "⌘⇧I")],
+                ["Open inbox", shortcutHint(h, model.shortcuts.openInbox)],
               ),
             ],
           ),

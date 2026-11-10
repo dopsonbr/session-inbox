@@ -19,7 +19,7 @@ import { Effect, Option, Queue, Stream } from "effect"
 import { DaemonClient, type DaemonClientShape, DaemonError } from "./daemonClient.ts"
 import { fakeDoctorReport, fakeSetupKind, fakeTestNotify } from "./fakeDoctor.ts"
 import { fakeHistoryPage } from "./fakeHistory.ts"
-import { makeFakeSettings } from "./fakeSettings.ts"
+import { makeFakeSettings, shortcutBindingsOf } from "./fakeSettings.ts"
 import { type Fixtures, makeFixtures } from "./fixtures.ts"
 
 type Delta = Extract<StreamMessage, { _tag: "delta" }>
@@ -311,6 +311,25 @@ export const makeFakeClient = (options: FakeOptions = {}): FakeDaemon => {
   }
 
   const settings = makeFakeSettings()
+  /** Live-only, like the daemon's (C-029): after hello and when a shortcut setting changes. */
+  const shortcutsMessage = (): StreamMessage => ({
+    _tag: "shortcuts",
+    seq,
+    bindings: shortcutBindingsOf(Effect.runSync(settings.getSettings).settings),
+  })
+  const putSettings: DaemonClientShape["putSettings"] = (patch) =>
+    settings.putSettings(patch).pipe(
+      Effect.tap(() =>
+        Effect.sync(() => {
+          if (Object.keys(patch).some((key) => key.startsWith("shortcuts."))) {
+            const message = shortcutsMessage()
+            for (const listener of listeners) {
+              listener(message)
+            }
+          }
+        }),
+      ),
+    )
   const retentionDays = () => {
     const value = (Effect.runSync(settings.getSettings).settings as Record<string, unknown>)[
       "storage.retentionDays"
@@ -341,6 +360,8 @@ export const makeFakeClient = (options: FakeOptions = {}): FakeDaemon => {
             if (update.state !== "unsupported") {
               Queue.offerUnsafe(queue, { _tag: "update", seq, status: update })
             }
+            // After the update status, like the daemon's greetings.
+            Queue.offerUnsafe(queue, shortcutsMessage())
             listeners.add(listener)
             startSimulation()
             return listener
@@ -504,6 +525,7 @@ export const makeFakeClient = (options: FakeOptions = {}): FakeDaemon => {
       }),
 
     ...settings,
+    putSettings,
     updateStatus: Effect.sync(() => update),
     updateCheck: Effect.sync(() => {
       update = { ...update, checkedAt: now() }

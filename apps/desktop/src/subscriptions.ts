@@ -1,3 +1,4 @@
+import type { ShortcutAction } from "@session-inbox/contracts"
 import { Duration, Effect, Option, Schema, Stream } from "effect"
 import { Subscription } from "foldkit"
 import * as Dom from "foldkit/dom"
@@ -5,7 +6,13 @@ import { DaemonClient, DaemonError } from "./client/daemonClient.ts"
 import { Message } from "./message.ts"
 import type { Model } from "./model.ts"
 import { SettingsMessage } from "./settings.ts"
-import { shortcutTyping } from "./shortcuts.ts"
+import {
+  bindingTable,
+  isModifierOnly,
+  type ModKey,
+  type ShortcutBindings,
+  shortcutTyping,
+} from "./shortcuts.ts"
 import { Toast } from "./toast.ts"
 
 // SUBSCRIPTION
@@ -46,6 +53,43 @@ const daemonStream = (readSince: () => number): Stream.Stream<Message, never, Da
     }),
   )
 
+/** What Foldkit resolves `Mod` to; the table uses it too so duplicates are found the same way. */
+const modKey: ModKey =
+  typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent)
+    ? "Meta"
+    : "Control"
+
+const hasModifier = (event: KeyboardEvent) =>
+  event.metaKey || event.ctrlKey || event.altKey || event.shiftKey
+
+/** The factual message for a page shortcut; update decides what it means (U-060, U-073). */
+const shortcutMessage = (
+  action: Exclude<ShortcutAction, "openInbox">,
+  readsTyping: boolean,
+  event: KeyboardEvent,
+): Message => {
+  switch (action) {
+    case "jump":
+      return Message.PressedJumpShortcut()
+    case "submit":
+      return Message.PressedSubmitShortcut({
+        typing: readsTyping ? shortcutTyping(event.composedPath()) : "none",
+      })
+    case "deny":
+      return Message.PressedDenyShortcut()
+    case "next":
+      return Message.PressedListKey({ direction: "next" })
+    case "previous":
+      return Message.PressedListKey({ direction: "previous" })
+    case "done":
+      return Message.PressedDoneShortcut()
+    case "settings":
+      return Message.GotSettingsMessage({ message: SettingsMessage.RequestedOpen() })
+    case "help":
+      return Message.PressedShortcutsKey()
+  }
+}
+
 export const subscriptions = Subscription.aggregate(
   Subscription.make<Model, Message, DaemonClient>()((entry) => ({
     daemonStream: entry(
@@ -64,62 +108,69 @@ export const subscriptions = Subscription.aggregate(
     ),
 
     keyboard: entry(
-      { isFull: Schema.Boolean },
       {
-        modelToDependencies: (model) => ({ isFull: model.view === "full" }),
-        dependenciesToStream: ({ isFull }) =>
+        isFull: Schema.Boolean,
+        isRecording: Schema.Boolean,
+        bindings: Schema.Record(Schema.String, Schema.String),
+      },
+      {
+        modelToDependencies: (model) => ({
+          isFull: model.view === "full",
+          isRecording: model.settings.recording !== null,
+          bindings: model.shortcuts,
+        }),
+        // The bindings are dependencies: a new key press for an action rebuilds the table (U-078).
+        dependenciesToStream: ({ isFull, isRecording, bindings }) =>
           Dom.streamFromKeyBindings<Message>({
-            bindings: [
-              {
-                keys: "Mod+K",
+            modKey,
+            bindings: bindingTable(bindings as ShortcutBindings, { isRecording, modKey }).map(
+              (entry) => ({
+                keys: entry.keys,
                 isEnabled: isFull,
-                whileTyping: "Allow",
-                mapEvent: () => Message.PressedJumpShortcut(),
-              },
-              {
-                keys: "Mod+Enter",
-                isEnabled: isFull,
-                whileTyping: "Allow",
-                mapEvent: (event) =>
-                  Message.PressedSubmitShortcut({ typing: shortcutTyping(event.composedPath()) }),
-              },
-              {
-                // Suppressed while typing so ⌘⌫ still deletes a line in a text field.
-                keys: "Mod+Backspace",
-                isEnabled: isFull,
-                mapEvent: () => Message.PressedDenyShortcut(),
-              },
-              // Plain letters: never while typing in a field (the default), and update
-              // ignores them while a dialog or menu is open (U-060, U-061, U-073).
-              {
-                keys: "J",
-                isEnabled: isFull,
-                mapEvent: () => Message.PressedListKey({ direction: "next" }),
-              },
-              {
-                keys: "K",
-                isEnabled: isFull,
-                mapEvent: () => Message.PressedListKey({ direction: "previous" }),
-              },
-              {
-                keys: "E",
-                isEnabled: isFull,
-                mapEvent: () => Message.PressedDoneShortcut(),
-              },
-              {
-                keys: "Shift+?",
-                isEnabled: isFull,
-                mapEvent: () => Message.PressedShortcutsKey(),
-              },
-              {
-                keys: "Mod+,",
-                isEnabled: isFull,
-                whileTyping: "Allow",
-                mapEvent: () =>
-                  Message.GotSettingsMessage({ message: SettingsMessage.RequestedOpen() }),
-              },
-            ],
+                whileTyping: entry.whileTyping,
+                mapEvent: (event: KeyboardEvent) =>
+                  shortcutMessage(entry.action, entry.readsTyping, event),
+              }),
+            ),
           }),
+      },
+    ),
+
+    // While a Settings row records a key press, every keydown goes to it first (U-078).
+    recording: entry(
+      { isRecording: Schema.Boolean },
+      {
+        modelToDependencies: (model) => ({ isRecording: model.settings.recording !== null }),
+        dependenciesToStream: ({ isRecording }) =>
+          isRecording
+            ? Dom.streamFromEventFilterMap({
+                target: window,
+                type: "keydown",
+                options: { capture: true },
+                filterMapEvent: (event) => {
+                  // A modifier on its own waits for the key; Tab still moves focus (to Cancel).
+                  if (isModifierOnly(event) || (event.key === "Tab" && !hasModifier(event))) {
+                    return Option.none()
+                  }
+                  event.preventDefault()
+                  event.stopImmediatePropagation()
+                  return Option.some(
+                    Message.GotSettingsMessage({
+                      message: SettingsMessage.PressedRecordingKey({
+                        press: {
+                          key: event.key,
+                          code: event.code,
+                          metaKey: event.metaKey,
+                          ctrlKey: event.ctrlKey,
+                          altKey: event.altKey,
+                          shiftKey: event.shiftKey,
+                        },
+                      }),
+                    }),
+                  )
+                },
+              })
+            : Stream.empty,
       },
     ),
 

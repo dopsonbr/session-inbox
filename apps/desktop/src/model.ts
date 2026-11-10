@@ -4,6 +4,7 @@ import {
   DoctorReport,
   HistoryEntry,
   ItemDetail,
+  SHORTCUT_ACTIONS,
   Snapshot,
   UpdateStatus,
 } from "@session-inbox/contracts"
@@ -187,5 +188,10 @@ export const Model = Schema.Struct({
    */
   maybeAdvanceFrom: Schema.Option(Schema.String),
   history: HistoryModel,
+  /**
+   * Every shortcut action's key press ("" = none), from the stream's `shortcuts` message and
+   * the Settings pane's saves (U-078). Starts at the defaults; the page binds and prints these.
+   */
+  shortcuts: Schema.Record(Schema.Literals(SHORTCUT_ACTIONS), Schema.String),
 })
 export type Model = typeof Model.Type

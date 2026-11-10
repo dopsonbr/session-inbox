@@ -4,9 +4,14 @@
  */
 import {
   HOLDABLE_TOOLS,
+  normalizeShortcut,
   SETTING_LIMITS,
   type SettingsResponse,
+  SHORTCUT_ACTIONS,
   SHORTCUT_DEFAULTS,
+  shortcutActionOf,
+  shortcutProblem,
+  shortcutSettingKey,
   USER_SETTING_KEYS,
   type UserSettings,
   type UserSettingsPatch,
@@ -48,6 +53,10 @@ const EXTRA_LIMITS: Record<string, { min: number; max: number }> = {
 const KNOWN_KEYS: ReadonlyArray<string> = [...USER_SETTING_KEYS, ...EXTRA_NUMBER_SETTINGS]
 
 const tidy = (key: string, value: unknown): unknown => {
+  const action = shortcutActionOf(key)
+  if (action !== null && typeof value === "string") {
+    return normalizeShortcut(action, value) ?? ""
+  }
   const limits =
     (SETTING_LIMITS as Record<string, { min: number; max: number }>)[key] ?? EXTRA_LIMITS[key]
   if (limits !== undefined && typeof value === "number") {
@@ -55,6 +64,10 @@ const tidy = (key: string, value: unknown): unknown => {
   }
   return value
 }
+
+/** Every action's key press, as the stream's `shortcuts` message carries them. */
+export const shortcutBindingsOf = (settings: UserSettings): Record<string, string> =>
+  Object.fromEntries(SHORTCUT_ACTIONS.map((a) => [a, settings[shortcutSettingKey(a)]]))
 
 export const makeFakeSettings = (otherChannel: string | null = "beta") => {
   let settings: UserSettings = { ...FAKE_SETTING_DEFAULTS }
@@ -73,6 +86,17 @@ export const makeFakeSettings = (otherChannel: string | null = "beta") => {
           return Effect.fail(
             new DaemonError({ message: `Unknown setting ${unknown.join(", ")}`, status: 400 }),
           )
+        }
+        // Like the daemon (C-029): a key press the app can't bind is a 400 naming the key.
+        for (const [key, value] of Object.entries(patch)) {
+          const action = shortcutActionOf(key)
+          const problem =
+            action === null || typeof value !== "string"
+              ? null
+              : shortcutProblem(action, value.trim())
+          if (problem !== null) {
+            return Effect.fail(new DaemonError({ message: `${key}: ${problem}`, status: 400 }))
+          }
         }
         const next: Record<string, unknown> = { ...settings }
         for (const [key, value] of Object.entries(patch)) {
