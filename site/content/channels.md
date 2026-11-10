@@ -73,4 +73,4 @@ From a checkout, `bun scripts/channels.ts` does the same three things (`status`,
 bun scripts/uninstall.ts --channel beta --yes --app
 ```
 
-This removes only beta's hooks, launchd agent and app. GA's hooks are left alone. Add `--purge` to delete beta's data folder too.
+`--channel beta` always means the beta install, whichever copy of the `session-inbox` command you run it from: GA's command with `--channel beta` works on beta's files, not GA's. Uninstall refuses, before changing anything and even as a dry run, a home that belongs to the other channel, and `--purge` can't delete the other channel's data. This removes only beta's hooks, launchd agent and app (it quits the beta app and removes its login item too). GA's hooks are left alone. Add `--purge` to delete beta's data folder too.

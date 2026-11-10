@@ -73,6 +73,10 @@ launchctl kickstart -k gui/$(id -u)/com.sessioninbox.inboxd
 
 The menu-bar app reconnects by itself, even if the daemon comes back on a different port, and asks launchd to start an offline daemon without killing one that's running. A call that was held when you restarted falls back to Claude's own prompt.
 
+## The page says it is opened from the menu-bar app
+
+You opened `http://127.0.0.1:<port>/` by hand, and the page only loads for a request that carries the install's token. Run `session-inbox open` instead (`session-inbox open beta` for the beta install), or use **Open inbox** in the menu-bar app. If a tab that worked before shows the notice after you cleared your cookies, open it again the same way. See [Opening the inbox in a browser](using-it.md#opening-the-inbox-in-a-browser).
+
 ## Nothing shows up for a session
 
 Claude reads hooks when a session starts. **Restart the session**, and it will report in. If it still doesn't, check that `~/.claude/settings.json` lists `inbox-hook` under `hooks`:
@@ -91,7 +95,9 @@ If you installed from a tarball or from source, run that installer again instead
 
 ## An item says "Waiting in Claude"
 
-The item is Claude's own permission prompt, and the inbox isn't answering it any more. Most likely you've just answered it in Claude, and the item clears by itself within a second or two (that hasn't been seen with a live item yet). Otherwise **Wait for an answer** ran out (10 minutes by default), or this install only observes. The card says "Claude is asking in its own window. Answer there." and offers **Open in Claude**; the notification is replaced by "Still waiting in Claude: …". The prompt is still open in Claude, so answer it there. The item ends once Claude moves on. See [How approvals work](holds.md).
+The item is Claude's own permission prompt, and the inbox isn't answering it any more. Most likely you've just answered it in Claude, and the item clears by itself within a second or two (that hasn't been seen with a live item yet). Otherwise **Wait for an answer** ran out (10 minutes by default), or this install only observes. The card says "Claude is asking in its own window. Answer there." and offers **Open in Claude**; the notification is replaced by "Still waiting in Claude: …". The prompt is still open in Claude, so answer it there. The item ends once Claude moves on. The same happens when the daemon was restarted or updated and stayed away for more than the hook's 15 seconds of retrying, and when nobody is listening for the request any more (20 seconds without its hook): the item becomes **Waiting in Claude** rather than accept an answer that would go nowhere, and answering it says "Claude is asking in its own window. Answer there."
+
+If the Claude process behind a session is gone (killed, terminal closed, reboot), you don't need to do anything: its waiting items are resolved within about ten seconds. See [How approvals work](holds.md).
 
 ## Claude seems to pause before running a command
 
@@ -118,6 +124,16 @@ If you get no notifications, or no buttons on them, go through these in order.
 **The fallback is off.** If **Notify even when the menu-bar app isn't running** is switched off in [Settings](settings.md), nothing is posted while the app can't show notifications. The Notifications check says so.
 
 Use **Send test notification** on the Setup page to see which route a notification takes.
+
+## The menu-bar app opens at login from an old place
+
+The app fixes this itself: when its login item points at an older copy of the app, such as one run from a build folder, it rewrites the item to the copy that is running.
+
+## The installer stops with a message
+
+- **"no release has been published yet"**: GitHub has no release to download. Install from [a tarball or from source](install.md) instead.
+- **It couldn't reach GitHub**: the message says so when GitHub can't be reached or answers with a rate limit. Try again in a few minutes, or name the version: `SESSION_INBOX_VERSION=vX.Y.Z`. See [Install](install.md#one-line-install).
+- **`session-inbox: command not found` after installing**: `~/.local/bin` isn't on your `PATH`. The installer's closing lines then print the full path to the command and one line that adds the directory to `PATH` for zsh. Paste it, then open a new terminal.
 
 ## Replies don't send, or titles don't change
 
@@ -149,6 +165,8 @@ Most of Session Inbox has been checked on a real install with real Claude sessio
 - **The app's own notification banners.** Nobody has yet seen the menu-bar app's banners with their **Allow**, **Deny**, **Answer** and **Open** buttons, or clicked through from one. While it was being built, nobody was at the screen to see them or click **Allow**. macOS's own log shows the plain fallback notifications being displayed, but that isn't the same as someone seeing them.
 - **Alerts versus Banners.** The setup check says the Alerts style keeps Allow and Deny on screen until you answer. A person hasn't looked at that yet.
 - **Answering in Claude first.** The inbox item for a live request is meant to disappear within a second or two when you answer in Claude instead, detected from the transcript or the tool's result. That hasn't been seen with a live item.
+- **The token-gated page inside the real app windows.** The app now opens its windows with the token in the address. That is unit-tested and the screenshots are made through headless Chrome, and the reinstalled apps connect, but no person has looked at the windows themselves.
+- **The 15-second retry across a real update.** A waiting hook retries when the daemon restarts. That hasn't been tried against a real Claude session across a real update.
 - **Terminal `claude` sessions.** Everything checked live used the Claude desktop app's Code tab. Sessions started from the `claude` CLI in a terminal haven't been checked, including the approval flow.
 - **A published release.** No GitHub Release exists yet, so the one-line installer hasn't been run end to end, and no second Mac has installed from one.
 - **Opening a CLI session.** **Open in Claude** for sessions started from the `claude` CLI uses the `claude://resume` link, which hasn't been checked on a real session. Desktop sessions have.

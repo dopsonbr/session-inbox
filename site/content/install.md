@@ -12,13 +12,13 @@ Session Inbox installs with one command on Apple silicon Macs. You need macOS an
 <!-- REMOVE AFTER FIRST RELEASE -->
 > **Note** The first release hasn't been published yet, so the one-line installer below currently stops with "no release has been published yet". Until it is published, install from [a tarball](#install-from-a-tarball) built on another Mac, or [from source](#install-from-source).
 >
-> Publishing is a step only the repository owner can do. From a clean checkout of `main`, this builds everything locally (about a minute) and creates the GitHub Release with `gh`:
+> Publishing is a step only the repository owner can do. Push any unpushed commits first (`git push`): the command refuses, before building anything, unless the checkout is clean and exactly matches `origin/main`, and it tags the commit it built. Then, from that checkout of `main`, this builds everything locally (about a minute) and creates the GitHub Release with `gh`:
 >
 > ```bash
 > bun scripts/release.ts --publish
 > ```
 >
-> Or open the repository's Actions tab and run the **Release** workflow. It bumps the version, runs every check, builds on a macOS runner, tags and publishes. Choose **none** as the bump to publish the version in `VERSION` as it stands, 0.2.0; the default, patch, bumps first and would publish 0.2.1.
+> Or open the repository's Actions tab and run the **Release** workflow, which only runs from the default branch. It bumps the version, runs every check, builds on a macOS runner, tags and publishes. Choose **none** as the bump to publish the version in `VERSION` as it stands, 0.2.0; the default, patch, bumps first and would publish 0.2.1.
 <!-- /REMOVE AFTER FIRST RELEASE -->
 
 ## One-line install
@@ -27,7 +27,7 @@ Session Inbox installs with one command on Apple silicon Macs. You need macOS an
 curl -fsSL https://raw.githubusercontent.com/dopsonbr/session-inbox/main/install.sh | sh
 ```
 
-The script downloads the latest [GitHub release](https://github.com/dopsonbr/session-inbox/releases) (about 125 MB: three compiled binaries and the menu-bar app), checks its SHA-256, and runs the `session-inbox install` command bundled inside it. Nothing needs `sudo`. If you'd rather read the script first, it is [`install.sh`](https://github.com/dopsonbr/session-inbox/blob/main/install.sh) at the root of the repository.
+The script downloads the latest [GitHub release](https://github.com/dopsonbr/session-inbox/releases) (about 125 MB: three compiled binaries and the menu-bar app), checks its SHA-256, and runs the `session-inbox install` command bundled inside it. Nothing needs `sudo`. If there is no release yet, it says "no release has been published yet". If GitHub can't be reached or answers with a rate limit, it says so and suggests setting `SESSION_INBOX_VERSION=vX.Y.Z`. If you'd rather read the script first, it is [`install.sh`](https://github.com/dopsonbr/session-inbox/blob/main/install.sh) at the root of the repository.
 
 You can run it again at any time. It replaces the binaries, doesn't duplicate the hooks, and repairs a broken install.
 
@@ -68,7 +68,7 @@ The installer touches these places and nothing else:
 | `~/Library/LaunchAgents/com.sessioninbox.inboxd.plist` | A launchd agent named `com.sessioninbox.inboxd` that keeps the daemon running and starts it at login. |
 | `~/.claude/settings.json` | Hooks for Session Inbox are merged in. If the file changes, a backup is made first (`settings.json.bak-<timestamp>` beside it). Everything else in the file is kept, and only entries for `inbox-hook` are ever touched. |
 | `~/Applications/Session Inbox.app` | The menu-bar app. It is opened after install and registers itself to start at login the first time it runs. |
-| `~/.local/bin/session-inbox` | A symlink to the `session-inbox` command. If `~/.local/bin` isn't on your `PATH`, the installer says so; add it in `~/.zshrc`. |
+| `~/.local/bin/session-inbox` | A symlink to the `session-inbox` command. If `~/.local/bin` isn't on your `PATH`, the installer's closing lines print the full path to the command and the one line that adds the directory to `PATH` for zsh (an `echo 'export PATH=…' >> ~/.zshrc`). It never edits your shell files itself. |
 
 The installer also clears macOS's quarantine flag on the files it copies, so a tarball downloaded in a browser still runs. The app is signed ad hoc, not with a Developer ID, and it isn't notarized.
 
@@ -152,13 +152,13 @@ The daemon logs the inbox URL. Press Ctrl-C to stop it. Only sessions started in
 session-inbox uninstall
 ```
 
-Then apply it. This removes the hooks (only Session Inbox's own entries), the launchd agent, the `~/.local/bin` link and the app:
+Then apply it. This removes the hooks (only Session Inbox's own entries), the launchd agent, the `~/.local/bin` link and the app. It quits the menu-bar app first and removes its login item, but only when that login item points at the app being removed:
 
 ```bash
 session-inbox uninstall --yes
 ```
 
-That leaves your data in `~/Library/Application Support/SessionInbox/`. To delete the binaries, database and logs too:
+That leaves your data in `~/Library/Application Support/SessionInbox/`. To delete the binaries, database and logs too (`--purge` refuses a home that belongs to the other channel):
 
 ```bash
 session-inbox uninstall --yes --purge
