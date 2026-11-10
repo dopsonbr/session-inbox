@@ -5,6 +5,7 @@
 import { RadioGroup } from "@foldkit/ui"
 import type {
   Agent,
+  HistoryEntry,
   Item,
   ItemDetail,
   Project,
@@ -14,7 +15,14 @@ import type {
   StreamMessage,
 } from "@session-inbox/contracts"
 import { Array as Arr, Option, Schema } from "effect"
-import { type AnswerDraft, DraftBody, type Form, type QueueTab } from "./model.ts"
+import {
+  type AnswerDraft,
+  DraftBody,
+  type Form,
+  type HistoryResults,
+  type Model,
+  type QueueTab,
+} from "./model.ts"
 
 type Delta = Extract<StreamMessage, { _tag: "delta" }>
 
@@ -179,10 +187,12 @@ const SETUP_ITEM_ID = "setup"
 /**
  * `#/setup` and `#/item/setup` (what a click on the test notification opens) are the Setup
  * panel; `#/update` is the tray's "Check for Updates…"; `#/settings` opens the Settings
- * dialog (the tray's "Settings…", U-041); `#/item/<id>` selects (U-034).
+ * dialog (the tray's "Settings…", U-041); `#/item/<id>` selects (U-034); `#/history` is History
+ * and `#/history/<id>` selects an entry there (U-052).
  */
 export type HashRoute =
   | Readonly<{ _tag: "item"; itemId: string }>
+  | Readonly<{ _tag: "history"; itemId: string | null }>
   | Readonly<{ _tag: "setup" }>
   | Readonly<{ _tag: "update" }>
   | Readonly<{ _tag: "settings" }>
@@ -198,17 +208,28 @@ export const routeFromHash = (hash: string): HashRoute => {
   if (/^#\/settings\/?$/.test(hash)) {
     return { _tag: "settings" }
   }
+  if (/^#\/history\/?$/.test(hash)) {
+    return { _tag: "history", itemId: null }
+  }
+  const history = /^#\/history\/([^/?#]+)/.exec(hash)
+  if (history?.[1] !== undefined) {
+    return { _tag: "history", itemId: decodeSegment(history[1]) }
+  }
   const match = /^#\/item\/([^/?#]+)/.exec(hash)
   if (match?.[1] === undefined) {
     return { _tag: "inbox" }
   }
-  let itemId = match[1]
+  const itemId = decodeSegment(match[1])
+  return itemId === SETUP_ITEM_ID ? { _tag: "setup" } : { _tag: "item", itemId }
+}
+
+const decodeSegment = (segment: string): string => {
   try {
-    itemId = decodeURIComponent(match[1])
+    return decodeURIComponent(segment)
   } catch {
     // A malformed escape: use it as written.
+    return segment
   }
-  return itemId === SETUP_ITEM_ID ? { _tag: "setup" } : { _tag: "item", itemId }
 }
 
 export const itemIdFromHash = (hash: string): Option.Option<string> => {
@@ -218,6 +239,18 @@ export const itemIdFromHash = (hash: string): Option.Option<string> => {
 
 export const hashForItem = (itemId: string) => `#/item/${encodeURIComponent(itemId)}`
 export const SETUP_HASH = "#/setup"
+export const HISTORY_HASH = "#/history"
+export const hashForHistoryItem = (itemId: string) =>
+  `${HISTORY_HASH}/${encodeURIComponent(itemId)}`
+
+/** The History entry for the selected item, when History has it loaded (U-056). */
+export const selectedHistoryEntry = (model: Model): Option.Option<HistoryEntry> =>
+  Option.flatMap(model.maybeSelectedItemId, (itemId) =>
+    Arr.findFirst(historyEntries(model.history.results), (e) => e.item.id === itemId),
+  )
+
+export const historyEntries = (results: HistoryResults): ReadonlyArray<HistoryEntry> =>
+  results._tag === "Loaded" ? results.entries : []
 
 /** A subagent the hook couldn't name still needs a label in the tree and breadcrumbs. */
 export const agentDisplayName = (agent: Agent): string =>
@@ -240,6 +273,12 @@ const answerFromQuestion = (question: Question): AnswerDraft => {
     }
   }
   return emptyAnswer(question.idx)
+}
+
+/** What a question's recorded answer says, or null when none was recorded. */
+export const recordedAnswer = (question: Question): AnswerDraft | null => {
+  const answer = answerFromQuestion(question)
+  return isAnswerComplete(answer) ? answer : null
 }
 
 /** Initial form for an item: the daemon-held draft wins, then recorded answers, then empty. */
@@ -314,6 +353,30 @@ export const formatAgo = (now: number, at: number): string => {
 export const formatClock = (at: number): string => {
   const d = new Date(at)
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+}
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+/** Local calendar day, as a key for grouping. */
+export const dayKey = (at: number): string => {
+  const d = new Date(at)
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+}
+
+/** "Today", "Yesterday", else "Mon 3 Nov" (with the year when it isn't this year). */
+export const dayLabel = (now: number, at: number): string => {
+  if (dayKey(at) === dayKey(now)) {
+    return "Today"
+  }
+  const yesterday = new Date(now)
+  yesterday.setDate(yesterday.getDate() - 1)
+  if (dayKey(at) === dayKey(yesterday.getTime())) {
+    return "Yesterday"
+  }
+  const d = new Date(at)
+  const label = `${WEEKDAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`
+  return d.getFullYear() === new Date(now).getFullYear() ? label : `${label} ${d.getFullYear()}`
 }
 
 /** Snooze presets → absolute time. "Tomorrow" is 09:00 local the next day. */

@@ -13,6 +13,7 @@ import {
   visibleTreeNodes,
 } from "../selectors.ts"
 import { SettingsMessage } from "../settings.ts"
+import { historyNavEntry } from "./history.ts"
 import { dot, Icon, kbd, type Tone } from "./parts.ts"
 import { setupNavEntry } from "./setup.ts"
 import { versionView } from "./update.ts"
@@ -305,6 +306,7 @@ export const navView = (model: Model, h: H): Html =>
               )
         },
       }),
+      historyNavEntry(model, h),
       whereSessionsRun(model, h),
     ],
   )

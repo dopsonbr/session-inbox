@@ -1,6 +1,7 @@
 import { Checkbox, Textarea } from "@foldkit/ui"
 import type {
   Approval,
+  Decision,
   ItemDetail,
   OutboxEntry,
   Question,
@@ -15,10 +16,13 @@ import {
   agentDisplayName,
   answersUnavailable,
   areAnswersComplete,
+  dayLabel,
   findAgent,
   findSession,
   formatAgo,
   formatClock,
+  recordedAnswer,
+  selectedHistoryEntry,
 } from "../selectors.ts"
 import { DETAIL_FORM } from "../shortcuts.ts"
 import { QuestionRadioGroup, SnoozeMenu } from "../update.ts"
@@ -27,6 +31,8 @@ import {
   Icon,
   itemBadge,
   kbd,
+  kindBadge,
+  outcomeBadge,
   runtimeLabel,
   sessionStateLabel,
   sessionTone,
@@ -148,13 +154,23 @@ const detailHeader = (model: Model, detail: ItemDetail, h: H): Html => {
             [crumbs.join(" › ")],
           ),
           h.h1([h.Class("mt-1 text-[22px] font-bold tracking-tight")], [titleFor(detail)]),
-          h.div([h.Class("mt-1.5")], [itemBadge(h, detail.item)]),
+          h.div(
+            [h.Class("mt-1.5")],
+            // Finished: what it was; how it ended is the line below (U-057).
+            [
+              detail.item.queue === "done"
+                ? kindBadge(h, detail.item.kind)
+                : itemBadge(h, detail.item),
+            ],
+          ),
+          endedLine(model, detail, h),
         ],
       ),
       h.div(
         [h.Class("flex gap-2")],
         [
-          snoozeMenuView(model, detail, h),
+          // A finished item can't be snoozed or dismissed: the daemon answers 409 (U-057).
+          detail.item.queue === "done" ? h.empty : snoozeMenuView(model, detail, h),
           h.button(
             [
               h.Type("button"),
@@ -170,6 +186,24 @@ const detailHeader = (model: Model, detail: ItemDetail, h: H): Html => {
     ],
   )
 }
+
+/** How a finished item ended, in History's words, when History has its entry (U-057). */
+const endedLine = (model: Model, detail: ItemDetail, h: H): Html =>
+  Option.match(
+    Option.filter(selectedHistoryEntry(model), (entry) => entry.item.id === detail.item.id),
+    {
+      onNone: () => h.empty,
+      onSome: (entry) =>
+        h.p(
+          [h.Class("mt-1.5 flex flex-wrap items-center gap-1.5 text-[13px] text-muted-foreground")],
+          [
+            "Ended:",
+            outcomeBadge(h, entry.outcome),
+            `· ${dayLabel(model.now, entry.endedAt)} at ${formatClock(entry.endedAt)}`,
+          ],
+        ),
+    },
+  )
 
 // CONTEXT STRIP
 
@@ -457,12 +491,54 @@ const questionsWaitingView = (model: Model, detail: ItemDetail, reason: string, 
     ],
   )
 
+/** A finished question: what was asked and what was answered, nothing to send (U-057). */
+const answeredQuestionsView = (detail: ItemDetail, h: H): Html =>
+  h.section(
+    [
+      h.AriaLabel("Claude's questions"),
+      h.Class("flex flex-col gap-3 rounded-[14px] border border-border p-4"),
+    ],
+    [
+      h.ol(
+        [h.Class("m-0 flex list-none flex-col gap-3 p-0")],
+        detail.questions.map((q, i) => {
+          const answer = recordedAnswer(q)
+          const words =
+            answer === null
+              ? null
+              : [...answer.selected, ...(answer.other.trim() === "" ? [] : [answer.other])].join(
+                  ", ",
+                )
+          return h.li(
+            [h.Class("flex flex-col gap-1")],
+            [
+              h.p([h.Class("text-[15px] font-semibold")], [`${i + 1}. ${q.text}`]),
+              words === null
+                ? h.p(
+                    [h.Class("text-[13px] text-muted-foreground")],
+                    ["No answer was sent from the inbox."],
+                  )
+                : h.p(
+                    [h.Class("flex items-start gap-1.5 text-[14px] text-foreground")],
+                    [
+                      h.span([h.Class("mt-0.5 text-ready")], [Icon.check(h)]),
+                      h.span([h.Class("sr-only")], ["Answer: "]),
+                      words,
+                    ],
+                  ),
+            ],
+          )
+        }),
+      ),
+    ],
+  )
+
 export const questionForm = (model: Model, detail: ItemDetail, form: Form, h: H): Html => {
+  if (detail.item.queue === "done") return answeredQuestionsView(detail, h)
   const unavailable = answersUnavailable(detail)
   if (unavailable !== null) return questionsWaitingView(model, detail, unavailable, h)
   const isSending = model.submission._tag === "Sending" && model.submission.action === "answers"
   const isComplete = areAnswersComplete(form)
-  const isClosed = detail.item.queue === "done"
   return h.form(
     [
       h.AriaLabel("Answer Claude's questions"),
@@ -482,14 +558,14 @@ export const questionForm = (model: Model, detail: ItemDetail, form: Form, h: H)
               h.Class("btn ml-auto"),
               h.DataAttribute("variant", "needs"),
               h.DataAttribute("size", "lg"),
-              h.Disabled(!isComplete || isSending || isClosed),
+              h.Disabled(!isComplete || isSending),
               h.AriaKeyshortcuts("Meta+Enter"),
             ],
             [isSending ? "Sending…" : "Send answers", kbd(h, "⌘↵")],
           ),
         ],
       ),
-      isComplete || isClosed
+      isComplete
         ? h.empty
         : h.p(
             [h.Class("-mt-2 text-xs text-subtle-foreground")],
@@ -516,6 +592,19 @@ const commandPreview = (approval: Approval): { command: string; description: str
   }
   return { command: String(input), description: null }
 }
+
+const DECISION_WORD: Record<Decision, string> = {
+  allow: "Allowed once",
+  "allow-always": "Always allowed",
+  deny: "Denied",
+  ask: "Left to Claude's own prompt",
+}
+
+/** A finished permission: the decision made here, or that none was; no buttons (U-057). */
+export const decisionLine = (approval: Approval): string =>
+  approval.decision === null
+    ? "No decision was made in the inbox."
+    : `Decided here: ${DECISION_WORD[approval.decision]}${approval.decidedAt === null ? "" : ` at ${formatClock(approval.decidedAt)}`}.`
 
 /** One quiet line and Open in Claude: the item is Claude's own prompt, answered there (U-043). */
 export const WAITING_IN_CLAUDE_TEXT = "Claude is asking in its own window. Answer there."
@@ -667,7 +756,11 @@ export const approvalCard = (model: Model, detail: ItemDetail, approval: Approva
   return h.section(
     [
       h.AriaLabel("Permission request"),
-      h.Class("flex min-w-0 flex-col gap-3 rounded-[14px] border-2 border-needs-strong p-4"),
+      h.Class(
+        `flex min-w-0 flex-col gap-3 rounded-[14px] p-4 ${
+          detail.item.queue === "done" ? "border border-border" : "border-2 border-needs-strong"
+        }`,
+      ),
     ],
     [
       h.div(
@@ -687,9 +780,11 @@ export const approvalCard = (model: Model, detail: ItemDetail, approval: Approva
           ],
           [h.code([], [command])],
         ),
-      ...(isWaitingInClaude
-        ? waitingInClaudeFooter(model, h)
-        : decisionFooter(model, detail, approval, isDecided, disabled, h)),
+      ...(detail.item.queue === "done"
+        ? [h.p([h.Class("text-[13px] text-muted-foreground")], [decisionLine(approval)])]
+        : isWaitingInClaude
+          ? waitingInClaudeFooter(model, h)
+          : decisionFooter(model, detail, approval, isDecided, disabled, h)),
     ],
   )
 }
@@ -1013,7 +1108,14 @@ export const detailView = (model: Model, h: H): Html =>
       }
       return Option.match(model.maybeSelectedSessionId, {
         onSome: (sessionId) => sessionOnlyView(model, sessionId, h),
-        onNone: () => [muted(h, "Pick an item from the queue.")],
+        onNone: () => [
+          muted(
+            h,
+            model.route === "history"
+              ? "Pick an entry to see how it ended."
+              : "Pick an item from the queue.",
+          ),
+        ],
       })
     })(),
   )

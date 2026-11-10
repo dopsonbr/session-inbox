@@ -1,12 +1,15 @@
 import { Combobox, Dialog, Menu, RadioGroup } from "@foldkit/ui"
-import type {
-  Answer,
-  Decision,
-  ItemDetail,
-  OutboxEntry,
-  Snapshot,
-  StreamMessage,
-  UpdateStatus,
+import {
+  type Answer,
+  type AttentionKind,
+  type Decision,
+  HISTORY_LIMIT_DEFAULT,
+  HISTORY_LIMIT_MAX,
+  type ItemDetail,
+  type OutboxEntry,
+  type Snapshot,
+  type StreamMessage,
+  type UpdateStatus,
 } from "@session-inbox/contracts"
 import { Array as Arr, Option, Schema } from "effect"
 import { Command, type Update } from "foldkit"
@@ -18,6 +21,7 @@ import {
   CopyFix,
   DismissItem,
   FetchDoctor,
+  FetchHistory,
   FetchItemDetail,
   FetchSnapshot,
   FocusTreeNode,
@@ -33,6 +37,7 @@ import {
   SnoozeItem,
   SubmitAnswers,
   WaitBeforeDraftSave,
+  WaitBeforeHistorySearch,
   WaitBeforeSnapshotRetry,
   WaitCopied,
 } from "./command.ts"
@@ -45,7 +50,10 @@ import {
   DetailState,
   DoctorState,
   type Form,
+  type HistoryModel,
+  HistoryResults,
   type Model,
+  type Route,
   Submission,
 } from "./model.ts"
 import {
@@ -58,6 +66,7 @@ import {
   findSession,
   firstOpenItemForSession,
   formFromDetail,
+  hashForHistoryItem,
   hashForItem,
   mergeDelta,
   projectNodeId,
@@ -79,7 +88,9 @@ export const Flags = Schema.Struct({
   now: Schema.Number,
   maybeInitialItemId: Schema.Option(Schema.String),
   /** From the boot hash: `#/setup` opens Setup, `#/update` checks for updates (U-034). */
-  initialRoute: Schema.optional(Schema.Literals(["inbox", "setup", "update", "settings"])),
+  initialRoute: Schema.optional(
+    Schema.Literals(["inbox", "setup", "update", "settings", "history"]),
+  ),
 })
 export type Flags = typeof Flags.Type
 
@@ -122,21 +133,42 @@ export const initialModel = (flags: Flags): Model => ({
   maybeDaemonBuild: Option.none(),
   maybeDismissedUpdate: Option.none(),
   updateRequest: flags.initialRoute === "update" ? "Checking" : "Idle",
-  route: flags.initialRoute === "setup" && flags.view === "full" ? "setup" : "inbox",
+  route:
+    flags.view !== "full"
+      ? "inbox"
+      : flags.initialRoute === "setup"
+        ? "setup"
+        : flags.initialRoute === "history"
+          ? "history"
+          : "inbox",
   doctor: DoctorState.Unknown(),
   isDoctorLoading: false,
   maybeCopiedFix: Option.none(),
   isTestNotifying: false,
   isLastMessageExpanded: false,
   maybeReplyError: Option.none(),
+  history: initialHistory,
 })
 
+export const initialHistory: HistoryModel = {
+  query: "",
+  kind: null,
+  queryVersion: 0,
+  requestId: 0,
+  pending: "none",
+  results: HistoryResults.Idle(),
+  maybeInboxItemId: Option.none(),
+}
+
 export const init = (flags: Flags): UpdateReturn => {
-  // `#/settings` at boot: the inbox with the Settings dialog open (U-041).
+  // `#/settings` at boot: the inbox with the Settings dialog open (U-041). `#/history[/<id>]`:
+  // History, fetching its first page (U-052).
   const opened =
     flags.view === "full" && flags.initialRoute === "settings"
       ? liftSettings(initialModel(flags), SettingsMessage.RequestedOpen())
-      : { model: initialModel(flags) }
+      : flags.view === "full" && flags.initialRoute === "history"
+        ? fetchHistoryFirstPage(initialModel(flags), { keepCount: false })
+        : { model: initialModel(flags) }
   const model = opened.model
   // The doctor report itself comes with every stream `hello` (U-034).
   const routeCommands: Commands =
@@ -146,7 +178,9 @@ export const init = (flags: Flags): UpdateReturn => {
         ? [CheckForUpdates(), SetHash({ hash: "#/" })]
         : flags.initialRoute === "settings"
           ? [...(opened.commands ?? []), SetHash({ hash: "#/" })]
-          : []
+          : flags.initialRoute === "history"
+            ? (opened.commands ?? [])
+            : []
   return {
     model,
     commands: [
@@ -225,10 +259,13 @@ const addExpanded = (expanded: ReadonlyArray<string>, ids: ReadonlyArray<string>
 export const selectItem = (
   model: Model,
   itemId: string,
-  options: { readonly updateHash: boolean },
+  options: { readonly updateHash: boolean; readonly route?: Route },
 ): UpdateReturn => {
   const isSame = Option.contains(model.maybeSelectedItemId, itemId)
-  const expanded = Option.match(model.maybeSnapshot, {
+  // Picking an item is a user intent: it leaves Setup or History for the inbox, unless the
+  // caller names the route (a History pick stays in History, U-052). Boot/hash picks don't.
+  const route: Route = options.route ?? (options.updateHash ? "inbox" : model.route)
+  const expanded = Option.match(route === "history" ? Option.none() : model.maybeSnapshot, {
     onNone: () => model.expandedNodes,
     onSome: (snapshot) => addExpanded(model.expandedNodes, nodesToExpandFor(snapshot, itemId)),
   })
@@ -243,11 +280,11 @@ export const selectItem = (
     isLastMessageExpanded: (expanded) => isSame && expanded,
     maybeReplyError: (error) => (isSame ? error : Option.none()),
     submission: (submission) => (isSame ? submission : Submission.Idle()),
-    // Picking an item is a user intent: it leaves the Setup panel. Boot/hash selections don't.
-    route: (route) => (options.updateHash ? "inbox" : route),
+    route: () => route,
   })
+  const hash = route === "history" ? hashForHistoryItem(itemId) : hashForItem(itemId)
   const hashCommands: Commands =
-    options.updateHash && model.view === "full" ? [SetHash({ hash: hashForItem(itemId) })] : []
+    options.updateHash && model.view === "full" ? [SetHash({ hash })] : []
   return { model: next, commands: [FetchItemDetail({ itemId }), ...hashCommands] }
 }
 
@@ -537,7 +574,9 @@ const loadSnapshot = (model: Model, snapshot: Snapshot): UpdateReturn => {
       const first = Arr.findFirst(snapshot.items, (i) => i.queue === "needs-you")
       return Option.match(first, {
         onSome: (item) =>
-          model.view === "full" && Option.isNone(model.maybeSelectedSessionId)
+          model.view === "full" &&
+          model.route !== "history" &&
+          Option.isNone(model.maybeSelectedSessionId)
             ? selectItem(withExpanded, item.id, { updateHash: false })
             : { model: withExpanded },
         onNone: () => ({ model: withExpanded }),
@@ -768,8 +807,21 @@ const openSetup = (model: Model, hash: string): UpdateReturn => {
 
 const changeHash = (model: Model, hash: string): UpdateReturn => {
   const route = routeFromHash(hash)
+  if (route._tag === "history") {
+    return model.view === "full" ? enterHistory(model, route.itemId) : { model }
+  }
+  // Leaving History hands the inbox its own selection back first (U-054).
+  const wasHistory = model.route === "history"
+  const left = route._tag === "item" ? { model } : leaveHistory(model)
+  return withCommands(changeInboxHash(left.model, hash, wasHistory), left.commands ?? [])
+}
+
+const changeInboxHash = (model: Model, hash: string, wasHistory: boolean): UpdateReturn => {
+  const route = routeFromHash(hash)
   const toInbox = modifyFields(model, { route: () => "inbox" })
   switch (route._tag) {
+    case "history":
+      return { model }
     case "setup":
       return model.view === "full" ? openSetup(model, hash) : { model }
     case "update":
@@ -787,11 +839,203 @@ const changeHash = (model: Model, hash: string): UpdateReturn => {
         ? { model: toInbox }
         : selectItem(toInbox, route.itemId, { updateHash: false })
     case "inbox":
-      return model.route === "setup" && Option.isSome(model.maybeSelectedItemId)
+      return (model.route === "setup" || wasHistory) && Option.isSome(model.maybeSelectedItemId)
         ? { model: toInbox, commands: [SetHash({ hash: selectedHash(model) })] }
         : { model: toInbox }
   }
 }
+
+// HISTORY (U-052..U-056): finished items as the daemon lists them (C-027).
+
+const withHistory = (model: Model, f: (history: HistoryModel) => HistoryModel): Model =>
+  modifyFields(model, { history: f })
+
+/**
+ * Fetch the first page for the current query and kind. Any request in flight is superseded.
+ * `keepCount`: a refetch (a delta, a reconnect) asks for as many entries as are shown, so a
+ * list grown by "Load more" doesn't shrink under the person (U-055).
+ */
+export const fetchHistoryFirstPage = (
+  model: Model,
+  options: { readonly keepCount: boolean },
+): UpdateReturn => {
+  const shown = model.history.results._tag === "Loaded" ? model.history.results.entries.length : 0
+  const limit =
+    options.keepCount && shown > HISTORY_LIMIT_DEFAULT ? Math.min(shown, HISTORY_LIMIT_MAX) : null
+  const requestId = model.history.requestId + 1
+  return {
+    model: withHistory(model, (history) => ({ ...history, requestId, pending: "first" })),
+    commands: [
+      FetchHistory({
+        requestId,
+        q: model.history.query.trim(),
+        kind: model.history.kind,
+        before: null,
+        limit,
+        append: false,
+      }),
+    ],
+  }
+}
+
+const loadMoreHistory = (model: Model): UpdateReturn => {
+  const results = model.history.results
+  if (
+    model.history.pending !== "none" ||
+    results._tag !== "Loaded" ||
+    results.nextBefore === null
+  ) {
+    return { model }
+  }
+  const requestId = model.history.requestId + 1
+  return {
+    model: withHistory(model, (history) => ({ ...history, requestId, pending: "more" })),
+    commands: [
+      FetchHistory({
+        requestId,
+        q: model.history.query.trim(),
+        kind: model.history.kind,
+        before: results.nextBefore,
+        limit: null,
+        append: true,
+      }),
+    ],
+  }
+}
+
+/** Selection cleared: the detail pane shows its empty state. */
+const clearSelection = (model: Model): Model =>
+  modifyFields(model, {
+    maybeSelectedItemId: () => Option.none(),
+    maybeSelectedSessionId: () => Option.none(),
+    detail: () => DetailState.Idle(),
+    maybeForm: () => Option.none(),
+    submission: () => Submission.Idle(),
+    maybeReplyError: () => Option.none(),
+    isPreviewExpanded: () => false,
+    isLastMessageExpanded: () => false,
+  })
+
+/**
+ * Show History (`#/history`, or `#/history/<id>` with that entry selected). Entering it keeps
+ * the inbox's selection aside for the way back (U-054) and fetches the first page.
+ */
+const enterHistory = (model: Model, itemId: string | null): UpdateReturn => {
+  const wasHere = model.route === "history"
+  const routed = withHistory(modifyFields(model, { route: () => "history" }), (history) =>
+    wasHere ? history : { ...history, maybeInboxItemId: model.maybeSelectedItemId },
+  )
+  const selected: UpdateReturn =
+    itemId === null
+      ? { model: clearSelection(routed) }
+      : Option.contains(model.maybeSelectedItemId, itemId) && wasHere
+        ? { model: routed }
+        : selectItem(routed, itemId, { updateHash: false, route: "history" })
+  return wasHere
+    ? selected
+    : withCommands(fetchHistoryFirstPage(selected.model, { keepCount: false }), [
+        ...(selected.commands ?? []),
+      ])
+}
+
+/**
+ * Leaving History for anything else: the inbox gets back what it had selected (U-054), or its
+ * first Needs-you item, as at boot. Not on History: unchanged.
+ */
+const leaveHistory = (model: Model): UpdateReturn => {
+  if (model.route !== "history") {
+    return { model }
+  }
+  const routed = withHistory(modifyFields(model, { route: () => "inbox" }), (history) => ({
+    ...history,
+    maybeInboxItemId: Option.none(),
+  }))
+  const target = Option.orElse(model.history.maybeInboxItemId, () =>
+    Option.flatMap(model.maybeSnapshot, (snapshot) =>
+      Option.map(
+        Arr.findFirst(snapshot.items, (i) => i.queue === "needs-you"),
+        (i) => i.id,
+      ),
+    ),
+  )
+  return Option.match(target, {
+    onNone: () => ({ model: clearSelection(routed) }),
+    onSome: (itemId) => selectItem(routed, itemId, { updateHash: false }),
+  })
+}
+
+const receiveHistoryPage = (
+  model: Model,
+  message: Extract<Message, { _tag: "SucceededFetchHistory" }>,
+): UpdateReturn => {
+  if (message.requestId !== model.history.requestId) {
+    return { model }
+  }
+  const { page, append } = message
+  return {
+    model: withHistory(model, (history) => {
+      const before = append && history.results._tag === "Loaded" ? history.results.entries : []
+      const known = new Set(before.map((e) => e.item.id))
+      return {
+        ...history,
+        pending: "none",
+        results: HistoryResults.Loaded({
+          entries: [...before, ...page.entries.filter((e) => !known.has(e.item.id))],
+          nextBefore: page.nextBefore,
+          retentionDays: page.retentionDays,
+          error: null,
+        }),
+      }
+    }),
+  }
+}
+
+const failHistory = (
+  model: Model,
+  message: Extract<Message, { _tag: "FailedFetchHistory" }>,
+): UpdateReturn =>
+  message.requestId !== model.history.requestId
+    ? { model }
+    : {
+        model: withHistory(model, (history) => ({
+          ...history,
+          pending: "none",
+          results:
+            history.results._tag === "Loaded"
+              ? HistoryResults.Loaded({ ...history.results, error: message.error })
+              : HistoryResults.Failed({ error: message.error, status: message.status }),
+        })),
+      }
+
+/** A keystroke: show "Searching…", drop answers for the old text, search after 250 ms (U-053). */
+const typeHistoryQuery = (model: Model, value: string): UpdateReturn => {
+  const version = model.history.queryVersion + 1
+  return {
+    model: withHistory(model, (history) => ({
+      ...history,
+      query: value,
+      queryVersion: version,
+      requestId: history.requestId + 1,
+      pending: "first",
+    })),
+    commands: [WaitBeforeHistorySearch({ version })],
+  }
+}
+
+const selectHistoryKind = (model: Model, kind: AttentionKind | null): UpdateReturn =>
+  model.history.kind === kind && model.history.results._tag !== "Idle"
+    ? { model }
+    : fetchHistoryFirstPage(
+        withHistory(model, (history) => ({ ...history, kind })),
+        { keepCount: false },
+      )
+
+/** On History, a delta that finishes an item (or touches a finished one) refetches (U-055). */
+const historyRefetchFor = (model: Model, message: StreamMessage): boolean =>
+  model.route === "history" &&
+  model.view === "full" &&
+  ((message._tag === "delta" && message.items.some((i) => i.queue === "done")) ||
+    message._tag === "hello")
 
 /** What the test notification toast says, literally, for each answer of the daemon. */
 export const testNotifyToast = (
@@ -840,6 +1084,35 @@ export const testNotifyToast = (
   }
 }
 
+const receiveStreamMessage = (model: Model, streamMessage: StreamMessage): UpdateReturn => {
+  if (streamMessage._tag === "hello") {
+    // Every (re)connect refetches the setup check: the daemon may have restarted.
+    const hello = onHello(
+      modifyFields(model, { connection: () => Connection.Live() }),
+      streamMessage,
+    )
+    const fetched = fetchDoctor(hello.model)
+    return {
+      model: fetched.model,
+      commands: [...(hello.commands ?? []), ...(fetched.commands ?? [])],
+    }
+  }
+  if (streamMessage._tag === "doctor") {
+    return fetchDoctor(model)
+  }
+  if (streamMessage._tag === "update") {
+    return receiveUpdate(model, streamMessage.status)
+  }
+  if (streamMessage._tag === "delta") {
+    return applyDelta(model, streamMessage)
+  }
+  if (streamMessage._tag === "reset") {
+    return { model, commands: [FetchSnapshot()] }
+  }
+  // notify/badge are for the shell (G-012).
+  return { model }
+}
+
 // UPDATE
 
 export const update = (model: Model, message: Message): UpdateReturn =>
@@ -854,32 +1127,13 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     CompletedWaitBeforeSnapshotRetry: () => ({ model, commands: [FetchSnapshot()] }),
 
     ReceivedStreamMessage: ({ message: streamMessage }) => {
-      if (streamMessage._tag === "hello") {
-        // Every (re)connect refetches the setup check: the daemon may have restarted.
-        const hello = onHello(
-          modifyFields(model, { connection: () => Connection.Live() }),
-          streamMessage,
-        )
-        const fetched = fetchDoctor(hello.model)
-        return {
-          model: fetched.model,
-          commands: [...(hello.commands ?? []), ...(fetched.commands ?? [])],
-        }
-      }
-      if (streamMessage._tag === "doctor") {
-        return fetchDoctor(model)
-      }
-      if (streamMessage._tag === "update") {
-        return receiveUpdate(model, streamMessage.status)
-      }
-      if (streamMessage._tag === "delta") {
-        return applyDelta(model, streamMessage)
-      }
-      if (streamMessage._tag === "reset") {
-        return { model, commands: [FetchSnapshot()] }
-      }
-      // notify/badge are for the shell (G-012).
-      return { model }
+      const handled = receiveStreamMessage(model, streamMessage)
+      return historyRefetchFor(model, streamMessage)
+        ? withCommands(
+            fetchHistoryFirstPage(handled.model, { keepCount: true }),
+            handled.commands ?? [],
+          )
+        : handled
     },
 
     DisconnectedStream: ({ error }) => ({
@@ -912,6 +1166,29 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         : { model },
 
     ClickedItem: ({ itemId }) => selectItem(model, itemId, { updateHash: true }),
+
+    ClickedHistoryEntry: ({ itemId }) =>
+      selectItem(model, itemId, { updateHash: true, route: "history" }),
+
+    UpdatedHistoryQuery: ({ value }) => typeHistoryQuery(model, value),
+
+    CompletedWaitBeforeHistorySearch: ({ version }) =>
+      version === model.history.queryVersion && model.route === "history"
+        ? fetchHistoryFirstPage(model, { keepCount: false })
+        : { model },
+
+    // Enter searches now; the pending debounce then finds a newer request and does nothing new.
+    SubmittedHistorySearch: () =>
+      fetchHistoryFirstPage(
+        withHistory(model, (history) => ({ ...history, queryVersion: history.queryVersion + 1 })),
+        { keepCount: false },
+      ),
+
+    SelectedHistoryKind: ({ kind }) => selectHistoryKind(model, kind),
+    ClickedLoadMoreHistory: () => loadMoreHistory(model),
+    ClickedRetryHistory: () => fetchHistoryFirstPage(model, { keepCount: true }),
+    SucceededFetchHistory: (message) => receiveHistoryPage(model, message),
+    FailedFetchHistory: (message) => failHistory(model, message),
 
     ClickedSession: ({ sessionId }) =>
       selectSession(

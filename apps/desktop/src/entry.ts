@@ -25,6 +25,8 @@ const loadClient = async (): Promise<DaemonClientShape> => {
       setup: params.get("setup"),
       reply: params.get("reply"),
       needs: params.get("needs"),
+      // Small pages by default, so dev:mock shows "Load more" (`?historyPage=50` for the real size).
+      historyPageSize: Number(params.get("historyPage") ?? 8) || 8,
     })
   }
   return makeHttpClient({ token: readTokenFromDocument(document) })
@@ -37,7 +39,9 @@ const flags: Effect.Effect<Flags> = Effect.sync(() => {
     view: isCompact ? "compact" : "full",
     now: Date.now(),
     maybeInitialItemId:
-      isCompact || route._tag !== "item" ? Option.none() : Option.some(route.itemId),
+      isCompact || (route._tag !== "item" && route._tag !== "history")
+        ? Option.none()
+        : Option.fromNullishOr(route.itemId),
     initialRoute: isCompact || route._tag === "item" ? "inbox" : route._tag,
   }
 })

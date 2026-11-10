@@ -8,6 +8,8 @@ import type {
   DecisionRequest,
   DoctorReport,
   DraftRequest,
+  HistoryPage,
+  HistoryQuery,
   ItemDetail,
   MuteRequest,
   OpenResponse,
@@ -62,6 +64,8 @@ export type DaemonClientShape = Readonly<{
   /** Setup check (C-021). None when this daemon has no /v1/doctor (404): show nothing. */
   doctor: Effect.Effect<Option.Option<DoctorReport>, DaemonError>
   doctorNotify: Effect.Effect<TestNotifyResult, DaemonError>
+  /** Finished items, newest first (C-027). An older daemon answers 404. */
+  history: (query: HistoryQuery) => Effect.Effect<HistoryPage, DaemonError>
 }>
 
 export class DaemonClient extends Context.Service<DaemonClient, DaemonClientShape>()(

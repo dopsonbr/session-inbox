@@ -1,5 +1,12 @@
 import { Combobox, Dialog, Menu, RadioGroup } from "@foldkit/ui"
-import { DoctorReport, ItemDetail, Snapshot, UpdateStatus } from "@session-inbox/contracts"
+import {
+  AttentionKind,
+  DoctorReport,
+  HistoryEntry,
+  ItemDetail,
+  Snapshot,
+  UpdateStatus,
+} from "@session-inbox/contracts"
 import { Schema } from "effect"
 import { defineTaggedUnion } from "foldkit/schema"
 import { SettingsModel } from "./settings.ts"
@@ -72,8 +79,8 @@ export const Submission = defineTaggedUnion({
 })
 export type Submission = typeof Submission.Type
 
-/** What the main window shows next to the tree: the inbox, or the Setup panel (U-034). */
-export const Route = Schema.Literals(["inbox", "setup"])
+/** What the main window shows next to the tree: the inbox, Setup (U-034) or History (U-052). */
+export const Route = Schema.Literals(["inbox", "setup", "history"])
 export type Route = typeof Route.Type
 
 /** The daemon's setup check as last fetched (C-021); the UI only renders it. */
@@ -91,6 +98,42 @@ export type DoctorState = typeof DoctorState.Type
 /** A check/apply request in flight (local UI state only; the daemon owns the status). */
 export const UpdateRequest = Schema.Literals(["Idle", "Checking", "Applying"])
 export type UpdateRequest = typeof UpdateRequest.Type
+
+/** History results as last fetched (C-027); the daemon decides entries and outcomes. */
+export const HistoryResults = defineTaggedUnion({
+  /** Never fetched. */
+  Idle: {},
+  /** `error`: the last refetch failed; the entries are the ones before it. */
+  Loaded: {
+    entries: Schema.Array(HistoryEntry),
+    nextBefore: Schema.NullOr(Schema.String),
+    retentionDays: Schema.Number,
+    error: Schema.NullOr(Schema.String),
+  },
+  /** `status`: the HTTP status when the daemon answered (404 = it has no history). */
+  Failed: { error: Schema.String, status: Schema.NullOr(Schema.Number) },
+})
+export type HistoryResults = typeof HistoryResults.Type
+
+/** A request in flight: none, the first page (search, filter, refetch) or the next page. */
+export const HistoryPending = Schema.Literals(["none", "first", "more"])
+export type HistoryPending = typeof HistoryPending.Type
+
+export const HistoryModel = Schema.Struct({
+  /** What is in the search field. */
+  query: Schema.String,
+  /** The kind filter; null is All. */
+  kind: Schema.NullOr(AttentionKind),
+  /** Bumped per keystroke; a debounce wait carries its version (U-053). */
+  queryVersion: Schema.Number,
+  /** Bumped per request and per keystroke; a response for another id is ignored. */
+  requestId: Schema.Number,
+  pending: HistoryPending,
+  results: HistoryResults,
+  /** The inbox selection when History was entered, given back when it is left (U-054). */
+  maybeInboxItemId: Schema.Option(Schema.String),
+})
+export type HistoryModel = typeof HistoryModel.Type
 
 export const Model = Schema.Struct({
   view: AppView,
@@ -134,5 +177,6 @@ export const Model = Schema.Struct({
   isLastMessageExpanded: Schema.Boolean,
   /** The daemon's 409 answer to a reply, shown under the reply box (U-035). */
   maybeReplyError: Schema.Option(Schema.String),
+  history: HistoryModel,
 })
 export type Model = typeof Model.Type

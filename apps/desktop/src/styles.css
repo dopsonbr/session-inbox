@@ -175,7 +175,8 @@
 /* Detail and Setup are scrolling flex columns: children keep their height instead of being
    squeezed (that clipped the context strip's second row at 1280×800). */
 .detail > *,
-.setup > * {
+.setup > *,
+.history > * {
   flex-shrink: 0;
 }
 

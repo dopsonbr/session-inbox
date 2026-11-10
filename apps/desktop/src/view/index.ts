@@ -3,6 +3,7 @@ import type { Message } from "../message.ts"
 import type { Model } from "../model.ts"
 import { compactView } from "./compact.ts"
 import { detailView } from "./detail.ts"
+import { historyView } from "./history.ts"
 import { headerView, navView } from "./nav.ts"
 import { jumpDialogView, toastsView } from "./overlays.ts"
 import { queueView } from "./queue.ts"
@@ -31,7 +32,9 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
               [h.Class("shell min-h-0 flex-1")],
               model.route === "setup"
                 ? [navView(model, h), setupView(model, h)]
-                : [navView(model, h), queueView(model, h), detailView(model, h)],
+                : model.route === "history"
+                  ? [navView(model, h), historyView(model, h), detailView(model, h)]
+                  : [navView(model, h), queueView(model, h), detailView(model, h)],
             ),
             jumpDialogView(model, h),
             settingsDialogView(model, h),
