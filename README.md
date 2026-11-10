@@ -52,6 +52,8 @@ Built, covered by tests, a smoke test and a real-launchd update test, and run ag
 
 **Publishing a release is the one step still to do**, and it's the repository owner's. Until then a second Mac can install from a tarball made on the first one (`bun scripts/release.ts`).
 
+Two independent reviews of the whole product found 21 problems, all fixed: a request survives a daemon restart or update (the hook retries for up to 15 seconds), Always allow adds only a rule scoped to the call and says which, the inbox page loads only with the token, shortcuts no longer act behind a dialog, and uninstall can't touch the other channel's install. The suites and the smoke test pass.
+
 **Checked live on a real desktop session:**
 
 - In the default mode (answering Claude's own prompt), a Read outside the project, a question, an Edit (with its diff preview and Claude's sentence before it) and a Bash `rm` were each answered from the inbox, taking effect about 30 ms later while Claude's own prompt was on screen. The denied command didn't run and Claude reported the denial.
@@ -60,7 +62,7 @@ Built, covered by tests, a smoke test and a real-launchd update test, and run ag
 - The approval preview shows a real diff.
 - The daemon-driven update works end to end under launchd against a local release server (`bun scripts/e2e-update.ts`): a held call blocks the automatic update, it applies after 30 seconds of quiet, hooks keep failing open during the swap, and a corrupted download is refused.
 
-**Not yet seen by a person:** the menu-bar app's own notification banners with their Allow, Deny, Answer and Open buttons, and a click through from one. Nobody could click **Allow** while it was being built. The plain fallback notifications that the daemon posts when the app isn't allowed are logged by macOS as displayed. Also unchecked: answering in Claude first while the inbox item is live (it should clear within a second or two), terminal `claude` sessions, **Open in Claude** for CLI sessions, and a first install from a published release. The full list is on the [Troubleshooting page](https://dopsonbr.github.io/session-inbox/troubleshooting.html#not-yet-verified-by-a-person).
+**Not yet seen by a person:** the token-gated page inside the real menu-bar app windows (unit-tested and shown through headless Chrome; the reinstalled apps connect, but nobody has looked at the window), the 15-second hook retry against a real Claude session across a real update, the menu-bar app's own notification banners with their Allow, Deny, Answer and Open buttons, and a click through from one. Nobody could click **Allow** while it was being built. The plain fallback notifications that the daemon posts when the app isn't allowed are logged by macOS as displayed. Also unchecked: answering in Claude first while the inbox item is live (it should clear within a second or two), terminal `claude` sessions, **Open in Claude** for CLI sessions, and a first install from a published release. The full list is on the [Troubleshooting page](https://dopsonbr.github.io/session-inbox/troubleshooting.html#not-yet-verified-by-a-person).
 
 **Known limits:** replies to idle sessions and Claude-generated titles need the `claude` CLI to be logged in (the desktop app's login isn't shared); everything else works without it. The app is ad-hoc signed, not notarized. Release downloads are Apple silicon only.
 
