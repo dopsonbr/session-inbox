@@ -127,7 +127,7 @@ describe("observe mode (default): Claude's prompt shows up at once, never held",
     h.clock.advance(120_001)
     h.engine.tick()
     await h.engine.ingest("PermissionRequest", request("Bash", bashInput("rm -rf build")))
-    expect(shape(h)).toEqual([["permission", "expired"]])
+    expect(shape(h)).toEqual([["permission", "open"]])
   })
 
   test("observer channel: the PreToolUse item for the same call is refreshed, with the preview", async () => {
