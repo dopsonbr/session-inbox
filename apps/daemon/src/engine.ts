@@ -50,8 +50,14 @@ import {
   stateFromRow,
   transition,
 } from "./domain/lifecycle.ts"
-import { allowAlwaysPermissions, canonicalJson, inputKey } from "./domain/permissionRequest.ts"
-import { allowAlwaysRule, appendAllowRule, ruleVerdict } from "./domain/permissions.ts"
+import {
+  allowAlwaysPermissions,
+  canonicalJson,
+  DESTINATION_WORDS,
+  describeSuggestions,
+  inputKey,
+} from "./domain/permissionRequest.ts"
+import { appendAllowRule, ruleVerdict, scopedAllowRule } from "./domain/permissions.ts"
 import { displayPathFor } from "./domain/preview.ts"
 import { matchPrompt, type PromptCandidate, promptTool } from "./domain/prompts.ts"
 import {
@@ -2032,6 +2038,36 @@ export class Engine {
     return p?.root_path.startsWith("/") ? p.root_path : (s.cwd ?? null)
   }
 
+  /**
+   * What "Always allow" does for this approval, or null when it isn't offered (C-026, D-082):
+   * echo Claude's own usable `addRules` suggestions (PermissionRequest), else write a rule
+   * scoped to this very call to the project's settings.local.json. `words` is the card's text.
+   */
+  private alwaysAllowPlan(
+    a: ApprovalRow,
+    sessionId: string,
+  ): { echo: unknown[]; rule: string | null; dir: string | null; words: string } | null {
+    if (a.tool === "AskUserQuestion") return null
+    let echo: unknown[] = []
+    if (a.via === "permissionRequest" && a.suggestions_json)
+      try {
+        echo = allowAlwaysPermissions(JSON.parse(a.suggestions_json))
+      } catch {
+        echo = []
+      }
+    if (echo.length > 0) return { echo, rule: null, dir: null, words: describeSuggestions(echo) }
+    let input: unknown = null
+    try {
+      input = JSON.parse(a.input_json)
+    } catch {
+      return null
+    }
+    const rule = scopedAllowRule(a.tool, input)
+    const dir = this.projectDirFor(sessionId)
+    if (!rule || !dir) return null
+    return { echo: [], rule, dir, words: `${rule} ${DESTINATION_WORDS.localSettings}` }
+  }
+
   /** Decide a held approval. Shared by the UI, notifications and "open". */
   private decideIn(
     c: Changes,
@@ -2053,26 +2089,22 @@ export class Engine {
       hook: "daemon:decision",
       payload: { itemId: item.id, decision, source },
     })
-    // Claude's own suggestions, echoed back, are the rule Claude would have saved (D-071).
-    const echoed =
-      decision === "allow-always" && a.via === "permissionRequest" && a.suggestions_json
-        ? allowAlwaysPermissions(JSON.parse(a.suggestions_json))
-        : []
-    if (echoed.length > 0)
+    // Exactly what the card said (C-026, D-082): Claude's own suggestions echoed back (D-071),
+    // else a rule scoped to this call in settings.local.json; not offered ⇒ 409, nothing sent.
+    const plan = decision === "allow-always" ? this.alwaysAllowPlan(a, item.session_id) : null
+    if (decision === "allow-always" && !plan)
+      throw conflict("Always allow isn't offered for this request. Allow or Deny it.")
+    if (plan?.echo.length)
       this.store.run(
         "UPDATE approvals SET updated_permissions_json = ? WHERE item_id = ?",
-        JSON.stringify(echoed),
+        JSON.stringify(plan.echo),
         item.id,
       )
-    if (decision === "allow-always" && echoed.length === 0) {
-      const dir = this.projectDirFor(item.session_id)
-      const rule = allowAlwaysRule(a.tool, JSON.parse(a.input_json))
-      if (dir) {
-        try {
-          appendAllowRule(dir, rule)
-        } catch (e) {
-          this.deps.log.error("allow-always: could not write settings.local.json", e)
-        }
+    if (plan?.rule && plan.dir) {
+      try {
+        appendAllowRule(plan.dir, plan.rule)
+      } catch (e) {
+        this.deps.log.error("allow-always: could not write settings.local.json", e)
       }
     }
     this.store.run(
@@ -2482,6 +2514,12 @@ export class Engine {
     }
   }
 
+  /** The approval as the card sees it, with what Always allow would do (C-026). */
+  private approvalView(a: ApprovalRow, sessionId: string) {
+    const plan = this.alwaysAllowPlan(a, sessionId)
+    return plan ? { ...toApproval(a), alwaysAllow: plan.words } : toApproval(a)
+  }
+
   itemDetail(itemId: string): ItemDetail {
     const r = this.requireItem(itemId)
     const s = this.store.session(r.session_id)
@@ -2508,7 +2546,7 @@ export class Engine {
       session,
       project: toProject(p),
       questions: this.store.questions(itemId).map(toQuestion),
-      approval: a ? toApproval(a) : null,
+      approval: a ? this.approvalView(a, r.session_id) : null,
       timeline: this.timeline(r.session_id, 50, r.source_seq),
       outbox: this.store
         .all<OutboxRow>("SELECT * FROM outbox WHERE item_id = ? ORDER BY created_at", itemId)
