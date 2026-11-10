@@ -3,7 +3,9 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import { Routes, type SettingsResponse } from "@session-inbox/contracts"
+import { Result } from "effect"
 import { type DaemonHandle, type DaemonOptions, startDaemon } from "../src/daemon.ts"
+import { decodeSettingsPatch } from "../src/userSettings.ts"
 import {
   attachPoll,
   envelope,
@@ -219,5 +221,68 @@ describe("GET/PUT /v1/settings", () => {
 
     const reset = (await (await put({ "holds.enabled": null })).json()) as SettingsResponse
     expect(reset.settings["holds.enabled"]).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Shortcuts (C-029, D-098)
+// ---------------------------------------------------------------------------
+
+describe("shortcut settings", () => {
+  const frames = (h: ReturnType<typeof makeHarness>, kind: "ui" | "shell") => {
+    const seen: Array<Record<string, unknown>> = []
+    h.engine.hub.subscribe(
+      {
+        kind,
+        send: (f) => {
+          const data = /^data: (.*)$/m.exec(f)?.[1]
+          if (data) seen.push(JSON.parse(data) as Record<string, unknown>)
+        },
+      },
+      null,
+      0,
+    )
+    return seen
+  }
+  const shortcutFrames = (seen: Array<Record<string, unknown>>) =>
+    seen.filter((m) => m._tag === "shortcuts").map((m) => m.bindings as Record<string, string>)
+
+  test("every new client is told the bindings, and again when one changes", () => {
+    const h = makeHarness()
+    const ui = frames(h, "ui")
+    const shell = frames(h, "shell")
+    expect(shortcutFrames(ui)).toHaveLength(1)
+    expect(shortcutFrames(shell)[0]?.openInbox).toBe("Mod+Shift+I")
+    expect(shortcutFrames(ui)[0]?.next).toBe("J")
+
+    const after = h.engine.updateSettings({
+      "shortcuts.next": "n",
+      "shortcuts.openInbox": "mod+alt+o",
+    })
+    expect(after.settings["shortcuts.next"]).toBe("N")
+    expect(after.settings["shortcuts.openInbox"]).toBe("Mod+Alt+O")
+    expect(shortcutFrames(ui)).toHaveLength(2)
+    expect(shortcutFrames(ui)[1]?.next).toBe("N")
+    expect(shortcutFrames(shell)[1]?.openInbox).toBe("Mod+Alt+O")
+
+    // A change to something else doesn't resend them.
+    h.engine.updateSettings({ "titles.generate": false })
+    expect(shortcutFrames(ui)).toHaveLength(2)
+  })
+
+  test('"" turns a shortcut off; null puts the default back', () => {
+    const h = makeHarness()
+    expect(h.engine.updateSettings({ "shortcuts.done": "" }).settings["shortcuts.done"]).toBe("")
+    expect(h.engine.updateSettings({ "shortcuts.done": null }).settings["shortcuts.done"]).toBe("E")
+  })
+
+  test("a key press that can't be bound is refused with the reason", () => {
+    const bad = decodeSettingsPatch({ "shortcuts.openInbox": "I" })
+    expect(Result.isFailure(bad) && bad.failure).toContain("shortcuts.openInbox")
+    expect(Result.isFailure(decodeSettingsPatch({ "shortcuts.next": "Alt+J" }))).toBe(true)
+    expect(Result.isFailure(decodeSettingsPatch({ "shortcuts.submit": "Enter" }))).toBe(true)
+    expect(
+      Result.isSuccess(decodeSettingsPatch({ "shortcuts.next": "", "shortcuts.jump": "Mod+P" })),
+    ).toBe(true)
   })
 })

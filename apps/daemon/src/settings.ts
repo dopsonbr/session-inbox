@@ -3,7 +3,7 @@
  * (value_json), overridden by explicit overrides (tests).
  */
 import type { Database } from "bun:sqlite"
-import type { HoldsVia } from "@session-inbox/contracts"
+import { type HoldsVia, SHORTCUT_DEFAULTS } from "@session-inbox/contracts"
 import type { AnswerMode } from "./domain/questions.ts"
 
 export interface Settings {
@@ -46,6 +46,16 @@ export interface Settings {
   "updates.checkIntervalMs": number
   /** Days of history kept; older events and finished rows are pruned daily (D-063). */
   "storage.retentionDays": number
+  /** Key presses for each shortcut action, "" for none (C-029, D-098). */
+  "shortcuts.jump": string
+  "shortcuts.submit": string
+  "shortcuts.deny": string
+  "shortcuts.next": string
+  "shortcuts.previous": string
+  "shortcuts.done": string
+  "shortcuts.settings": string
+  "shortcuts.help": string
+  "shortcuts.openInbox": string
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -79,6 +89,15 @@ export const DEFAULT_SETTINGS: Settings = {
   "updates.auto": true,
   "updates.checkIntervalMs": 6 * 3600_000,
   "storage.retentionDays": 14,
+  "shortcuts.jump": SHORTCUT_DEFAULTS.jump,
+  "shortcuts.submit": SHORTCUT_DEFAULTS.submit,
+  "shortcuts.deny": SHORTCUT_DEFAULTS.deny,
+  "shortcuts.next": SHORTCUT_DEFAULTS.next,
+  "shortcuts.previous": SHORTCUT_DEFAULTS.previous,
+  "shortcuts.done": SHORTCUT_DEFAULTS.done,
+  "shortcuts.settings": SHORTCUT_DEFAULTS.settings,
+  "shortcuts.help": SHORTCUT_DEFAULTS.help,
+  "shortcuts.openInbox": SHORTCUT_DEFAULTS.openInbox,
 }
 
 export const loadSettings = (

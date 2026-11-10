@@ -243,6 +243,19 @@ export const UserSettings = Schema.Struct({
   "updates.auto": Schema.Boolean,
   /** Days of history kept: older events and finished items are pruned daily (D-063). */
   "storage.retentionDays": Schema.Finite,
+  /**
+   * One key press per shortcut action, or "" for none (C-029); grammar and rules in
+   * `shortcuts.ts`. `shortcuts.openInbox` is the menu-bar app's system-wide key.
+   */
+  "shortcuts.jump": Schema.String,
+  "shortcuts.submit": Schema.String,
+  "shortcuts.deny": Schema.String,
+  "shortcuts.next": Schema.String,
+  "shortcuts.previous": Schema.String,
+  "shortcuts.done": Schema.String,
+  "shortcuts.settings": Schema.String,
+  "shortcuts.help": Schema.String,
+  "shortcuts.openInbox": Schema.String,
 })
 export type UserSettings = typeof UserSettings.Type
 export type UserSettingKey = keyof UserSettings
@@ -454,6 +467,15 @@ export const StreamMessage = Schema.Union([
    * dismissed or superseded elsewhere); remove them from Notification Center (C-022).
    */
   Schema.TaggedStruct("unnotify", { seq: Schema.Number, ids: Schema.Array(Schema.String) }),
+  /**
+   * Live-only, after hello and whenever a shortcut setting changes (C-029): every action's key
+   * press ("" = none), keyed by `ShortcutAction`. The UI binds the page ones, the menu-bar app
+   * the global one.
+   */
+  Schema.TaggedStruct("shortcuts", {
+    seq: Schema.Number,
+    bindings: Schema.Record(Schema.String, Schema.String),
+  }),
   /** Live-only, to UI clients: the setup check changed; refetch /v1/doctor (C-021). */
   Schema.TaggedStruct("doctor", { seq: Schema.Number, attention: Schema.Number }),
 ])

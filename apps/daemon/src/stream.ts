@@ -27,6 +27,8 @@ export class StreamHub {
   info: { version?: string; build?: string } = {}
   /** Live-only messages sent to each new client after hello/replay (update status, C-013). */
   greeting: (() => StreamMessage | null) | null = null
+  /** Sent to each new client after the greeting: every shortcut's key press (C-029). */
+  shortcutsGreeting: (() => StreamMessage) | null = null
   /** Sent to each new UI client after the greeting: the current setup-check attention (C-021). */
   doctorGreeting: (() => StreamMessage | null) | null = null
 
@@ -49,7 +51,7 @@ export class StreamHub {
       for (const c of this.clients) if (c.kind === "shell") this.safeSend(c, frame)
       return
     }
-    if (msg._tag === "update") {
+    if (msg._tag === "update" || msg._tag === "shortcuts") {
       // Live-only, every client: each (re)connect gets the current status as a greeting.
       const frame = sseFrame(msg, false)
       for (const c of this.clients) this.safeSend(c, frame)
@@ -88,6 +90,8 @@ export class StreamHub {
     }
     const greeting = this.greeting?.()
     if (greeting) client.send(sseFrame(greeting, false))
+    const shortcuts = this.shortcutsGreeting?.()
+    if (shortcuts) client.send(sseFrame(shortcuts, false))
     const doctor = client.kind === "ui" ? this.doctorGreeting?.() : null
     if (doctor) client.send(sseFrame(doctor, false))
     const wasShell = this.shellConnected

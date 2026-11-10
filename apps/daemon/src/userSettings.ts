@@ -6,7 +6,10 @@
 import {
   HOLDABLE_TOOLS,
   type HoldableTool,
+  normalizeShortcut,
   SETTING_LIMITS,
+  shortcutActionOf,
+  shortcutProblem,
   USER_SETTING_KEYS,
   type UserSettingKey,
   type UserSettings,
@@ -20,7 +23,15 @@ const decodePatchResult = Schema.decodeUnknownResult(UserSettingsPatch)
 /** Unknown keys are an error, not silently dropped: a typo should not look like a save. */
 export const decodeSettingsPatch = (raw: unknown): Result.Result<UserSettingsPatch, string> => {
   const r = decodePatchResult(raw, { onExcessProperty: "error" })
-  return Result.isFailure(r) ? Result.fail(r.failure.message) : Result.succeed(r.success)
+  if (Result.isFailure(r)) return Result.fail(r.failure.message)
+  // A key press the app can't bind is refused, not quietly dropped (C-029).
+  for (const [key, value] of Object.entries(r.success)) {
+    const action = shortcutActionOf(key)
+    if (action === null || typeof value !== "string") continue
+    const problem = shortcutProblem(action, value.trim())
+    if (problem !== null) return Result.fail(`${key}: ${problem}`)
+  }
+  return Result.succeed(r.success)
 }
 
 const clamp = (key: keyof typeof SETTING_LIMITS, v: number) =>
@@ -52,8 +63,12 @@ export const normalizeSetting = <K extends UserSettingKey>(
       }
       return out as unknown as UserSettings[K]
     }
-    default:
-      return value
+    default: {
+      const action = shortcutActionOf(key)
+      if (action === null) return value
+      // Canonical spelling; an unusable one never gets here (decodeSettingsPatch refuses it).
+      return (normalizeShortcut(action, value as string) ?? "") as UserSettings[K]
+    }
   }
 }
 

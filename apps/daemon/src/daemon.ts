@@ -7,7 +7,7 @@ import { randomBytes } from "node:crypto"
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { join, resolve } from "node:path"
-import type { Connection } from "@session-inbox/contracts"
+import { BETA_OPEN_INBOX_SHORTCUT, type Connection } from "@session-inbox/contracts"
 import { CHANNELS, type Channel, paths } from "@session-inbox/contracts/paths"
 import { Effect, Option, Schedule } from "effect"
 import { openDb } from "./db/db.ts"
@@ -99,8 +99,13 @@ export const startDaemon = async (
   const p = paths(opts.home)
   mkdirSync(p.home, { recursive: true, mode: 0o700 })
   const db = openDb(p.db)
-  const settings = loadSettings(db, opts.settings, opts.settingDefaults)
-  const settingDefaults = { ...DEFAULT_SETTINGS, ...opts.settingDefaults }
+  // Beta's menu-bar app opens with its own key so both installs can run side by side (S-012).
+  const installDefaults: Partial<Settings> = {
+    ...(opts.channel === "beta" ? { "shortcuts.openInbox": BETA_OPEN_INBOX_SHORTCUT } : {}),
+    ...opts.settingDefaults,
+  }
+  const settings = loadSettings(db, opts.settings, installDefaults)
+  const settingDefaults = { ...DEFAULT_SETTINGS, ...installDefaults }
   const engine = new Engine({
     db,
     ...svc,

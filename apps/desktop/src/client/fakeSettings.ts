@@ -6,6 +6,7 @@ import {
   HOLDABLE_TOOLS,
   SETTING_LIMITS,
   type SettingsResponse,
+  SHORTCUT_DEFAULTS,
   USER_SETTING_KEYS,
   type UserSettings,
   type UserSettingsPatch,
@@ -29,6 +30,15 @@ export const FAKE_SETTING_DEFAULTS = {
   "updates.check": true,
   "updates.auto": true,
   "storage.retentionDays": 14,
+  "shortcuts.jump": SHORTCUT_DEFAULTS.jump,
+  "shortcuts.submit": SHORTCUT_DEFAULTS.submit,
+  "shortcuts.deny": SHORTCUT_DEFAULTS.deny,
+  "shortcuts.next": SHORTCUT_DEFAULTS.next,
+  "shortcuts.previous": SHORTCUT_DEFAULTS.previous,
+  "shortcuts.done": SHORTCUT_DEFAULTS.done,
+  "shortcuts.settings": SHORTCUT_DEFAULTS.settings,
+  "shortcuts.help": SHORTCUT_DEFAULTS.help,
+  "shortcuts.openInbox": SHORTCUT_DEFAULTS.openInbox,
 } as UserSettings
 
 const EXTRA_LIMITS: Record<string, { min: number; max: number }> = {

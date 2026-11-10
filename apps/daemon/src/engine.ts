@@ -32,10 +32,14 @@ import {
   type Session,
   SessionEndPayload,
   SessionStartPayload,
+  SHORTCUT_ACTIONS,
   type ShellStatus,
   type Snapshot,
   StopPayload,
+  type StreamMessage,
   SubagentPayload,
+  shortcutActionOf,
+  shortcutSettingKey,
   type TimelineEntry,
   USER_SETTING_KEYS,
   UserPromptSubmitPayload,
@@ -411,6 +415,7 @@ export class Engine {
     this.hub = new StreamHub(this.store.maxSeq())
     this.startedAt = deps.clock.now()
     this.hub.onShellChange = (connected) => this.onShellChange(connected)
+    this.hub.shortcutsGreeting = () => this.shortcutsMessage()
     this.lastBadge = this.store.counts().needsYou
     for (const r of this.store.all<{ hook_request_id: string }>(
       "SELECT hook_request_id FROM approvals WHERE live = 1",
@@ -2570,7 +2575,18 @@ export class Engine {
           if (item) this.setSessionState(c, item.session_id, "waiting")
         }
     })
+    // Every open page and the menu-bar app rebind at once (C-029).
+    if (next.some(([key]) => shortcutActionOf(key) !== null))
+      this.hub.publish(this.shortcutsMessage())
     return this.userSettings()
+  }
+
+  /** Every shortcut action's key press as the stream carries it (C-029). */
+  shortcutsMessage(): StreamMessage {
+    const bindings: Record<string, string> = {}
+    for (const action of SHORTCUT_ACTIONS)
+      bindings[action] = this.settings[shortcutSettingKey(action)]
+    return { _tag: "shortcuts", seq: this.store.maxSeq(), bindings }
   }
 
   // -------------------------------------------------------------------------
