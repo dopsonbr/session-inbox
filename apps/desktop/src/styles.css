@@ -179,7 +179,8 @@
   flex-shrink: 0;
 }
 
-/* Context strip: 4 across, 2×2 when the detail pane is narrow; never an empty filler cell. */
+/* Context strip: 4 across, 2×2 when the detail pane is narrow (cells under ~160 px would
+   truncate "This Mac · desktop app"); never an empty filler cell. */
 .detail {
   container-type: inline-size;
 }
@@ -187,7 +188,7 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
-@container (min-width: 600px) {
+@container (min-width: 640px) {
   .context-strip {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
