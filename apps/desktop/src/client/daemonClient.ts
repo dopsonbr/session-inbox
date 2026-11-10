@@ -14,6 +14,8 @@ import type {
   Snapshot,
   SnoozeRequest,
   StreamMessage,
+  UpdateApplyRequest,
+  UpdateStatus,
 } from "@session-inbox/contracts"
 import { Context, Data, type Effect, type Stream } from "effect"
 
@@ -36,6 +38,10 @@ export type DaemonClientShape = Readonly<{
   read: (itemId: string) => Effect.Effect<void, DaemonError>
   open: (itemId: string) => Effect.Effect<OpenResponse, DaemonError>
   mute: (projectId: string, body: MuteRequest) => Effect.Effect<void, DaemonError>
+  /** Update status and intents (C-013); the daemon decides, these only ask. */
+  updateStatus: Effect.Effect<UpdateStatus, DaemonError>
+  updateCheck: Effect.Effect<UpdateStatus, DaemonError>
+  updateApply: (body: UpdateApplyRequest) => Effect.Effect<UpdateStatus, DaemonError>
 }>
 
 export class DaemonClient extends Context.Service<DaemonClient, DaemonClientShape>()(

@@ -1,5 +1,5 @@
 import { Combobox, Dialog, Menu, RadioGroup } from "@foldkit/ui"
-import { ItemDetail, Snapshot } from "@session-inbox/contracts"
+import { ItemDetail, Snapshot, UpdateStatus } from "@session-inbox/contracts"
 import { Schema } from "effect"
 import { defineTaggedUnion } from "foldkit/schema"
 import { Toast } from "./toast.ts"
@@ -71,6 +71,10 @@ export const Submission = defineTaggedUnion({
 })
 export type Submission = typeof Submission.Type
 
+/** A check/apply request in flight (local UI state only; the daemon owns the status). */
+export const UpdateRequest = Schema.Literals(["Idle", "Checking", "Applying"])
+export type UpdateRequest = typeof UpdateRequest.Type
+
 export const Model = Schema.Struct({
   view: AppView,
   now: Schema.Number,
@@ -93,5 +97,12 @@ export const Model = Schema.Struct({
   jumpCombobox: Combobox.Model,
   snoozeMenu: Menu.Model,
   toasts: Toast.Model,
+  /** Daemon update status as last streamed or returned (C-013); None = unsupported/unknown. */
+  maybeUpdate: Schema.Option(UpdateStatus),
+  /** `version·build` from the first `hello`; a different one later means reload (U-022). */
+  maybeDaemonBuild: Schema.Option(Schema.String),
+  /** "Not now" on the banner (its `state:version` key), for this page load only. */
+  maybeDismissedUpdate: Schema.Option(Schema.String),
+  updateRequest: UpdateRequest,
 })
 export type Model = typeof Model.Type

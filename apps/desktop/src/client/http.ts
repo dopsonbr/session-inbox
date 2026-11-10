@@ -11,6 +11,7 @@ import {
   Routes,
   Snapshot,
   StreamMessage,
+  UpdateStatus,
 } from "@session-inbox/contracts"
 import { Effect, Queue, Schema, Stream } from "effect"
 import { DaemonClient, type DaemonClientShape, DaemonError } from "./daemonClient.ts"
@@ -144,6 +145,9 @@ export const makeHttpClient = (config: HttpClientConfig): DaemonClientShape => {
     read: (itemId) => Effect.asVoid(request("POST", Routes.read(itemId), {})),
     open: (itemId) => decoded(OpenResponse)(request("POST", Routes.openInClaude(itemId), {})),
     mute: (projectId, body) => Effect.asVoid(request("POST", Routes.projectMute(projectId), body)),
+    updateStatus: decoded(UpdateStatus)(request("GET", Routes.update)),
+    updateCheck: decoded(UpdateStatus)(request("POST", Routes.updateCheck, {})),
+    updateApply: (body) => decoded(UpdateStatus)(request("POST", Routes.updateApply, body)),
   }
 }
 

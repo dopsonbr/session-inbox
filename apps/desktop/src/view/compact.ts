@@ -5,6 +5,7 @@ import type { Message } from "../message.ts"
 import type { Model } from "../model.ts"
 import { findProject, findSession, formatAge, hashForItem, itemsInQueue } from "../selectors.ts"
 import { dot, itemKindLabel, itemTone, kbd } from "./parts.ts"
+import { compactUpdateRowView } from "./update.ts"
 
 type H = HtmlBuilder<Message>
 
@@ -82,6 +83,7 @@ export const compactView = (model: Model, h: H): Html =>
               ),
             ],
           ),
+          compactUpdateRowView(model, h),
           items.length === 0
             ? h.p(
                 [h.Class("flex items-center gap-2 px-3.5 py-4 text-[13px] text-muted-foreground")],

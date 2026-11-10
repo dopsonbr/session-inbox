@@ -1,10 +1,20 @@
 import { Combobox, Dialog, Menu, RadioGroup } from "@foldkit/ui"
-import type { Answer, Decision, ItemDetail, OutboxEntry, Snapshot } from "@session-inbox/contracts"
+import type {
+  Answer,
+  Decision,
+  ItemDetail,
+  OutboxEntry,
+  Snapshot,
+  StreamMessage,
+  UpdateStatus,
+} from "@session-inbox/contracts"
 import { Array as Arr, Option, Schema } from "effect"
 import { Command, type Update } from "foldkit"
 import { modifyFields } from "foldkit/struct"
 import type { DaemonClient } from "./client/daemonClient.ts"
 import {
+  ApplyUpdate,
+  CheckForUpdates,
   DismissItem,
   FetchItemDetail,
   FetchSnapshot,
@@ -12,6 +22,7 @@ import {
   MarkRead,
   MuteProject,
   OpenInClaude,
+  ReloadPage,
   SaveDraft,
   SendDecision,
   SendReply,
@@ -94,6 +105,10 @@ export const initialModel = (flags: Flags): Model => ({
   jumpCombobox: freshJumpCombobox(),
   snoozeMenu: Menu.init({ id: "snooze-menu" }),
   toasts: Toast.init({ id: "toasts", defaultDuration: "4 seconds" }),
+  maybeUpdate: Option.none(),
+  maybeDaemonBuild: Option.none(),
+  maybeDismissedUpdate: Option.none(),
+  updateRequest: "Idle",
 })
 
 export const init = (flags: Flags): UpdateReturn => {
@@ -563,6 +578,83 @@ const openJumpDialog = (model: Model): UpdateReturn => {
   return { model: opened.model, commands: opened.commands }
 }
 
+// UPDATES (U-022..U-024): render the daemon's status, send intents, reload on a new build.
+
+type Hello = Extract<StreamMessage, { _tag: "hello" }>
+
+/** `version·build` the daemon reported, if it reports one (older daemons don't). */
+export const daemonBuildKey = (hello: Hello): Option.Option<string> =>
+  hello.version === undefined && hello.build === undefined
+    ? Option.none()
+    : Option.some(`${hello.version ?? "?"}·${hello.build ?? "?"}`)
+
+/** Remember the first build; a reconnect to a different one reloads the page. */
+const onHello = (model: Model, hello: Hello): UpdateReturn =>
+  Option.match(daemonBuildKey(hello), {
+    onNone: () => ({ model }),
+    onSome: (key) =>
+      Option.match(model.maybeDaemonBuild, {
+        onNone: () => ({
+          model: modifyFields(model, { maybeDaemonBuild: () => Option.some(key) }),
+        }),
+        onSome: (seen) => (seen === key ? { model } : { model, commands: [ReloadPage()] }),
+      }),
+  })
+
+/** Banner identity: dismissing hides this state/version only. */
+export const updateBannerKey = (status: UpdateStatus): string =>
+  `${status.state}:${status.latest ?? status.target ?? ""}`
+
+/** "Updated" toast window after a restart into a new version. */
+const UPDATED_TOAST_MS = 10 * 60_000
+
+const receiveUpdate = (model: Model, status: UpdateStatus): UpdateReturn => {
+  const isFirst = Option.isNone(model.maybeUpdate)
+  const next = modifyFields(model, { maybeUpdate: () => Option.some(status) })
+  const justUpdated =
+    isFirst &&
+    status.updatedAt !== null &&
+    Math.abs(model.now - status.updatedAt) < UPDATED_TOAST_MS
+  return justUpdated
+    ? showToast(
+        next,
+        {
+          title: `Session Inbox updated to ${status.current}`,
+          description:
+            status.justUpdatedFrom === null ? "" : `You were on ${status.justUpdatedFrom}.`,
+        },
+        "Success",
+      )
+    : { model: next }
+}
+
+const updateRequestDone = (model: Model, status: UpdateStatus): UpdateReturn => {
+  const wasChecking = model.updateRequest === "Checking"
+  const received = receiveUpdate(
+    modifyFields(model, {
+      updateRequest: () => "Idle",
+      // An explicit check shows its result even if the banner was dismissed.
+      maybeDismissedUpdate: (d) => (wasChecking ? Option.none() : d),
+    }),
+    status,
+  )
+  if (!wasChecking || status.state === "available" || status.state === "failed") {
+    return received
+  }
+  const ret = status.error
+    ? showToast(
+        received.model,
+        { title: "Couldn't check for updates", description: status.error },
+        "Error",
+      )
+    : showToast(
+        received.model,
+        { title: "Session Inbox is up to date", description: `You have ${status.current}.` },
+        "Info",
+      )
+  return withCommands(ret, received.commands ?? [])
+}
+
 // UPDATE
 
 export const update = (model: Model, message: Message): UpdateReturn =>
@@ -578,7 +670,10 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
     ReceivedStreamMessage: ({ message: streamMessage }) => {
       if (streamMessage._tag === "hello") {
-        return { model: modifyFields(model, { connection: () => Connection.Live() }) }
+        return onHello(modifyFields(model, { connection: () => Connection.Live() }), streamMessage)
+      }
+      if (streamMessage._tag === "update") {
+        return receiveUpdate(model, streamMessage.status)
       }
       if (streamMessage._tag === "delta") {
         return applyDelta(model, streamMessage)
@@ -866,6 +961,41 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       return { model: lifted.model, commands: lifted.commands }
     },
 
+    ClickedCheckForUpdates: () =>
+      model.updateRequest !== "Idle"
+        ? { model }
+        : {
+            model: modifyFields(model, { updateRequest: () => "Checking" }),
+            commands: [CheckForUpdates()],
+          },
+
+    ClickedUpdateNow: () =>
+      model.updateRequest !== "Idle"
+        ? { model }
+        : Option.match(model.maybeUpdate, {
+            onNone: () => ({ model }),
+            onSome: (status) => ({
+              model: modifyFields(model, { updateRequest: () => "Applying" }),
+              commands: [ApplyUpdate({ version: status.latest ?? status.target })],
+            }),
+          }),
+
+    DismissedUpdateBanner: () => ({
+      model: modifyFields(model, {
+        maybeDismissedUpdate: () => Option.map(model.maybeUpdate, updateBannerKey),
+      }),
+    }),
+
+    SucceededUpdateRequest: ({ status }) => updateRequestDone(model, status),
+
+    FailedUpdateRequest: ({ error }) =>
+      showToast(
+        modifyFields(model, { updateRequest: () => "Idle" }),
+        { title: "Update request failed", description: error },
+        "Error",
+      ),
+
+    CompletedReload: () => ({ model }),
     CompletedMarkRead: () => ({ model }),
     CompletedSetHash: () => ({ model }),
     CompletedFocusTreeNode: () => ({ model }),
