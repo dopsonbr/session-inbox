@@ -35,6 +35,8 @@ bun test                              # whole repo; must stay green
 bun run typecheck
 bun run lint
 bun scripts/smoke.ts                  # real daemon + real inbox-hook end to end; run after daemon/hook changes
+bun scripts/e2e-update.ts             # release → install → auto-update under the REAL launchd (isolated label, ~1 min)
+bun scripts/release.ts --skip-app && bun scripts/verify-release.ts   # build + install-check a tarball
 bun scripts/demo.ts                   # seeded live daemon + built UI for browser checks (build UI first)
 bun run --cwd apps/desktop build      # UI → apps/desktop/dist
 bun run --cwd apps/desktop dev:mock   # UI against the fake client
@@ -42,11 +44,12 @@ cd apps/desktop/src-tauri && cargo test && cargo clippy -- -D warnings
 bun scripts/build-shell.ts            # Session Inbox.app (slow first build); --channel beta
 bun scripts/install.ts --channel beta --yes --app   # beta install beside GA (H-014)
 bun scripts/channels.ts               # GA + beta status; `holds <ga|beta>` picks the holder
+session-inbox doctor [--json]         # setup check (daemon's report, or local checks when it's down)
 bun scripts/release.ts --skip-app     # release payload + tarball + .sha256 → dist/release (no app: fast)
 bun apps/cli/src/main.ts <cmd>        # the session-inbox CLI from source (install/uninstall/update/status)
 ```
 
-Before committing: `bun test`, `bun run typecheck`, `bun run lint`; also `bun scripts/smoke.ts` if you touched the daemon, hook or contracts.
+Before committing: `bun test`, `bun run typecheck`, `bun run lint`; also `bun scripts/smoke.ts` if you touched the daemon, hook or contracts, and `bun scripts/e2e-update.ts` if you touched the CLI, the updater or the launchd plist.
 
 ## Testing approach
 
@@ -64,6 +67,7 @@ Before committing: `bun test`, `bun run typecheck`, `bun run lint`; also `bun sc
 - A child `claude -p` started from inside a Claude Code session needs a clean env (`env -u CLAUDECODE …`) and its own login. Desktop-app auth is not shared with the CLI.
 - In zsh, `$VAR:path` applies a history modifier (`:a`, `:h`, …). Write `"${VAR}:path"` in git commands like `git show "${B}:file"`.
 - Agent worktrees live in `.claude/worktrees/` (git-ignored). Never commit them.
+- `bun scripts/e2e-update.ts` is the one script that uses the real launchd: only the label `com.sessioninbox.inboxd.e2e`, its plist (removed at the end) and `/tmp/si-e2e-*`. Keep it that way; it checks the real settings and GA/beta plists are unchanged afterwards (another agent reinstalling beta mid-run will trip that check).
 - **All install logic lives in `apps/cli`** (H-019). `scripts/install.ts`/`uninstall.ts`/`channels.ts` are thin wrappers; change the CLI, not them. Anything derived from the user's home goes through `homedir()` (honours `$HOME`), so tests run installs with `HOME=/tmp/si-…` as well as `--home`/`--settings`/`--no-launchd`. The version comes from the root `VERSION` file (`--define` in compiled builds; `@session-inbox/contracts/version`).
 - `apps/cli/test/release.test.ts` compiles two full payloads (about a minute). It never touches the network: `SESSION_INBOX_RELEASES_URL` points at a local fake.
 - Vite emits the token meta tag self-closed; the daemon's injector matches both forms. Keep it that way.

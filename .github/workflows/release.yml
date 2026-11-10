@@ -48,6 +48,7 @@ jobs:
         working-directory: apps/desktop/src-tauri
 
       - run: bun scripts/release.ts
+      - run: bun scripts/verify-release.ts --require-app
 
       - name: Tag, push and publish
         env:
