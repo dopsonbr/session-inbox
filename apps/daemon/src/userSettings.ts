@@ -36,6 +36,7 @@ export const normalizeSetting = <K extends UserSettingKey>(
 ): UserSettings[K] => {
   switch (key) {
     case "holds.budgetMs":
+    case "holds.requestBudgetMs":
     case "notifications.reviewGroupMs":
     case "storage.retentionDays":
       return clamp(key, value as number) as UserSettings[K]

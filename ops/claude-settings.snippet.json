@@ -57,6 +57,18 @@
         ]
       }
     ],
+    "PermissionRequest": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"<home>/bin/inbox-hook\" PermissionRequest",
+            "timeout": 3600
+          }
+        ]
+      }
+    ],
     "SubagentStart": [
       {
         "hooks": [

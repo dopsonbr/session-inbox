@@ -88,6 +88,11 @@ export interface ApprovalRow {
   /** Migration 003 (D-056). */
   preview_json?: string | null
   context?: string | null
+  /** Migration 004 (D-068): 'permissionRequest' or NULL (a held PreToolUse). */
+  via?: string | null
+  input_key?: string | null
+  suggestions_json?: string | null
+  updated_permissions_json?: string | null
 }
 export interface QuestionRow {
   item_id: string
@@ -210,6 +215,7 @@ export const toApproval = (r: ApprovalRow): Approval => {
     expiresAt: r.expires_at,
     ...(preview ? { preview } : {}),
     ...(r.context ? { context: r.context } : {}),
+    ...(r.via === "permissionRequest" ? { via: "permissionRequest" as const } : {}),
   }
 }
 

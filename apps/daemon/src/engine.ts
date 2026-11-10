@@ -24,6 +24,7 @@ import {
   NotificationPayload,
   type NotificationPermission,
   type NotifyPayload,
+  PermissionRequestPayload,
   PostToolUsePayload,
   PreToolUsePayload,
   type Session,
@@ -49,6 +50,7 @@ import {
   stateFromRow,
   transition,
 } from "./domain/lifecycle.ts"
+import { allowAlwaysPermissions, canonicalJson, inputKey } from "./domain/permissionRequest.ts"
 import { allowAlwaysRule, appendAllowRule, ruleVerdict } from "./domain/permissions.ts"
 import { displayPathFor } from "./domain/preview.ts"
 import { matchPrompt, type PromptCandidate, promptTool } from "./domain/prompts.ts"
@@ -215,6 +217,7 @@ const payloadSchema = {
   Notification: NotificationPayload,
   PreToolUse: PreToolUsePayload,
   PostToolUse: PostToolUsePayload,
+  PermissionRequest: PermissionRequestPayload,
   SubagentStart: SubagentPayload,
   SubagentStop: SubagentPayload,
   Stop: StopPayload,
@@ -253,7 +256,8 @@ const timelineText = (hook: string, p: Record<string, unknown>, show: ShowPath):
   switch (hook) {
     case "PostToolUse":
       return toolLine(String(p.tool_name ?? "tool"), p.tool_input, show)
-    case "PreToolUse": {
+    case "PreToolUse":
+    case "PermissionRequest": {
       const tool = String(p.tool_name ?? "tool")
       if (tool === "AskUserQuestion") {
         const qs = (p.tool_input as { questions?: unknown } | null)?.questions
@@ -771,6 +775,7 @@ export class Engine {
       this.syncTranscriptTitle(c, sid, p.transcript_path ?? session.transcript_path)
 
     let requestId: string | null = null
+    let holdMs: number | undefined
     switch (event) {
       case "SessionStart": {
         if (session.state === "ended") this.setSessionState(c, sid, "idle")
@@ -785,6 +790,8 @@ export class Engine {
         break
       }
       case "UserPromptSubmit": {
+        // A typed prompt means nothing is waiting on Claude's permission prompt any more.
+        this.finishRequests(c, sid, "UserPromptSubmit")
         this.setSessionState(c, sid, "running")
         this.setAgentState(c, mainAgentId(sid), "running")
         const fresh = this.store.session(sid)
@@ -819,9 +826,16 @@ export class Engine {
         requestId = this.onPreToolUse(c, session, agentId, p)
         break
       case "PostToolUse":
+        this.finishMatchedRequest(c, sid, p)
         this.setSessionState(c, sid, "running")
         this.setAgentState(c, agentId, "running")
         break
+      case "PermissionRequest": {
+        const r = this.onPermissionRequest(c, session, agentId, p)
+        requestId = r.requestId
+        holdMs = r.holdMs
+        break
+      }
       case "SubagentStart":
         this.setSessionState(c, sid, "running")
         break
@@ -829,6 +843,7 @@ export class Engine {
         if (rawAgent) this.setAgentState(c, agentId, "done", true)
         break
       case "Stop": {
+        this.finishRequests(c, sid, "Stop")
         this.releaseLiveHolds(c, sid)
         this.setSessionState(c, sid, "idle")
         const lastMessage =
@@ -861,6 +876,7 @@ export class Engine {
         break
       }
       case "SessionEnd": {
+        this.finishRequests(c, sid, "SessionEnd")
         this.releaseLiveHolds(c, sid)
         this.setSessionState(c, sid, "ended")
         for (const a of this.store.all<AgentRow>(
@@ -884,7 +900,7 @@ export class Engine {
         break
       }
     }
-    return { seq, requestId }
+    return holdMs === undefined ? { seq, requestId } : { seq, requestId, holdMs }
   }
 
   /**
@@ -990,10 +1006,14 @@ export class Engine {
     const kinds = includeFailed
       ? "('review','question','permission','failed')"
       : "('review','question','permission')"
+    // Claude's own prompt (a PermissionRequest item) waits through parallel calls' activity:
+    // only its own PostToolUse, a new prompt, Stop or SessionEnd ends it (D-070).
     const rows = this.store.all<ItemRow>(
       `SELECT * FROM attention_items i WHERE session_id = ? AND state IN ('open','snoozed') AND kind IN ${kinds}
-         AND NOT EXISTS (SELECT 1 FROM approvals a WHERE a.item_id = i.id AND a.live = 1)`,
+         AND NOT EXISTS (SELECT 1 FROM approvals a WHERE a.item_id = i.id AND a.live = 1)
+         AND (? OR NOT EXISTS (SELECT 1 FROM approvals a WHERE a.item_id = i.id AND a.via = 'permissionRequest'))`,
       sessionId,
+      includeFailed ? 1 : 0,
     )
     for (const r of rows) this.apply(c, r, { _tag: "Supersede" })
   }
@@ -1115,6 +1135,9 @@ export class Engine {
     agentId: string,
     p: Payload,
   ): string | null {
+    // Answering Claude's own prompt instead (D-069): PreToolUse is only recorded, so its
+    // tool_use_id can be matched to the PermissionRequest that follows.
+    if (this.decidesViaRequest()) return null
     const tool = String(p.tool_name)
     const project = this.store.project(session.project_id)
     if (!project) return null
@@ -1206,6 +1229,10 @@ export class Engine {
 
   /** Hold budget lapsed (or the hold went stale): decision `ask`; permission items expire. */
   private expireHold(c: Changes, a: ApprovalRow) {
+    if (a.via === "permissionRequest") {
+      this.lapseRequest(c, a)
+      return
+    }
     this.store.run(
       "UPDATE approvals SET decision = 'ask', live = 0, decided_at = ? WHERE item_id = ?",
       this.now(),
@@ -1219,6 +1246,246 @@ export class Engine {
     }
     this.clearNotifications(c, a.item_id)
     c.after.push(() => this.wake(a.hook_request_id))
+  }
+
+  // -------------------------------------------------------------------------
+  // PermissionRequest (D-068..D-071; documented, not yet verified live: P-021)
+  // -------------------------------------------------------------------------
+
+  /** Experimental decide mode: answer Claude's own prompt instead of holding PreToolUse. */
+  private decidesViaRequest(): boolean {
+    return this.settings["holds.enabled"] && this.settings["holds.via"] === "permissionRequest"
+  }
+
+  /**
+   * The tool_use_id of the call a PermissionRequest is about (its payload has none): the
+   * newest PreToolUse of the session in the last 60 s with the same tool and deep-equal input
+   * that hasn't completed and isn't already claimed by another open request.
+   */
+  private recoverToolUseId(sessionId: string, tool: string, input: unknown): string | null {
+    const want = canonicalJson(input)
+    const rows = this.store.all<{ payload_json: string }>(
+      `SELECT payload_json FROM events WHERE session_id = ? AND hook = 'PreToolUse'
+         AND decode_error IS NULL AND received_at >= ? ORDER BY seq DESC LIMIT 50`,
+      sessionId,
+      this.now() - 60_000,
+    )
+    for (const r of rows) {
+      let p: { tool_name?: unknown; tool_input?: unknown; tool_use_id?: unknown }
+      try {
+        p = JSON.parse(r.payload_json)
+      } catch {
+        continue
+      }
+      if (p.tool_name !== tool || typeof p.tool_use_id !== "string") continue
+      if (canonicalJson(p.tool_input) !== want) continue
+      const done = this.store.one(
+        `SELECT 1 AS x FROM events WHERE session_id = ? AND hook = 'PostToolUse'
+           AND json_extract(payload_json, '$.tool_use_id') = ? LIMIT 1`,
+        sessionId,
+        p.tool_use_id,
+      )
+      const claimed = this.store.one(
+        `SELECT 1 AS x FROM approvals a JOIN attention_items i ON i.id = a.item_id
+           WHERE i.session_id = ? AND a.via = 'permissionRequest' AND a.tool_use_id = ?
+             AND i.state IN ('open','snoozed') LIMIT 1`,
+        sessionId,
+        p.tool_use_id,
+      )
+      if (!done && !claimed) return p.tool_use_id
+    }
+    return null
+  }
+
+  /**
+   * PermissionRequest ingest. Observe mode (default): a non-held item for Claude's prompt, at
+   * once and with the preview, or a refresh of the item already tracking it (D-068). Decide
+   * mode: a live item whose decision the hook prints as PermissionRequest output (D-069).
+   */
+  private onPermissionRequest(
+    c: Changes,
+    session: SessionRow,
+    agentId: string,
+    p: Payload,
+  ): { requestId: string | null; holdMs?: number } {
+    const none = { requestId: null }
+    const tool = String(p.tool_name)
+    const sid = session.id
+    const project = this.store.project(session.project_id)
+    if (!project || project.muted === 1) return none
+    this.setSessionState(c, sid, "waiting")
+    const toolUseId =
+      (typeof p.tool_use_id === "string" ? p.tool_use_id : null) ??
+      this.recoverToolUseId(sid, tool, p.tool_input)
+    const key = inputKey(tool, p.tool_input)
+    const isQuestion = tool === "AskUserQuestion"
+    const decide = this.decidesViaRequest()
+    const callKey = isQuestion
+      ? this.dedupeKey(sid, agentId, "question")
+      : this.dedupeKey(sid, agentId, "permission", toolUseId ?? `pr:${key}`)
+    const existing = this.store.one<ItemRow>(
+      "SELECT * FROM attention_items WHERE dedupe_key = ? AND state IN ('open','snoozed')",
+      callKey,
+    )
+    const existingApproval = existing ? this.store.approval(existing.id) : null
+    // Never touch a hold that is live right now (another channel's, or a repeat request).
+    if (existingApproval?.live === 1) {
+      if (decide && existingApproval.via === "permissionRequest")
+        return {
+          requestId: existingApproval.hook_request_id,
+          holdMs: Math.max(0, existingApproval.expires_at - this.now()),
+        }
+      return none
+    }
+
+    if (!decide) {
+      // A question is the question item's business (D-034): never a second item for it.
+      if (isQuestion) return none
+      if (!existing) {
+        // Same prompt as an item we have (the Part 1 rule, D-067): our hold lapsed into it.
+        const match = matchPrompt(this.promptCandidates(sid), tool, this.now())
+        if (match) {
+          const row = match.open ? this.store.item(match.itemId) : null
+          if (row) this.apply(c, row, { _tag: "Refresh" })
+          return none
+        }
+      }
+    }
+
+    const questions = isQuestion ? parseQuestions(p.tool_input) : []
+    const pv = isQuestion
+      ? null
+      : computePreview(this.deps.files, this.deps.log, {
+          tool,
+          input: p.tool_input,
+          cwd: p.cwd ?? session.cwd,
+          roots: [session.worktree, project.root_path],
+          transcriptPath: p.transcript_path ?? session.transcript_path,
+          toolUseId,
+        })
+    const summary = isQuestion
+      ? questions.length === 1
+        ? (questions[0]?.text ?? "Claude has a question")
+        : questions.length > 1
+          ? questions.map((q) => q.header ?? q.text).join(" · ")
+          : "Claude has a question"
+      : (pv?.summary ?? permissionSummary(tool, p.tool_input, this.showPathFor(sid)))
+    const { row, created } = this.openItem(c, {
+      sessionId: sid,
+      agentId,
+      kind: isQuestion ? "question" : "permission",
+      dedupeKey: callKey,
+      summary,
+    })
+    if (isQuestion) {
+      this.store.run("DELETE FROM questions WHERE item_id = ?", row.id)
+      for (const q of questions)
+        this.store.run(
+          "INSERT INTO questions (item_id, idx, header, text, options_json, multi) VALUES (?, ?, ?, ?, ?, ?)",
+          row.id,
+          q.idx,
+          q.header ?? null,
+          q.text,
+          JSON.stringify(q.options),
+          q.multi ? 1 : 0,
+        )
+    }
+    const budget = this.settings["holds.requestBudgetMs"]
+    const requestId = decide ? newId("rq") : newId("ob")
+    const suggestions =
+      p.permission_suggestions === undefined ? null : JSON.stringify(p.permission_suggestions)
+    this.store.run(
+      `INSERT OR REPLACE INTO approvals (item_id, hook_request_id, tool, input_json, tool_use_id, decision,
+         reason, updated_input_json, live, decided_at, expires_at, preview_json, context, via, input_key,
+         suggestions_json, updated_permissions_json)
+       VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, ?, NULL, ?, ?, ?, 'permissionRequest', ?, ?, NULL)`,
+      row.id,
+      requestId,
+      tool,
+      JSON.stringify(p.tool_input ?? null),
+      toolUseId,
+      decide ? 1 : 0,
+      decide ? this.now() + budget : this.now(),
+      pv?.preview ? JSON.stringify(pv.preview) : null,
+      pv?.context ?? null,
+      key,
+      suggestions,
+    )
+    c.items.add(row.id)
+    this.setAgentState(c, agentId, "waiting")
+    if (created) this.queueNotification(c, row)
+    return decide ? { requestId, holdMs: budget } : none
+  }
+
+  /**
+   * Claude's prompt was answered there (or the turn moved on): resolve the item, stop the
+   * hook waiting (it prints nothing), and take back its notifications (D-070).
+   */
+  private finishRequest(c: Changes, a: ApprovalRow, signal: string) {
+    const item = this.store.item(a.item_id)
+    if (!item || (item.state !== "open" && item.state !== "snoozed")) return
+    this.appendEvent(c, {
+      sessionId: item.session_id,
+      agentId: item.agent_id,
+      hook: "daemon:answered-in-claude",
+      payload: { itemId: item.id, signal },
+    })
+    this.store.run("UPDATE approvals SET live = 0 WHERE item_id = ?", a.item_id)
+    this.apply(c, item, { _tag: "Supersede" })
+    this.clearNotifications(c, item.id)
+    c.after.push(() => this.wake(a.hook_request_id))
+  }
+
+  /** Every open PermissionRequest item of the session (a typed prompt, Stop, SessionEnd). */
+  private finishRequests(c: Changes, sessionId: string, signal: string) {
+    for (const a of this.store.all<ApprovalRow>(
+      `SELECT a.* FROM approvals a JOIN attention_items i ON i.id = a.item_id
+         WHERE i.session_id = ? AND a.via = 'permissionRequest' AND i.state IN ('open','snoozed')`,
+      sessionId,
+    ))
+      this.finishRequest(c, a, signal)
+  }
+
+  /** The PostToolUse of the very call a PermissionRequest item is about; other calls don't count. */
+  private finishMatchedRequest(c: Changes, sessionId: string, p: Payload) {
+    const tool = String(p.tool_name ?? "")
+    const toolUseId = typeof p.tool_use_id === "string" ? p.tool_use_id : null
+    const key = inputKey(tool, p.tool_input)
+    for (const a of this.store.all<ApprovalRow>(
+      `SELECT a.* FROM approvals a JOIN attention_items i ON i.id = a.item_id
+         WHERE i.session_id = ? AND a.via = 'permissionRequest' AND i.state IN ('open','snoozed')
+           AND ((a.tool_use_id IS NOT NULL AND a.tool_use_id = ?)
+             OR (a.tool_use_id IS NULL AND a.tool = ? AND a.input_key = ?))`,
+      sessionId,
+      toolUseId,
+      tool,
+      key,
+    ))
+      this.finishRequest(c, a, "PostToolUse")
+  }
+
+  /**
+   * A PermissionRequest's budget lapsed (or holds went off / the project was muted): the hook
+   * stops waiting and prints nothing, and the item stays open, non-live: Claude's prompt is
+   * still on screen and still needs you (D-069).
+   */
+  private lapseRequest(c: Changes, a: ApprovalRow) {
+    this.store.run("UPDATE approvals SET live = 0 WHERE item_id = ?", a.item_id)
+    const item = this.store.item(a.item_id)
+    if (item) {
+      c.items.add(item.id)
+      this.setAgentState(c, item.agent_id ?? mainAgentId(item.session_id), "waiting")
+    }
+    // Allow/Deny on its notification would only 409 now.
+    this.clearNotifications(c, a.item_id)
+    c.after.push(() => this.wake(a.hook_request_id))
+  }
+
+  /** The hook's long-poll closed while still waiting: Claude's prompt was answered first. */
+  private requestAbandoned(requestId: string) {
+    const a = this.store.approvalByRequest(requestId)
+    if (a?.via !== "permissionRequest" || a.live !== 1 || a.decision !== null) return
+    this.tx((c) => this.finishRequest(c, a, "hook-closed"))
   }
 
   // -------------------------------------------------------------------------
@@ -1236,9 +1503,15 @@ export class Engine {
     switch (a.decision as Decision | null) {
       case "allow":
       case "allow-always":
-        return a.updated_input_json
-          ? { decision: "allow", updatedInput: JSON.parse(a.updated_input_json) as unknown }
-          : { decision: "allow" }
+        return {
+          decision: "allow",
+          ...(a.updated_input_json
+            ? { updatedInput: JSON.parse(a.updated_input_json) as unknown }
+            : {}),
+          ...(a.updated_permissions_json
+            ? { updatedPermissions: JSON.parse(a.updated_permissions_json) as unknown[] }
+            : {}),
+        }
       case "deny":
         return a.reason ? { decision: "deny", reason: a.reason } : { decision: "deny" }
       case "ask":
@@ -1248,19 +1521,33 @@ export class Engine {
     }
   }
 
-  /** GET /v1/hooks/decision/:requestId?wait=s */
-  async waitDecision(requestId: string, waitSeconds: number): Promise<HookDecision> {
+  /**
+   * GET /v1/hooks/decision/:requestId?wait=s. `signal` is the request's: a PermissionRequest
+   * hook that goes away mid-wait was answered in Claude first (D-070). A PreToolUse hook that
+   * goes away keeps its hold until expiry, as before (it may re-poll).
+   */
+  async waitDecision(
+    requestId: string,
+    waitSeconds: number,
+    signal?: AbortSignal,
+  ): Promise<HookDecision> {
     const first = this.store.approvalByRequest(requestId)
     if (!first) return { decision: "ask" } // unknown (e.g. replaced): let Claude ask
     if (first.decision !== null || first.live === 0) return this.hookResponse(first)
     const remaining = first.expires_at - this.now()
     const waitMs = Math.max(0, Math.min(waitSeconds * 1000, remaining))
-    if (waitMs > 0) {
+    let abandoned = false
+    if (waitMs > 0 && !signal?.aborted) {
       await new Promise<void>((resolve) => {
         const done = () => {
           clearTimeout(timer)
           this.waiters.get(requestId)?.delete(done)
+          signal?.removeEventListener("abort", onAbort)
           resolve()
+        }
+        const onAbort = () => {
+          abandoned = true
+          done()
         }
         const timer = setTimeout(done, waitMs)
         let set = this.waiters.get(requestId)
@@ -1269,7 +1556,12 @@ export class Engine {
           this.waiters.set(requestId, set)
         }
         set.add(done)
+        signal?.addEventListener("abort", onAbort)
       })
+    }
+    if (abandoned || signal?.aborted) {
+      this.requestAbandoned(requestId)
+      return { decision: "ask" }
     }
     let a = this.store.approvalByRequest(requestId)
     if (!a) return { decision: "ask" }
@@ -1351,7 +1643,18 @@ export class Engine {
       hook: "daemon:decision",
       payload: { itemId: item.id, decision, source },
     })
-    if (decision === "allow-always") {
+    // Claude's own suggestions, echoed back, are the rule Claude would have saved (D-071).
+    const echoed =
+      decision === "allow-always" && a.via === "permissionRequest" && a.suggestions_json
+        ? allowAlwaysPermissions(JSON.parse(a.suggestions_json))
+        : []
+    if (echoed.length > 0)
+      this.store.run(
+        "UPDATE approvals SET updated_permissions_json = ? WHERE item_id = ?",
+        JSON.stringify(echoed),
+        item.id,
+      )
+    if (decision === "allow-always" && echoed.length === 0) {
       const dir = this.projectDirFor(item.session_id)
       const rule = allowAlwaysRule(a.tool, JSON.parse(a.input_json))
       if (dir) {

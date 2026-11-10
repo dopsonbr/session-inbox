@@ -18,6 +18,8 @@ import { EXTRA_NUMBER_SETTINGS } from "./extraSettings.ts"
 // as an extra key the way a newer daemon would (U-036). `as` keeps this compiling either way.
 export const FAKE_SETTING_DEFAULTS = {
   "holds.enabled": true,
+  "holds.via": "preToolUse",
+  "holds.requestBudgetMs": 600_000,
   "holds.tools": [...HOLDABLE_TOOLS],
   "holds.budgetMs": 120_000,
   "holds.safeBashPrefixes": ["ls", "pwd", "echo", "cat", "git status", "git diff", "git log"],
