@@ -36,17 +36,23 @@ Every state change, including your own intents, is appended to an event log with
 
 ## The hooks
 
-Session Inbox registers 10 hook events in `~/.claude/settings.json`, each running `<home>/bin/inbox-hook <Event>`:
+Session Inbox registers 11 hook events in `~/.claude/settings.json`, each running `<home>/bin/inbox-hook <Event>`:
 
 | Event | Matcher | Timeout |
 | --- | --- | --- |
 | `SessionStart`, `UserPromptSubmit`, `Notification` | none | 5 s |
 | `PreToolUse` | the held tools and `AskUserQuestion` | 130 s |
-| `PostToolUse` | `*` | 5 s |
+| `PostToolUse`, `PostToolUseFailure` | `*` | 5 s |
 | `PermissionRequest` | `*` | 3600 s |
 | `SubagentStart`, `SubagentStop`, `Stop`, `SessionEnd` | none | 5 s |
 
 In the default mode `PreToolUse` is only observed: the hook exits at once. `PermissionRequest` also exits at once when the inbox is only observing; when you can answer from the inbox it waits for your decision, and its timeout is above the longest wait (55 minutes) so Claude never cuts it off first.
+
+## When a call never returns
+
+Each `PreToolUse` starts a call, and its `PostToolUse` ends it. A call that failed or timed out ends with `PostToolUseFailure` instead, which is why that hook is registered: without it a failed command would look as if it were still running. A call you denied in Claude's own prompt reports neither; the daemon takes it as over when the same agent starts its next call more than a minute later, or when the turn ends.
+
+Once a call has been running for longer than **After** in [Settings](settings.md#notifications) (5 minutes unless you change it), the daemon raises a **Still running** item. It doesn't count the time the session spent waiting for your answer, and it never flags subagents (`Task`), `AskUserQuestion`, plan approval or a command started with `run_in_background`. See [Using it](using-it.md#when-a-command-hangs).
 
 ## When Claude goes away
 

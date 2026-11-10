@@ -1,10 +1,12 @@
-# Handoff: v0.2.0 is published; check what no person has seen
+# Handoff: v0.3.0 is published; check what no person has seen
 
-Status as of 2026-11-10. **[v0.2.0](https://github.com/dopsonbr/session-inbox/releases/tag/v0.2.0) is published** from `e842e67` (P-026). Read with [DECISIONS.md](../DECISIONS.md) (G-024 to G-031, C-012 to C-026, D-033 to D-095, H-014 to H-050, U-022 to U-051, S-010 to S-023 and P-012 to P-024 cover this round), [CLAUDE.md](../CLAUDE.md) and the docs site (<https://dopsonbr.github.io/session-inbox/>, source in `site/content/`).
+Status as of 2026-11-10. **[v0.3.0](https://github.com/dopsonbr/session-inbox/releases/tag/v0.3.0) is published** from `1352336` (P-027); v0.2.0 came first from `e842e67` (P-026). Read with [DECISIONS.md](../DECISIONS.md) (G-024 to G-031, C-012 to C-026, D-033 to D-095, H-014 to H-050, U-022 to U-051, S-010 to S-023 and P-012 to P-024 cover this round), [CLAUDE.md](../CLAUDE.md) and the docs site (<https://dopsonbr.github.io/session-inbox/>, source in `site/content/`).
 
 ## Where things stand
 
-**Since the release (on `main`, not released):** History and search (G-032, C-027, C-028, D-096, D-097, U-052 to U-058) a UX review with its fixes (U-059 to U-077), and shortcuts you can change in Settings (G-034, C-029, D-098, U-078 to U-083, S-024 to S-026). [UX.md](../UX.md) is the running UX log: scores per feature, step counts per task and findings; eight findings are still open there. Checked in the browser against the demo daemon in light and dark, popover included; not yet seen in the real app windows. The installed GA and beta on this Mac are still 0.2.0 without any of it. The next release would be 0.3.0 (`bun scripts/bump.ts minor`, move the changelog's "Unreleased" notes under it, publish when the owner asks), and it is the first chance to watch a real self-update.
+**In 0.3.0 (released):** History and search (G-032, C-027, C-028, D-096, D-097, U-052 to U-058), a UX review with its fixes (U-059 to U-077), and shortcuts you can change in Settings (G-034, C-029, D-098, U-078 to U-083, S-024 to S-026). [UX.md](../UX.md) is the running UX log: scores per feature, step counts per task and findings, with the open ones listed there. This Mac's GA install updated itself from 0.2.0 to 0.3.0 through its own updater (P-027).
+
+**Since 0.3.0 (on `main`, not released):** stuck-call detection (G-035, C-030, D-099, D-100, H-051): a tool call running longer than 5 minutes raises a "Still running" item in Review, and the `PostToolUseFailure` hook is registered as an eleventh event. A docs tour with a screenshot of every feature is being added to the site. The next release is 0.3.1 or 0.4.0: bump, move the changelog's "Unreleased" notes under it, publish when the owner asks.
 
 **Merged on `main`, tests green:**
 

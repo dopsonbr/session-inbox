@@ -36,6 +36,8 @@ If another install is on the same Mac, the first row adds a note: only one insta
 | --- | --- | --- |
 | **Notify even when the menu-bar app isn't running** | on | Posts a plain macOS notification instead. It has no buttons. |
 | **Group finished sessions** | 30 seconds | Sessions that finish within this window share one notification. 0 to 600 seconds. |
+| **Tell me when a tool call runs long** | on | A command that hangs, or a server started in the foreground, shows up in Review with one notification. See [When a command hangs](using-it.md#when-a-command-hangs). |
+| **After** | 5 minutes | Shown while the switch above is on. How long a call may run before you're told. 1 to 240 minutes. |
 
 ## Sessions
 

@@ -9,6 +9,12 @@ section: Reference
 
 What changed in each release, newest first. Versions are tagged on [GitHub Releases](https://github.com/dopsonbr/session-inbox/releases), where you can download them.
 
+## Unreleased
+
+On `main`, not in a release yet.
+
+- **Told when a command hangs.** A tool call that has been running for more than 5 minutes (a hung command, a dev server started in the foreground) shows up in **Review** as "Running npm run dev for 12 min", with one notification. **Done** if it's meant to run, **Open in Claude** to stop it. Session Inbox now also registers Claude's `PostToolUseFailure` hook, so a command that failed or timed out isn't mistaken for one that is still running. See [Using it](using-it.md#when-a-command-hangs).
+
 ## 0.3.0
 
 Published 2026-11-10: [v0.3.0 on GitHub](https://github.com/dopsonbr/session-inbox/releases/tag/v0.3.0). An install of 0.2.0 updates to it by itself, or with **Update now**.

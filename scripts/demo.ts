@@ -340,6 +340,17 @@ await hook(
   "cli",
 )
 
+// 8 · A dev server started in the foreground: the call never returns, and after the limit it
+// shows in Review as "Running npm run dev for 12 min" (D-099). Posted without the
+// PermissionRequest that `hook` adds, as if a rule had allowed it; back-dated below.
+const s8 = "88888888-0000-4000-8000-000000000008"
+await session(s8, "simple-offline-pos", "Try the receipt layout in the browser")
+await post(s8, "simple-offline-pos", "PreToolUse", {
+  tool_name: "Bash",
+  tool_use_id: "dev1",
+  tool_input: { command: "npm run dev", description: "Start the dev server" },
+})
+
 // 7 · Older, finished sessions for History: each ended, then moved back in time below.
 const past: Array<[sid: string, project: string, daysAgo: number]> = []
 const pastSession = async (n: number, project: string, prompt: string, daysAgo: number) => {
@@ -408,6 +419,9 @@ for (const [sid, , daysAgo] of past) {
     "UPDATE sessions SET created_at = created_at - ?1, last_event_at = last_event_at - ?1 WHERE id = ?2",
   ).run(back, sid)
 }
+db.query("UPDATE tool_calls SET started_at = started_at - ?1 WHERE tool_use_id = 'dev1'").run(
+  12 * 60_000,
+)
 db.close()
 
 // `?k=` proves the page may have the token (D-095); without it the daemon serves a notice.

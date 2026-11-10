@@ -20,6 +20,7 @@ A notification appears when a session needs you. What you can do from it depends
 | Still waiting in Claude | **Open** | Replaces a permission notification when the inbox stops answering: "Still waiting in Claude: …". |
 | Question | **Answer**, **Open** | **Answer** opens the item with the form ready. |
 | Failure | **Open** | The session stopped with an error or ended abnormally. |
+| Still running | **Open** | A tool call has been running for longer than the limit: "Running npm run dev for 5 min". Sent once per call. |
 | Ready to review | **Open** | Quiet, and grouped: sessions finishing within 30 seconds of each other come as one "N sessions ready to review" notification. |
 
 Clicking the notification body opens the item in the inbox window. Allow and Deny act at once and open nothing.
@@ -58,7 +59,7 @@ The window has a tree on the left (project, then session, then subagent), a queu
 
 - **Needs you:** questions, permission requests and failures. This is the list that drives the badge.
 - **Working:** sessions that are running right now. Nothing for you to do, but handy to see what's in flight.
-- **Review:** sessions that stopped cleanly, the items marked **Ready to review**. Open one when you're ready to look at the result, then choose **Done**.
+- **Review:** sessions that stopped cleanly, the items marked **Ready to review**. Open one when you're ready to look at the result, then choose **Done**. A call that has been running too long shows up here too, marked **Still running** (see [When a command hangs](#when-a-command-hangs)).
 - **Snoozed:** items you've put off. They come back at the time you chose and notify once.
 
 The inbox never decides which queue an item belongs in. The daemon does, and the window shows its answer.
@@ -109,6 +110,20 @@ You can send a free-text reply to a session from its item. How it travels depend
 - Replies are never sent into a session that's in the middle of a turn.
 
 A reply shows as pending, then delivered once the session's next activity confirms it arrived. If nothing confirms it within five minutes, the item is flagged as unconfirmed so you know to check.
+
+## When a command hangs
+
+A failure is something you hear about. A command that simply never returns is not: Claude sits on it and the session looks busy. So when one tool call has been running for more than 5 minutes, Session Inbox puts an item in **Review** and sends one notification. The item is marked **Still running** and reads, for example, "Running npm run dev for 12 min"; the time keeps counting.
+
+The item shows the command (or URL, or tool) and when it started. What you do next depends on what it is:
+
+- **It's meant to keep running**, like a dev server started in the foreground: choose **Done**. You won't be told about that call again.
+- **It's hung**: choose **Open in Claude** and stop it there. The inbox can't interrupt a command.
+- **Not now**: **Snooze** it.
+
+If the call finishes by itself, the item leaves Review and its notification is taken back. You can't reply to this kind of item, because the session is busy with the call.
+
+Time the session spent waiting for you to allow the call doesn't count. Subagents, Claude's questions and commands Claude started in the background are never flagged. Turn this off, or change the limit (1 to 240 minutes), with **Tell me when a tool call runs long** in [Settings](settings.md#notifications).
 
 ## Snooze, dismiss and mute
 

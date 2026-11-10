@@ -26,7 +26,7 @@ session-inbox doctor --json
 The checks, in order:
 
 - **Session Inbox is running**: the daemon's version and build, and how long it has been up.
-- **Claude Code hooks**: whether `~/.claude/settings.json` registers all 10 hook events and points at this install's `inbox-hook`. If some are missing, it names them.
+- **Claude Code hooks**: whether `~/.claude/settings.json` registers all 11 hook events and points at this install's `inbox-hook`. If some are missing, it names them.
 - **Hook events**: whether any session has reported yet. If not, restart the sessions that were already open.
 - **Approvals**: how this install handles permission prompts (answering Claude's own prompt, with how long it waits, or the classic hold), or that it only observes. It warns if the mode needs the `PermissionRequest` hook and this install has none. If a [second channel](channels.md) is installed, it says so.
 - **claude command-line tool**: whether `claude` is on the path the daemon uses, and logged in. A missing or logged-out `claude` is shown as information, not a problem: it only affects replies to idle sessions and generated titles, so it doesn't add to the badge.
@@ -168,6 +168,8 @@ Most of Session Inbox has been checked on a real install with real Claude sessio
 - **The token-gated page inside the real app windows.** The app now opens its windows with the token in the address. That is unit-tested and the screenshots are made through headless Chrome, and the reinstalled apps connect, but no person has looked at the windows themselves.
 - **The 15-second retry across a real update.** A waiting hook retries when the daemon restarts. That hasn't been tried against a real Claude session across a real update.
 - **Terminal `claude` sessions.** Everything checked live used the Claude desktop app's Code tab. Sessions started from the `claude` CLI in a terminal haven't been checked, including the approval flow.
+- **An unattended update.** A 0.2.0 install updated itself to 0.3.0 from GitHub when asked (the **Update now** path). The fully automatic path, where the daemon installs an update by itself once sessions are quiet, hasn't been watched on a real release.
+- **A hung command on a real session.** The **Still running** item is covered by tests and the seeded demo; nobody has yet watched a real foreground dev server get flagged, or checked that Claude sends `PostToolUseFailure` when a command times out.
 - **Changing the system-wide shortcut.** The menu-bar app re-registers **Open the inbox from any app** when you change it in Settings. That is covered by unit tests, but nobody has pressed the new key in the running app, or seen what happens when another app already owns it.
 - **The new views in the real app windows.** History, the Shortcuts settings and the popover's **Allow** and **Deny** were checked in a browser against a real daemon, not yet in the menu-bar app's own windows.
 - **A full install on a second Mac.** The one-line installer has been run against the published release, but only into a throwaway home with `--no-launchd --no-app` on the Mac that built it. No second Mac has installed from it yet, with the launchd agent, the menu-bar app and the notification prompt.
