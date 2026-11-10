@@ -7,9 +7,11 @@ import { Schema, Struct } from "effect"
 import {
   Agent,
   Approval,
+  AttentionKind,
   Counts,
   Decision,
   Item,
+  Millis,
   OutboxEntry,
   Project,
   Question,
@@ -50,6 +52,17 @@ export const Routes = {
   doctorNotify: "/v1/doctor/notify",
   /** POST ShellStatus: the menu-bar app reports what it can do (C-022). */
   shellStatus: "/v1/shell/status",
+  /** GET: finished items, newest first, as a HistoryPage (C-027). */
+  historyPath: "/v1/history",
+  history: (query: HistoryQuery = {}) => {
+    const p = new URLSearchParams()
+    if (query.q?.trim()) p.set("q", query.q.trim())
+    if (query.kind) p.set("kind", query.kind)
+    if (query.before) p.set("before", query.before)
+    if (query.limit !== undefined) p.set("limit", String(query.limit))
+    const qs = p.toString()
+    return qs === "" ? "/v1/history" : `/v1/history?${qs}`
+  },
 } as const
 
 export const Snapshot = Schema.Struct({
@@ -85,6 +98,70 @@ export const ItemDetail = Schema.Struct({
   replyUnavailable: Schema.optional(Schema.String),
 })
 export type ItemDetail = typeof ItemDetail.Type
+
+// ---------------------------------------------------------------------------
+// History (C-027): finished items and how each ended. A query over what the inbox
+// still stores (`storage.retentionDays`); it is not a transcript search.
+// ---------------------------------------------------------------------------
+
+/** `GET /v1/history` parameters. Words in `q` must all match (any field each). */
+export interface HistoryQuery {
+  readonly q?: string
+  readonly kind?: AttentionKind | null
+  /** `HistoryPage.nextBefore` of the page before: entries older than it. */
+  readonly before?: string | null
+  /** 1..HISTORY_LIMIT_MAX; default HISTORY_LIMIT_DEFAULT. */
+  readonly limit?: number
+}
+export const HISTORY_LIMIT_DEFAULT = 50
+export const HISTORY_LIMIT_MAX = 200
+
+/**
+ * How a finished item ended; the daemon decides, the UI words it.
+ * `in-claude`: a question or permission that was settled in Claude, not here.
+ * `moved-on`: a review or failed item the session carried on from without a reply.
+ * `expired`: a held tool call nobody answered in time (Claude's own prompt took over).
+ */
+export const HistoryOutcome = Schema.Literals([
+  "allowed",
+  "always-allowed",
+  "denied",
+  "answered",
+  "replied",
+  "in-claude",
+  "moved-on",
+  "expired",
+  "dismissed",
+])
+export type HistoryOutcome = typeof HistoryOutcome.Type
+
+/** Where a query matched when the row's own lines (summary, session, project) don't show it. */
+export const HistoryMatch = Schema.Struct({
+  where: Schema.Literals(["question", "answer", "tool", "reply", "reason", "path"]),
+  /** A short excerpt around the first matching word, one line. */
+  text: Schema.String,
+})
+export type HistoryMatch = typeof HistoryMatch.Type
+
+export const HistoryEntry = Schema.Struct({
+  item: Item,
+  session: Session,
+  project: Project,
+  outcome: HistoryOutcome,
+  /** When it ended: the answer or decision, else the item's last change. */
+  endedAt: Millis,
+  match: Schema.optional(HistoryMatch),
+})
+export type HistoryEntry = typeof HistoryEntry.Type
+
+export const HistoryPage = Schema.Struct({
+  entries: Schema.Array(HistoryEntry),
+  /** Pass as `before` for the next page; null when there is no more. */
+  nextBefore: Schema.NullOr(Schema.String),
+  /** How many days finished items are kept (`storage.retentionDays`). */
+  retentionDays: Schema.Number,
+})
+export type HistoryPage = typeof HistoryPage.Type
 
 /** One answer per question idx. `selected` are option labels; `other` is free text. */
 export const Answer = Schema.Struct({

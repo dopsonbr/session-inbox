@@ -47,6 +47,7 @@ entries with your section's prefix (G, C, D, H, U, S, P) and the next free numbe
   4. **Phone push relay** (cut). Most tempting, since approvals are most useful when you're away from the desk. But it sends prompts, commands and file paths to a third-party service, needs an account and a secret, and breaks G-001 (this Mac only). It needs its own threat model, not a late addition.
   5. **History and search** over finished items and sessions (cut). The snapshot is deliberately a 24-hour working set (D-025) and v1 is an inbox, not a transcript viewer; search adds an index, a query API and a new view for something Claude's own session list already does.
 - G-031 — Delegation for this round: Opus 5.5 (medium) for the release/installer CLI, the updater, settings and the approval preview; Sonnet 5.5 (medium) for finishing the beta shell. User instruction: Opus on medium wherever possible, Sonnet never above high.
+- G-032 — History and search is built after all (reverses the cut in G-030, on the owner's word, 2026-11-10); the phone push relay stays cut: the product is local and desktop-only. Scope: finished items and how each ended, searchable by what the inbox showed and what you answered. Not Claude's messages or transcripts. Why: once an item is answered it leaves every queue, so "what did I allow an hour ago?" had no answer in the app.
 
 ## Contracts
 
@@ -73,6 +74,7 @@ entries with your section's prefix (G, C, D, H, U, S, P) and the next free numbe
 - C-024 — `UserSettings` gains `storage.retentionDays` (number, `SETTING_LIMITS` 1–365, default 14) so the Settings pane can show retention (D-063). A required key, so `FAKE_SETTING_DEFAULTS` in the UI's fake client got the one line it needs to typecheck.
 - C-025 — PermissionRequest contracts, additive: `HookEvent` gains `PermissionRequest`; `PermissionRequestPayload` = HookBase + `tool_name`, `tool_input`, optional `tool_use_id`, `permission_suggestions` (Unknown, so an unexpected shape never fails decoding), `mcp_server`; `HookIngestResponse.holdMs?`; `HookDecision.updatedPermissions?`; `Approval.via?: "permissionRequest"`. `UserSettings` gains required `holds.via` (`HOLDS_VIA`) and `holds.requestBudgetMs` (`SETTING_LIMITS` 15 s–55 min), as C-024 did; the fake client's defaults carry both.
 - C-026 — `Approval.alwaysAllow` (optional string): the rule Always allow would add and where, in words for the card; absent when Always allow isn't offered. Review finding: Always allow could write a bare tool name (every `Edit` in the project) while the card promised "the rule Claude suggests". The daemon now says exactly what will be written, and the UI shows the button only when it does. Additive.
+- C-027 — `GET /v1/history?q=&kind=&before=&limit=` returns a `HistoryPage`: `entries` (`item`, `session`, `project`, daemon-decided `outcome`, `endedAt`, optional `match` excerpt), `nextBefore` cursor and `retentionDays`. `Routes.history(query)` builds the URL. Additive; opening an entry uses the existing `GET /v1/items/:id`. Why: the outcome (allowed, denied, answered, in Claude, expired…) is domain state, so the daemon names it and the UI only words it.
 
 
 ## Daemon
