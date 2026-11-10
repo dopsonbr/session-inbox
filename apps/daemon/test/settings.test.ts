@@ -270,6 +270,29 @@ describe("shortcut settings", () => {
     expect(shortcutFrames(ui)).toHaveLength(2)
   })
 
+  test("only the menu-bar app is told what its clicks open, and again when it changes", () => {
+    const h = makeHarness()
+    const ui = frames(h, "ui")
+    const shell = frames(h, "shell")
+    const opens = (seen: Array<Record<string, unknown>>) =>
+      seen.filter((m) => m._tag === "app").map((m) => m.opens)
+    expect(opens(shell)).toEqual(["window"])
+    // The same greeting carries the current count, so a restarted app isn't blank (D-102).
+    expect(shell.filter((m) => m._tag === "badge").map((m) => m.count)).toEqual([0])
+    expect(ui.some((m) => m._tag === "badge")).toBe(false)
+
+    expect(h.engine.updateSettings({ "app.opens": "windowFirst" }).settings["app.opens"]).toBe(
+      "windowFirst",
+    )
+    h.engine.updateSettings({ "titles.generate": false })
+    expect(opens(shell)).toEqual(["window", "windowFirst"])
+    expect(opens(ui)).toEqual([])
+
+    expect(Result.isFailure(decodeSettingsPatch({ "app.opens": "dock" }))).toBe(true)
+    expect(h.engine.updateSettings({ "app.opens": null }).settings["app.opens"]).toBe("window")
+    expect(opens(shell)).toEqual(["window", "windowFirst", "window"])
+  })
+
   test('"" turns a shortcut off; null puts the default back', () => {
     const h = makeHarness()
     expect(h.engine.updateSettings({ "shortcuts.done": "" }).settings["shortcuts.done"]).toBe("")

@@ -182,12 +182,17 @@ fn on_response(r: &UNNotificationResponse) {
     let Some(action) = response_action(&identifier) else { return };
     let Some(app) = APP.get().cloned() else { return };
     // Off the delegate's queue: the HTTP call must not hold up the system.
+    let opens = opens_window(action) && !item_id.is_empty();
+    if opens {
+        // The click also makes the app frontmost: say now that something is about to open.
+        crate::mark_request(&app);
+    }
     std::thread::spawn(move || {
         if let Some(c) = crate::daemon::current() {
             crate::daemon::acted(&c, &id, action);
         }
-        if opens_window(action) && !item_id.is_empty() {
-            crate::show_main(&app, Some(format!("#/item/{item_id}")));
+        if opens {
+            crate::open_item(&app, format!("#/item/{item_id}"));
         }
     });
 }

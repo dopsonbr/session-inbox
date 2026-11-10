@@ -296,7 +296,10 @@ export const install = async (o: InstallOptions, say: Say): Promise<void> => {
       installedApp = dest
       say(`installed ${dest}`)
       if (!o.updating || wasRunning) {
-        const open = Bun.spawnSync(["/usr/bin/open", dest])
+        // A restart must not take the screen: the app comes back in the background and
+        // reopens its window only if it was open (S-030). A first install shows the inbox.
+        const how = wasRunning ? ["-g", dest, "--args", "--background"] : [dest]
+        const open = Bun.spawnSync(["/usr/bin/open", ...how])
         say(`open ${dest} -> exit ${open.exitCode}`)
       }
     }

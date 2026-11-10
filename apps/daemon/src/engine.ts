@@ -435,6 +435,11 @@ export class Engine {
     this.startedAt = deps.clock.now()
     this.hub.onShellChange = (connected) => this.onShellChange(connected)
     this.hub.shortcutsGreeting = () => this.shortcutsMessage()
+    // A menu-bar app that has just started shows the count at once, not at the next change.
+    this.hub.shellGreeting = () => [
+      this.appMessage(),
+      { _tag: "badge", seq: this.store.maxSeq(), count: this.store.counts().needsYou },
+    ]
     this.lastBadge = this.store.counts().needsYou
     for (const r of this.store.all<{ hook_request_id: string }>(
       "SELECT hook_request_id FROM approvals WHERE live = 1",
@@ -2608,7 +2613,14 @@ export class Engine {
     // Every open page and the menu-bar app rebind at once (C-029).
     if (next.some(([key]) => shortcutActionOf(key) !== null))
       this.hub.publish(this.shortcutsMessage())
+    // The menu-bar app routes its next click by the new choice (C-031).
+    if (next.some(([key]) => key === "app.opens")) this.hub.publish(this.appMessage())
     return this.userSettings()
+  }
+
+  /** What the menu-bar app's clicks open, as the stream carries it to the shell (C-031). */
+  appMessage(): StreamMessage {
+    return { _tag: "app", seq: this.store.maxSeq(), opens: this.settings["app.opens"] }
   }
 
   /** Every shortcut action's key press as the stream carries it (C-029). */

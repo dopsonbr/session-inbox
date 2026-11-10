@@ -41,6 +41,7 @@ export type SettingsGroupId =
   | "sessions"
   | "storage"
   | "updates"
+  | "app"
   | "shortcuts"
 export type FieldKind =
   | "toggle"
@@ -81,6 +82,7 @@ export const SETTINGS_GROUPS: ReadonlyArray<Readonly<{ id: SettingsGroupId; titl
   { id: "sessions", title: "Sessions" },
   { id: "storage", title: "Storage" },
   { id: "updates", title: "Updates" },
+  { id: "app", title: "Window and menu bar" },
   { id: "shortcuts", title: "Shortcuts" },
 ]
 
@@ -198,6 +200,20 @@ export const SETTINGS_FIELDS: ReadonlyArray<SettingsField> = [
     kind: "toggle",
     label: "Install updates automatically",
     help: "Only while nothing is waiting on you, nothing is being sent and sessions have been quiet for 30 seconds. Until then you get an Update now button.",
+  },
+  {
+    // Where a notification click and the menu-bar icon go; the shell reads it from the
+    // daemon's stream (U-089).
+    key: "app.opens",
+    group: "app",
+    kind: "choice",
+    label: "Notification clicks and the menu-bar icon",
+    help: "The window is the full inbox; the popover is the short list under the menu-bar icon. The Open inbox shortcut and the Dock icon always open the window.",
+    options: [
+      { value: "window", label: "Notifications open the window, the icon opens the popover" },
+      { value: "popover", label: "Both open the popover" },
+      { value: "windowFirst", label: "Both use the window while it's open" },
+    ],
   },
   // One row per shortcut action (U-078): the menu-bar app's system-wide key first.
   ...SHORTCUT_ROW_ORDER.map(

@@ -239,6 +239,16 @@ export const HOLDS_VIA = ["preToolUse", "permissionRequest"] as const
 export const HoldsVia = Schema.Literals(HOLDS_VIA)
 export type HoldsVia = typeof HoldsVia.Type
 
+/**
+ * Which of the menu-bar app's two surfaces a click opens (C-031). "window": a notification
+ * click shows the item in the inbox window and the menu-bar icon opens the popover. "popover":
+ * a notification click opens the popover with the item marked. "windowFirst": like "window",
+ * and while the window is open the menu-bar icon brings it forward instead of the popover.
+ */
+export const APP_OPENS = ["window", "popover", "windowFirst"] as const
+export const AppOpens = Schema.Literals(APP_OPENS)
+export type AppOpens = typeof AppOpens.Type
+
 export const UserSettings = Schema.Struct({
   "holds.enabled": Schema.Boolean,
   /** "permissionRequest" (default): answer Claude's own prompt; whichever answers first wins. */
@@ -258,6 +268,8 @@ export const UserSettings = Schema.Struct({
   /** Flag a tool call that has been running this long as a `stuck` item (C-030). */
   "stuck.enabled": Schema.Boolean,
   "stuck.afterMs": Schema.Finite,
+  /** What notification clicks and the menu-bar icon open; the menu-bar app applies it (C-031). */
+  "app.opens": AppOpens,
   /**
    * One key press per shortcut action, or "" for none (C-029); grammar and rules in
    * `shortcuts.ts`. `shortcuts.openInbox` is the menu-bar app's system-wide key.
@@ -492,6 +504,11 @@ export const StreamMessage = Schema.Union([
     seq: Schema.Number,
     bindings: Schema.Record(Schema.String, Schema.String),
   }),
+  /**
+   * Live-only, to shell clients: after hello and whenever `app.opens` changes (C-031). The
+   * menu-bar app routes its own clicks by it; pages never see it.
+   */
+  Schema.TaggedStruct("app", { seq: Schema.Number, opens: AppOpens }),
   /** Live-only, to UI clients: the setup check changed; refetch /v1/doctor (C-021). */
   Schema.TaggedStruct("doctor", { seq: Schema.Number, attention: Schema.Number }),
 ])

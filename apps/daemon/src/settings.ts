@@ -3,7 +3,7 @@
  * (value_json), overridden by explicit overrides (tests).
  */
 import type { Database } from "bun:sqlite"
-import { type HoldsVia, SHORTCUT_DEFAULTS } from "@session-inbox/contracts"
+import { type AppOpens, type HoldsVia, SHORTCUT_DEFAULTS } from "@session-inbox/contracts"
 import type { AnswerMode } from "./domain/questions.ts"
 
 export interface Settings {
@@ -49,6 +49,8 @@ export interface Settings {
   /** Flag a tool call still running after `stuck.afterMs` as a stuck item (D-099). */
   "stuck.enabled": boolean
   "stuck.afterMs": number
+  /** What clicks in the menu-bar app open; sent to the shell, which applies it (C-031, D-101). */
+  "app.opens": AppOpens
   /** Key presses for each shortcut action, "" for none (C-029, D-098). */
   "shortcuts.jump": string
   "shortcuts.submit": string
@@ -94,6 +96,7 @@ export const DEFAULT_SETTINGS: Settings = {
   "storage.retentionDays": 14,
   "stuck.enabled": true,
   "stuck.afterMs": 5 * 60_000,
+  "app.opens": "window",
   "shortcuts.jump": SHORTCUT_DEFAULTS.jump,
   "shortcuts.submit": SHORTCUT_DEFAULTS.submit,
   "shortcuts.deny": SHORTCUT_DEFAULTS.deny,

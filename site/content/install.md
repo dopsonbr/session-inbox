@@ -55,7 +55,7 @@ The installer touches these places and nothing else:
 | `~/Library/Application Support/SessionInbox/` | The `inbox-hook`, `inboxd` and `session-inbox` binaries, the UI, `install.json` (how it was installed), the SQLite database, the daemon's socket and token files, and its logs. |
 | `~/Library/LaunchAgents/com.sessioninbox.inboxd.plist` | A launchd agent named `com.sessioninbox.inboxd` that keeps the daemon running and starts it at login. |
 | `~/.claude/settings.json` | Hooks for Session Inbox are merged in. If the file changes, a backup is made first (`settings.json.bak-<timestamp>` beside it). Everything else in the file is kept, and only entries for `inbox-hook` are ever touched. |
-| `~/Applications/Session Inbox.app` | The menu-bar app. It is opened after install and registers itself to start at login the first time it runs. |
+| `~/Applications/Session Inbox.app` | The menu-bar app, which also has a Dock icon and the inbox window. It is opened after install and registers itself to start at login the first time it runs; started at login, it stays in the background unless its window was open when it last quit. |
 | `~/.local/bin/session-inbox` | A symlink to the `session-inbox` command. If `~/.local/bin` isn't on your `PATH`, the installer's closing lines print the full path to the command and the one line that adds the directory to `PATH` for zsh (an `echo 'export PATH=…' >> ~/.zshrc`). It never edits your shell files itself. |
 
 The installer also clears macOS's quarantine flag on the files it copies, so a tarball downloaded in a browser still runs. The app is signed ad hoc, not with a Developer ID, and it isn't notarized.

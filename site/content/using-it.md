@@ -23,7 +23,7 @@ A notification appears when a session needs you. What you can do from it depends
 | Still running | **Open** | A tool call has been running for longer than the limit: "Running npm run dev for 5 min". Sent once per call. |
 | Ready to review | **Open** | Quiet, and grouped: sessions finishing within 30 seconds of each other come as one "N sessions ready to review" notification. |
 
-Clicking the notification body opens the item in the inbox window. Allow and Deny act at once and open nothing.
+Clicking the notification body opens the item in the inbox window, brought forward wherever it is. With **Both open the popover** chosen in [Settings](#where-clicks-go), it opens the popover instead, with that item's row marked. Allow and Deny act at once and open nothing, whichever you chose.
 
 When the menu-bar app isn't allowed to show notifications, or isn't running, Session Inbox posts a plain macOS notification instead, with no buttons, so you're still told. Open the item in the inbox to answer it. A Focus mode on your Mac hides banners whatever Session Inbox does. If notifications aren't arriving, see [Troubleshooting](troubleshooting.md#notifications).
 
@@ -34,11 +34,11 @@ When the menu-bar app isn't allowed to show notifications, or isn't running, Ses
 The menu-bar icon carries a badge with the number of items that **need you**. Click it for the popover:
 
 - a header with the counts ("2 need you", "1 working · 3 to review");
-- the items that need you, one row each, with what is being asked ("Wants to run bun run migrate") and the project. Click a row to open it in the inbox window;
+- the items that need you, one row each, with what is being asked ("Wants to run bun run migrate") and the project. Click a row to open that item in the inbox window;
 - **Allow** and **Deny** on the row of a tool call that is waiting right now, so you can answer without opening the window. There is no preview and no **Always allow** here; open the row when you want to see the diff first;
 - when nothing needs you, up to five **Ready to review** rows with a one-line summary of what was done;
 - a banner row when an update is ready, and a **Setup** row when the setup check has something for you;
-- an **Open inbox** button. The shortcut <kbd>⌘</kbd><kbd>⇧</kbd><kbd>I</kbd> opens the main window from anywhere.
+- an **Open inbox** button. The shortcut <kbd>⌘</kbd><kbd>⇧</kbd><kbd>I</kbd> (<kbd>⌘</kbd><kbd>⌥</kbd><kbd>⇧</kbd><kbd>I</kbd> on the beta install) opens the main window from anywhere.
 
 [[screenshot popover.png 380x520 The menu-bar popover: a header with the count of items that need you, a Setup row saying how many checks need attention, rows for each item with its title, what is being asked and the project, Allow and Deny buttons on the tool calls that are waiting, and an Open inbox button at the bottom.]]
 
@@ -51,7 +51,35 @@ Right-click the icon for its menu:
 - **Check for Updates…**
 - **Quit Session Inbox**
 
-The popover closes when you click away. Closing the main window only hides it; the app keeps running. Quit from the menu.
+The popover closes when you click away.
+
+## The window is an app too
+
+Session Inbox is a regular Mac app as well as a menu-bar app. It has a Dock icon and is in <kbd>⌘</kbd><kbd>Tab</kbd>, always, and the Dock icon carries the same count as the menu bar: the items that need you. The menu-bar icon and its popover stay.
+
+The inbox window opens when you:
+
+- launch the app (from the Dock, Spotlight or Finder);
+- click its Dock icon;
+- switch to it with <kbd>⌘</kbd><kbd>Tab</kbd> while no window is showing;
+- press the Open inbox shortcut, <kbd>⌘</kbd><kbd>⇧</kbd><kbd>I</kbd> (<kbd>⌘</kbd><kbd>⌥</kbd><kbd>⇧</kbd><kbd>I</kbd> on the beta install);
+- choose **Open inbox** in the menu-bar icon's menu.
+
+A minimised window stays in the Dock until you click it or the Dock icon.
+
+Closing the window (the red button or <kbd>⌘</kbd><kbd>W</kbd>) hides it. The app keeps running, and the menu-bar icon and notifications keep working. <kbd>⌘</kbd><kbd>Q</kbd>, or **Quit Session Inbox** in the menu-bar icon's menu, quits the menu-bar app. The background daemon keeps running, so the hooks and the daemon's own plain notifications keep working.
+
+The window remembers its position, its size and whether it was open, across restarts and updates. You can leave it on another monitor; if that monitor is gone, it opens at the default position. When the app starts at login or is restarted by an update, it starts in the background: the window comes back only if it was open when the app last quit.
+
+### Where clicks go
+
+**Notification clicks and the menu-bar icon**, in the **Window and menu bar** group of [Settings](settings.md#window-and-menu-bar), has three choices:
+
+- **Notifications open the window, the icon opens the popover** (the default). Clicking a notification shows its item in the inbox window, brought forward wherever it is. The menu-bar icon opens the popover.
+- **Both open the popover.** Clicking a notification opens the popover with that item's row marked. The menu-bar icon opens the popover.
+- **Both use the window while it's open.** Like the default, and while the inbox window is open, clicking the menu-bar icon brings the window forward instead of opening the popover. With the window closed, the icon opens the popover.
+
+Whichever you choose, the Open inbox shortcut, the Dock icon and links to a session open the window, and the **Allow** and **Deny** buttons on a notification still answer in place.
 
 ## The inbox window
 

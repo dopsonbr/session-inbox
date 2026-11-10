@@ -37,6 +37,7 @@ export const FAKE_SETTING_DEFAULTS = {
   "storage.retentionDays": 14,
   "stuck.enabled": true,
   "stuck.afterMs": 300_000,
+  "app.opens": "window",
   "shortcuts.jump": SHORTCUT_DEFAULTS.jump,
   "shortcuts.submit": SHORTCUT_DEFAULTS.submit,
   "shortcuts.deny": SHORTCUT_DEFAULTS.deny,

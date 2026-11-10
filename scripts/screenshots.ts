@@ -629,6 +629,14 @@ try {
       ],
     },
     {
+      name: "tour-settings-window",
+      path: "/#/settings",
+      size: wide,
+      scheme: "light",
+      ready: settingsReady,
+      steps: [{ scroll: { css: "#settings-group-app" } }],
+    },
+    {
       name: "tour-update",
       path: "/?client=fake&update=available",
       size: wide,
@@ -651,6 +659,14 @@ try {
       size: pop,
       scheme: "light",
       ready: { css: "[aria-label='Needs you']" },
+    },
+    // A notification click with "Both open the popover": the row it pointed at is marked.
+    {
+      name: "tour-popover-marked",
+      path: `/?view=compact#/item/${review}`,
+      size: pop,
+      scheme: "light",
+      ready: { css: "[aria-current=true]" },
     },
     {
       name: "tour-popover-empty",

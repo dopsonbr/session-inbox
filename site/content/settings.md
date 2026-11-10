@@ -1,13 +1,13 @@
 ---
 title: Settings
-description: Every Session Inbox setting, what it does and its default: approvals, notifications, sessions, storage and updates. Change them in the Settings pane with Cmd-comma; changes apply live.
+description: Every Session Inbox setting, what it does and its default: approvals, notifications, sessions, storage, updates, the window and menu bar, and shortcuts. Change them in the Settings pane with Cmd-comma; changes apply live.
 order: 4
 section: Guides
 ---
 
 # Settings
 
-Open the Settings pane from the inbox window with <kbd>⌘</kbd><kbd>,</kbd>, with the gear button in the header, or with **Settings…** in the menu-bar menu. It is a dialog with six groups: **Approvals**, **Notifications**, **Sessions**, **Storage**, **Updates** and **Shortcuts**. The title is **Settings**, with a **Beta** badge on the beta install, and under it: "Changes apply as you make them." There is no Save button.
+Open the Settings pane from the inbox window with <kbd>⌘</kbd><kbd>,</kbd>, with the gear button in the header, or with **Settings…** in the menu-bar menu. It is a dialog with seven groups: **Approvals**, **Notifications**, **Sessions**, **Storage**, **Updates**, **Window and menu bar** and **Shortcuts**. The title is **Settings**, with a **Beta** badge on the beta install, and under it: "Changes apply as you make them." There is no Save button.
 
 Each control saves on its own, and the daemon applies the change at once: you don't restart anything, and Claude sessions that are already running pick it up on their next event. Switches save when you click them. Number boxes save when you press <kbd>Enter</kbd> or click away. A row shows "Saving…" and then "Saved", or the daemon's error if it refused the value.
 
@@ -60,6 +60,16 @@ If another install is on the same Mac, the first row adds a note: only one insta
 | **Install updates automatically** | on | Only while no tool call is held and nothing is being sent. Otherwise you get an **Update now** button. (The daemon also waits for 30 seconds without any session activity.) |
 
 See [Updating](updating.md) for what each switch does in practice.
+
+## Window and menu bar
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| **Notification clicks and the menu-bar icon** | **Notifications open the window, the icon opens the popover** | The other choices are **Both open the popover** and **Both use the window while it's open**. The window is the full inbox; the popover is the short list under the menu-bar icon. The Open inbox shortcut and the Dock icon always open the window. |
+
+With **Both open the popover**, a notification click opens the popover with that item's row marked. With **Both use the window while it's open**, clicking the menu-bar icon brings the inbox window forward while it is open, and opens the popover while it is closed. **Allow** and **Deny** on a notification answer in place whichever you choose. See [The window is an app too](using-it.md#the-window-is-an-app-too).
+
+[[screenshot tour-settings-window.png 1440x900 The Settings dialog scrolled to the Window and menu bar group: Notification clicks and the menu-bar icon, with three choices, Notifications open the window, the icon opens the popover (selected), Both open the popover, and Both use the window while it's open, and the help text under them.]]
 
 ## Shortcuts
 

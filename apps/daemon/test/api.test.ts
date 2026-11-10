@@ -267,7 +267,8 @@ describe("hooks + UI round trips", () => {
 
   test("SSE stream: hello, deltas with seq ids, resume, notify to the shell", async () => {
     const before = ((await (await api("/v1/snapshot")).json()) as { seq: number }).seq
-    const shell = readStream(Routes.stream(null, "shell"), 4, 1500)
+    // Past the shell's greeting (shortcuts, app.opens, the current badge) to what the hook causes.
+    const shell = readStream(Routes.stream(null, "shell"), 7, 1500)
     await Bun.sleep(50)
     // The app says macOS lets it show notifications: the shell only, no fallback (D-062).
     expect((await post(Routes.shellStatus, { notifications: "authorized" })).status).toBe(200)

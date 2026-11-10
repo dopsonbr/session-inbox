@@ -19,7 +19,7 @@ toc: false
 
 ### It stays quiet until something needs you
 
-You hear about questions, permission requests, stops and failures. Routine tool activity never notifies. A badge in the menu bar counts the items waiting on you.
+You hear about questions, permission requests, stops and failures. Routine tool activity never notifies. A badge in the menu bar, and on the app's Dock icon, counts the items waiting on you.
 
 ### You answer where you are
 
@@ -38,7 +38,7 @@ If the background daemon isn't running, every hook exits immediately with no out
 ## Where to go next
 
 - [Install](install.md): the one-line installer, installing from a tarball or source, what it changes on your Mac, and how to remove it.
-- [Using it](using-it.md): notifications, the menu bar, the inbox window and keyboard shortcuts.
+- [Using it](using-it.md): notifications, the menu bar, the inbox window (with its Dock icon) and keyboard shortcuts.
 - [Tour](tour.md): a screenshot of every feature, from approvals and History to Settings and the popover.
 - [How approvals work](holds.md): how Session Inbox answers Claude's permission prompts, the classic hold mode, and what happens if you don't answer.
 - [Settings](settings.md) and [Updating](updating.md): tune it, and keep it current.

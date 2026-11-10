@@ -136,6 +136,12 @@ The rest of the groups: **Notifications**, **Sessions** (short session titles an
 
 [[screenshot tour-settings-more.png 1440x900 The Settings dialog scrolled to Notifications, Sessions, Storage and Updates: Notify even when the menu-bar app isn't running, Group finished sessions, Generate short session titles, Muted projects, Keep history for, Check for new versions and Install updates automatically.]]
 
+## Settings: window and menu bar
+
+**Window and menu bar** chooses where a notification click and the menu-bar icon go: the window, the popover, or the window while it's open. The Open inbox shortcut and the Dock icon always open the window. See [Where clicks go](using-it.md#where-clicks-go).
+
+[[screenshot tour-settings-window.png 1440x900 The Settings dialog scrolled to the Window and menu bar group: Notification clicks and the menu-bar icon, with Notifications open the window, the icon opens the popover selected, Both open the popover, and Both use the window while it's open.]]
+
 ## Settings: shortcuts
 
 **Shortcuts** lists every shortcut with **Change** and **Clear**. Choose **Change** and the row reads "Press the new shortcut…" until you press the keys you want; **Cancel** or <kbd>Esc</kbd> leaves it as it was. See [Shortcuts](settings.md#shortcuts).
@@ -154,11 +160,15 @@ On a fresh install the page starts with a short **Welcome**.
 
 ## The menu-bar popover
 
-Click the menu-bar icon for the popover. It lists what needs you, one row each, with what is asked; a tool call waiting right now has **Allow** and **Deny** on its row. Click a row to open it in the inbox window, or **Open inbox**. See [Menu bar and popover](using-it.md#menu-bar-and-popover).
+Click the menu-bar icon for the popover. It lists what needs you, one row each, with what is asked; a tool call waiting right now has **Allow** and **Deny** on its row. Click a row to open that item in the inbox window, or **Open inbox**. See [Menu bar and popover](using-it.md#menu-bar-and-popover).
 
 [[screenshot tour-popover.png 480x600 The menu-bar popover: 7 need you, a Setup row saying 3 checks need attention, then one row per item with its session title, what is asked and the project; the waiting tool calls have Allow and Deny buttons; Open inbox at the bottom.]]
 
 When nothing needs you, it says "Nothing needs you right now." and lists up to five items **Ready to review**.
+
+With **Both open the popover** chosen in Settings, clicking a notification opens the popover with that item's row marked by a bar down its left edge, and listed even when it is a review item that the popover wouldn't otherwise show.
+
+[[screenshot tour-popover-marked.png 480x600 The popover with 7 need you and, under them, a Ready to review section holding one row, Add receipt reprint button, marked with a dark bar down its left edge and a tinted background: the item a notification pointed at.]]
 
 [[screenshot tour-popover-empty.png 480x600 The popover with 0 need you, the line Nothing needs you right now., and a Ready to review list with two finished sessions and their summaries.]]
 

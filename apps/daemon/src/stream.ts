@@ -29,6 +29,8 @@ export class StreamHub {
   greeting: (() => StreamMessage | null) | null = null
   /** Sent to each new client after the greeting: every shortcut's key press (C-029). */
   shortcutsGreeting: (() => StreamMessage) | null = null
+  /** Sent to each new shell client: what its clicks open (C-031) and the current badge (D-102). */
+  shellGreeting: (() => ReadonlyArray<StreamMessage>) | null = null
   /** Sent to each new UI client after the greeting: the current setup-check attention (C-021). */
   doctorGreeting: (() => StreamMessage | null) | null = null
 
@@ -46,7 +48,7 @@ export class StreamHub {
   }
 
   publish(msg: StreamMessage): void {
-    if (msg._tag === "notify" || msg._tag === "unnotify") {
+    if (msg._tag === "notify" || msg._tag === "unnotify" || msg._tag === "app") {
       const frame = sseFrame(msg, false)
       for (const c of this.clients) if (c.kind === "shell") this.safeSend(c, frame)
       return
@@ -92,6 +94,8 @@ export class StreamHub {
     if (greeting) client.send(sseFrame(greeting, false))
     const shortcuts = this.shortcutsGreeting?.()
     if (shortcuts) client.send(sseFrame(shortcuts, false))
+    if (client.kind === "shell")
+      for (const m of this.shellGreeting?.() ?? []) client.send(sseFrame(m, false))
     const doctor = client.kind === "ui" ? this.doctorGreeting?.() : null
     if (doctor) client.send(sseFrame(doctor, false))
     const wasShell = this.shellConnected

@@ -9,6 +9,14 @@ section: Reference
 
 What changed in each release, newest first. Versions are tagged on [GitHub Releases](https://github.com/dopsonbr/session-inbox/releases), where you can download them.
 
+## Unreleased
+
+- **A Dock icon and a normal window.** Session Inbox is a regular Mac app as well as a menu-bar app: it is in the Dock and in <kbd>⌘</kbd><kbd>Tab</kbd>, and the Dock icon carries the same count as the menu bar. Launching the app, clicking its Dock icon or switching to it with <kbd>⌘</kbd><kbd>Tab</kbd> opens the inbox window. Closing the window hides it; <kbd>⌘</kbd><kbd>Q</kbd> quits the menu-bar app while the daemon keeps running. See [The window is an app too](using-it.md#the-window-is-an-app-too).
+- **The window stays where you put it.** Its position, size and whether it was open are kept across restarts and updates, on another monitor too. At login or after an update the app starts in the background and brings the window back only if it was open.
+- **Choose where clicks go.** **Notification clicks and the menu-bar icon**, in the new **Window and menu bar** group of Settings: notifications open the window (the default), both open the popover with the item's row marked, or both use the window while it's open. See [Settings](settings.md#window-and-menu-bar).
+- **The count is there from the start.** The menu-bar icon (and now the Dock icon) shows how many items need you as soon as the app starts; before, it stayed blank until the count next changed.
+- **A popover row opens its item.** Clicking a row in the popover now opens that item in the inbox window in the menu-bar app; before, it did nothing useful there.
+
 ## 0.3.1
 
 Published 2026-11-10: [v0.3.1 on GitHub](https://github.com/dopsonbr/session-inbox/releases/tag/v0.3.1).

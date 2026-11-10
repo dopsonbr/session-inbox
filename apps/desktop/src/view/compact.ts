@@ -9,6 +9,7 @@ import {
   formatAge,
   hashForItem,
   itemLine,
+  itemRowId,
   itemsInQueue,
 } from "../selectors.ts"
 import { inlineLineView } from "./markdown.ts"
@@ -33,18 +34,26 @@ const row = (model: Model, snapshot: Snapshot, item: Item, isFirst: boolean, h: 
     () => "",
   )
   const canDecide = item.kind === "permission" && item.live && item.queue === "needs-you"
+  // The row a notification pointed at (U-090): a bar down its left edge as well as the tint,
+  // so the mark doesn't rest on colour alone.
+  const isMarked = Option.contains(model.maybeSelectedItemId, item.id)
+  const tone = isMarked
+    ? "bg-accent shadow-[inset_3px_0_0_var(--foreground)]"
+    : isFirst
+      ? "bg-needs-tint"
+      : ""
   // The buttons sit beside the link, not in it, so a click on them never opens the window.
   return h.keyed("li")(
     item.id,
     [
-      h.Class(
-        `flex items-center hover:bg-accent focus-within:bg-accent ${isFirst ? "bg-needs-tint" : ""}`,
-      ),
+      h.DataAttribute("row", itemRowId(item.id)),
+      h.Class(`flex items-center hover:bg-accent focus-within:bg-accent ${tone}`),
     ],
     [
       h.a(
         [
           h.Href(`/${hashForItem(item.id)}`),
+          ...(isMarked ? [h.AriaCurrent("true")] : []),
           h.Class("flex min-w-0 flex-1 items-center gap-2.5 px-3.5 py-2.5 no-underline"),
         ],
         [
@@ -114,9 +123,27 @@ const rowDecisions = (model: Model, item: Item, h: H): Html => {
 /** How many "Ready to review" rows the popover lists when nothing needs you. */
 export const COMPACT_REVIEW_LIMIT = 5
 
+/**
+ * What the popover lists: everything that needs you; when nothing does, the first few ready to
+ * review. A review item a notification pointed at is always listed, so its mark has a row to
+ * land on (U-090).
+ */
+export const compactLists = (
+  model: Model,
+  snapshot: Snapshot,
+): Readonly<{ needsYou: ReadonlyArray<Item>; review: ReadonlyArray<Item> }> => {
+  const needsYou = itemsInQueue(snapshot, model.itemOrder, "needs-you")
+  const allReview = itemsInQueue(snapshot, model.itemOrder, "review")
+  const review = needsYou.length === 0 ? allReview.slice(0, COMPACT_REVIEW_LIMIT) : []
+  const marked = allReview.find((i) => Option.contains(model.maybeSelectedItemId, i.id))
+  return {
+    needsYou,
+    review: marked === undefined || review.includes(marked) ? review : [...review, marked],
+  }
+}
+
 /** When nothing needs you, the popover shows what's ready to review instead of empty space. */
-const reviewList = (model: Model, snapshot: Snapshot, h: H): Html => {
-  const items = itemsInQueue(snapshot, model.itemOrder, "review").slice(0, COMPACT_REVIEW_LIMIT)
+const reviewList = (model: Model, snapshot: Snapshot, items: ReadonlyArray<Item>, h: H): Html => {
   if (items.length === 0) {
     return h.empty
   }
@@ -151,7 +178,8 @@ export const compactView = (model: Model, h: H): Html =>
         ),
       ],
       onSome: (snapshot) => {
-        const items = itemsInQueue(snapshot, model.itemOrder, "needs-you")
+        const lists = compactLists(model, snapshot)
+        const items = lists.needsYou
         return [
           h.header(
             [h.Class("flex items-center gap-2.5 border-b border-border px-3.5 py-3")],
@@ -177,12 +205,18 @@ export const compactView = (model: Model, h: H): Html =>
                     ],
                     [dot(h, "ready"), "Nothing needs you right now."],
                   ),
-                  reviewList(model, snapshot, h),
+                  reviewList(model, snapshot, lists.review, h),
                 ],
               )
-            : h.ul(
-                [h.AriaLabel("Needs you"), h.Class("m-0 list-none p-0")],
-                items.map((item, index) => row(model, snapshot, item, index === 0, h)),
+            : h.div(
+                [],
+                [
+                  h.ul(
+                    [h.AriaLabel("Needs you"), h.Class("m-0 list-none p-0")],
+                    items.map((item, index) => row(model, snapshot, item, index === 0, h)),
+                  ),
+                  reviewList(model, snapshot, lists.review, h),
+                ],
               ),
           h.div(
             [h.Class("mt-auto flex gap-2 border-t border-border px-3.5 py-2.5")],

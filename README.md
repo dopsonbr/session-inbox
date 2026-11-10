@@ -90,7 +90,7 @@ When behaviour changes, update the matching page in `site/content/` in the same 
 | `apps/hook` | `inbox-hook`: forward, long-poll, fail open; `record` mode writes fixtures; settings merge |
 | `apps/cli` | `session-inbox`: install, uninstall, update, status, doctor (the one install path) |
 | `apps/desktop/src` | Foldkit + Effect UI: main window and `?view=compact` popover |
-| `apps/desktop/src-tauri` | Tauri v2 shell: tray, popover, notifications, deep links, autostart |
+| `apps/desktop/src-tauri` | Tauri v2 shell: tray, popover, Dock icon and window, notifications, deep links, autostart |
 | `packages/contracts` | Effect Schemas shared by the daemon and the UI: the only shared code |
 | `fixtures/` | Recorded (real) and synthetic hook payloads replayed by the tests |
 | `ops/` | launchd plist template, Claude settings snippet |

@@ -82,6 +82,8 @@ pub enum Msg {
     Unnotify(Vec<String>),
     /// `bindings.openInbox` from the live-only `shortcuts` message: `""` is off.
     OpenInboxShortcut(String),
+    /// `opens` from the live-only `app` message: what clicks open (contracts `AppOpens`).
+    Opens(String),
     Other,
 }
 
@@ -99,6 +101,7 @@ pub fn parse_message(data: &str) -> Msg {
             .as_str()
             .map(|s| Msg::OpenInboxShortcut(s.to_string()))
             .unwrap_or(Msg::Other),
+        Some("app") => v["opens"].as_str().map(|s| Msg::Opens(s.to_string())).unwrap_or(Msg::Other),
         _ => Msg::Other,
     }
 }
@@ -281,6 +284,8 @@ mod tests {
         assert_eq!(parse_message(r#"{"_tag":"unnotify","seq":9}"#), Msg::Other);
         assert_eq!(parse_message(r#"{"_tag":"unnotify","seq":9,"ids":[1]}"#), Msg::Other);
         assert_eq!(parse_message(r#"{"_tag":"somethingNew","seq":9,"ids":["x"]}"#), Msg::Other);
+        assert_eq!(parse_message(r#"{"_tag":"app","seq":9,"opens":"windowFirst"}"#), Msg::Opens("windowFirst".into()));
+        assert_eq!(parse_message(r#"{"_tag":"app","seq":9}"#), Msg::Other);
     }
 
     #[test]

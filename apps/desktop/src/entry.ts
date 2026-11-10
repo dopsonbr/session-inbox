@@ -38,10 +38,11 @@ const flags: Effect.Effect<Flags> = Effect.sync(() => {
   return {
     view: isCompact ? "compact" : "full",
     now: Date.now(),
+    // The popover opened on `#/item/<id>` marks that row (U-090); it has no History.
     maybeInitialItemId:
-      isCompact || (route._tag !== "item" && route._tag !== "history")
-        ? Option.none()
-        : Option.fromNullishOr(route.itemId),
+      route._tag === "item" || (!isCompact && route._tag === "history")
+        ? Option.fromNullishOr(route.itemId)
+        : Option.none(),
     initialRoute: isCompact || route._tag === "item" ? "inbox" : route._tag,
   }
 })

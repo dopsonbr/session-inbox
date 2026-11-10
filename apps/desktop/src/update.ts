@@ -130,7 +130,9 @@ export const initialModel = (flags: Flags): Model => ({
   maybeSelectedSessionId: Option.none(),
   detail: Option.match(flags.maybeInitialItemId, {
     onNone: () => DetailState.Idle(),
-    onSome: (itemId) => DetailState.Loading({ itemId }),
+    // The popover only marks the row (U-090): it never shows a detail.
+    onSome: (itemId) =>
+      flags.view === "full" ? DetailState.Loading({ itemId }) : DetailState.Idle(),
   }),
   expandedNodes: [],
   maybeFocusedNode: Option.none(),
@@ -208,7 +210,7 @@ export const init = (flags: Flags): UpdateReturn => {
       FetchSnapshot(),
       ...Option.match(flags.maybeInitialItemId, {
         onNone: () => [],
-        onSome: (itemId) => [FetchItemDetail({ itemId })],
+        onSome: (itemId) => (flags.view === "full" ? [FetchItemDetail({ itemId })] : []),
       }),
       ...routeCommands,
     ],
@@ -776,6 +778,7 @@ const loadSnapshot = (model: Model, snapshot: Snapshot): UpdateReturn => {
       model: modifyFields(withExpanded, {
         expandedNodes: (e) => addExpanded(e, nodesToExpandFor(snapshot, itemId)),
       }),
+      commands: model.view === "compact" ? [ScrollToRow({ rowId: itemRowId(itemId) })] : [],
     }),
     onNone: () => {
       const first = Arr.findFirst(snapshot.items, (i) => i.queue === "needs-you")
@@ -818,7 +821,7 @@ const applyDelta = (
           )
         },
       })
-      return touchesSelection
+      return touchesSelection && model.view === "full"
         ? {
             model: next,
             commands: Option.match(model.maybeSelectedItemId, {
@@ -1033,6 +1036,19 @@ const changeHash = (model: Model, hash: string): UpdateReturn => {
   return withCommands(changeInboxHash(left.model, hash, wasHistory), left.commands ?? [])
 }
 
+/**
+ * The popover's `#/item/<id>` (a notification click with `app.opens` "popover"): mark that row
+ * and scroll to it, nothing else; `#/` clears the mark (U-090). An id not in the snapshot marks
+ * nothing.
+ */
+const markInPopover = (model: Model, maybeItemId: Option.Option<string>): UpdateReturn => ({
+  model: modifyFields(model, { maybeSelectedItemId: () => maybeItemId }),
+  commands: Option.match(maybeItemId, {
+    onNone: () => [],
+    onSome: (itemId) => [ScrollToRow({ rowId: itemRowId(itemId) })],
+  }),
+})
+
 const changeInboxHash = (model: Model, hash: string, wasHistory: boolean): UpdateReturn => {
   const route = routeFromHash(hash)
   const toInbox = modifyFields(model, { route: () => "inbox" })
@@ -1052,10 +1068,16 @@ const changeInboxHash = (model: Model, hash: string, wasHistory: boolean): Updat
           ])
         : { model }
     case "item":
+      if (model.view === "compact") {
+        return markInPopover(toInbox, Option.some(route.itemId))
+      }
       return Option.contains(model.maybeSelectedItemId, route.itemId)
         ? { model: toInbox }
         : selectItem(toInbox, route.itemId, { updateHash: false })
     case "inbox":
+      if (model.view === "compact") {
+        return markInPopover(toInbox, Option.none())
+      }
       return (model.route === "setup" || wasHistory) && Option.isSome(model.maybeSelectedItemId)
         ? { model: toInbox, commands: [SetHash({ hash: selectedHash(model) })] }
         : { model: toInbox }
@@ -1579,9 +1601,10 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             : maybeForm,
         maybeReplyError: (error) => (action === "reply" ? Option.none() : error),
       })
-      const refetch: Commands = Option.contains(model.maybeSelectedItemId, itemId)
-        ? [FetchItemDetail({ itemId })]
-        : []
+      const refetch: Commands =
+        model.view === "full" && Option.contains(model.maybeSelectedItemId, itemId)
+          ? [FetchItemDetail({ itemId })]
+          : []
       const toast = actionToast(action)
       // The item left the tab on screen: the next one takes its place (U-059).
       const settled = modifyFields(withItem, { maybeAdvanceFrom: () => Option.none() })
