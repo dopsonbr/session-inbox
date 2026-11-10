@@ -7,26 +7,28 @@ section: Guides
 
 # Settings
 
-Open the Settings pane from the inbox window with <kbd>⌘</kbd><kbd>,</kbd>, or with the gear button in the header. It is a dialog with five groups: **Approvals**, **Notifications**, **Sessions**, **Storage** and **Updates**. The title shows which install you're looking at (`Settings · ga`, or `beta`).
+Open the Settings pane from the inbox window with <kbd>⌘</kbd><kbd>,</kbd>, with the gear button in the header, or with **Settings…** in the menu-bar menu. It is a dialog with five groups: **Approvals**, **Notifications**, **Sessions**, **Storage** and **Updates**. The title shows which install you're looking at (`Settings · ga`, or `beta`).
 
 Each control saves on its own, and the daemon applies the change at once: you don't restart anything, and Claude sessions that are already running pick it up on their next event. Switches save when you click them. Number boxes save when you press <kbd>Enter</kbd> or click away. A row shows "Saving…" and then "Saved", or the daemon's error if it refused the value.
 
 When a value differs from its default, the row shows the default and a **Reset** link. **Reset all to defaults** is at the bottom, next to a link to the [Setup check](troubleshooting.md#the-setup-check-in-the-app). Closing the pane with <kbd>Esc</kbd> throws away text you typed but didn't commit.
 
-[[screenshot settings.png 1100x760 The Settings dialog over the inbox window, showing the Approvals group (a switch for holding tool calls, the tools that can be held, the wait for an answer and the Bash commands never held) and the start of the Notifications group.]]
+[[screenshot settings.png 1440x900 The Settings dialog over the inbox window, showing the Approvals group (the switch for holding tool calls, the choice of how approvals reach the inbox, the wait for an answer, and the settings that only apply to the classic mode) and the start of the Notifications group.]]
 
 ## Approvals
 
-These control [when Session Inbox holds a tool call](holds.md). The three rows under the first switch are greyed out while it's off.
+These control [how approvals work](holds.md). Rows that don't apply to the mode you chose are greyed out, with a note, or hidden. Everything under the first switch is greyed out while it's off.
 
 | Setting | Default | What it does |
 | --- | --- | --- |
 | **Hold tool calls for approval in the inbox** | on | When off, the inbox only observes and notifies; Claude asks in its own window. Turning it off releases anything held right now. A second install beside another starts with this off. |
-| **Tools that can be held** | Bash, Write, Edit, MultiEdit, NotebookEdit, WebFetch | Only when Claude itself would ask. Questions (`AskUserQuestion`) always come to the inbox. |
-| **Wait for an answer** | 120 seconds | Then Claude shows its own prompt. 15 to 120 seconds. |
-| **Bash commands never held** | `ls`, `pwd`, `echo`, `cat`, `head`, `tail`, `wc`, `which`, `git status`, `git diff`, `git log` | A command matches when it is the prefix or starts with it plus a space. A command with shell operators in it never counts as safe. |
+| **How approvals reach the inbox** | **Answer Claude's own prompt (recommended)** | The other choice is **Hold the tool call before Claude asks (classic)**. Recommended: Claude's prompt stays visible in Claude and the inbox answers it; whichever is answered first wins, for every tool Claude asks about. Classic: the inbox holds Bash, edits and web fetches for up to two minutes before Claude shows its own prompt. |
+| **Wait for an answer** (minutes) | 10 minutes | Shown only in the recommended mode. Then the inbox stops answering and Claude's prompt stays open in Claude. 1 to 55 minutes. |
+| **Tools that can be held** | Bash, Write, Edit, MultiEdit, NotebookEdit, WebFetch | Classic mode only. Only when Claude itself would ask. Questions (`AskUserQuestion`) always come to the inbox. In the recommended mode it's greyed out: "Not used while the inbox answers Claude's own prompt." |
+| **Wait for an answer** (seconds) | 120 seconds | Classic mode only; hidden in the recommended mode. Then Claude shows its own prompt. 15 to 120 seconds. |
+| **Bash commands never held** | `ls`, `pwd`, `echo`, `cat`, `head`, `tail`, `wc`, `which`, `git status`, `git diff`, `git log` | Classic mode only, with the same greyed-out note otherwise. A command matches when it is the prefix or starts with it plus a space. A command with shell operators in it never counts as safe. |
 
-If another install is on the same Mac, the first row adds a note: only one install should hold calls, because if both do, each waits for its own answer. See [GA and beta channels](channels.md).
+If another install is on the same Mac, the first row adds a note: only one install should answer approvals, because if both do, each waits for its own answer. See [GA and beta channels](channels.md).
 
 ## Notifications
 
@@ -53,7 +55,7 @@ If another install is on the same Mac, the first row adds a note: only one insta
 | Setting | Default | What it does |
 | --- | --- | --- |
 | **Check for new versions** | on | Asks GitHub for the latest release every few hours. Nothing else leaves this Mac. |
-| **Install updates automatically** | on | Only while no tool call is held and nothing is being sent. Otherwise you get an **Update now** button. |
+| **Install updates automatically** | on | Only while no tool call is held and nothing is being sent. Otherwise you get an **Update now** button. (The daemon also waits for 30 seconds without any session activity.) |
 
 See [Updating](updating.md) for what each switch does in practice.
 

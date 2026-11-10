@@ -30,14 +30,19 @@ This release hasn't been published yet. See [Install](install.md) for how to ins
 
 ### Approvals
 
+- **Answer Claude's own prompt, by default.** Session Inbox now uses Claude Code's `PermissionRequest` hook. When Claude asks for permission, its own prompt appears in Claude as usual and the same request appears in the inbox at once; whichever you answer first wins, and nothing is frozen. It covers every tool Claude asks about, not only Bash, edits and web fetches, and Claude's questions work the same way. The inbox keeps the request answerable for 10 minutes by default (1 to 55). The previous behaviour, holding Bash, edits and web fetches for up to 120 seconds before Claude asks, is still there as **Hold the tool call before Claude asks (classic)**. See [How approvals work](holds.md).
+- **Nothing vanishes when you don't answer.** A request or hold that runs out stays in **Needs you** as **Waiting in Claude**, with **Open in Claude** only, and its notification becomes "Still waiting in Claude: …". It clears when Claude moves on.
+- **Always allow follows Claude.** It echoes the rule Claude itself suggests for that request, and writes `.claude/settings.local.json` only when Claude suggests none. A plain Deny tells Claude "Denied by the user in Session Inbox."
+- **Existing installs need the hook.** Install or update again to register `PermissionRequest`; the setup check says when it's missing.
+- **A permission prompt right after another was approved is no longer missed.**
 - **Approval preview.** A permission request shows a real diff for Edit, MultiEdit, Write and NotebookEdit (with line numbers, the path and added and removed counts), the full command and its folder for Bash, the URL for WebFetch, and what Claude said just before it asked. A diff of more than 40 lines starts collapsed. See [Using it](using-it.md#approving-a-tool-call).
-- **Answers and decisions reach the session.** An answer sent from the inbox to a waiting `AskUserQuestion` lands as the answer. Allow and Deny from the inbox release a held call about half a second later.
+- **Answers and decisions reach the session.** An answer sent from the inbox to a waiting `AskUserQuestion` lands as the answer. In the default mode a Read outside the project, a question, an Edit and a Bash command were each answered from the inbox about 30 ms before Claude carried on, with Claude's own prompt still on screen. In the classic mode, Allow and Deny release a held call about half a second later.
 - **Claude's last message.** Finished and failed items show it in full, formatted as Markdown, collapsed when long.
 - **Turning holding off releases held calls.** Nothing stays frozen waiting on an inbox that no longer holds.
 
 ### Notifications
 
-- **Current macOS notification API.** The menu-bar app asks for permission on first launch. If the prompt is missed or the app restarts before it's answered, macOS records "denied": the fix is System Settings, Notifications, Session Inbox, Allow. The menu-bar menu then shows **Notifications are off — Open Settings…**.
+- **Current macOS notification API.** The menu-bar app asks for permission on first launch. If the prompt is missed or the app restarts before it's answered, macOS records "denied": the fix is System Settings, Notifications, Session Inbox, Allow. The menu-bar menu then shows **Notifications are off — Open Settings…**, and it also has **Settings…** and **Setup Check…** next to **Check for Updates…**.
 - **No silent failures.** While the app isn't allowed to show notifications, the daemon posts plain notifications without buttons instead, and doesn't post both when the app is allowed.
 - **Tidier banners.** A decided or dismissed item's notifications are withdrawn from Notification Center.
 - **The popover** lists up to five **Ready to review** rows when nothing needs you.
@@ -52,6 +57,7 @@ This release hasn't been published yet. See [Install](install.md) for how to ins
 
 - **`session-inbox doctor`** checks the daemon, the hooks, whether the inbox holds, `claude`, the menu-bar app, notifications, updates and storage, and says what to fix. It still checks what it can when the daemon is down. See [Troubleshooting](troubleshooting.md).
 - **Setup page in the app**, with the same checks, a first-run welcome, **Re-check** and **Send test notification**. The popover shows a **Setup** row when something needs attention.
+- **Quieter and more specific.** A missing or logged-out `claude` is information, not a badge, since it only affects replies to idle sessions and generated titles. The hooks line names any missing events, and the Approvals line says which mode is active.
 
 ### Fixes
 

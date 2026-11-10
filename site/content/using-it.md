@@ -16,7 +16,8 @@ A notification appears when a session needs you. What you can do from it depends
 
 | Notification | Buttons | Notes |
 | --- | --- | --- |
-| Permission request | **Allow**, **Deny**, **Open** | Only while Claude is actually waiting on you. These notifications are marked critical, so **Pause notifications** doesn't silence them. |
+| Permission request | **Allow**, **Deny**, **Open** | Only while the request is live, meaning Claude's prompt is open and the inbox can still answer it. These notifications are marked critical, so **Pause notifications** doesn't silence them. |
+| Still waiting in Claude | **Open** | Replaces a permission notification when the inbox stops answering: "Still waiting in Claude: …". |
 | Question | **Answer**, **Open** | **Answer** opens the item with the form ready. |
 | Failure | **Open** | The session stopped with an error or ended abnormally. |
 | Ready to review | **Open** | Quiet, and grouped: sessions finishing within 30 seconds of each other come as one "N sessions ready to review" notification. |
@@ -37,7 +38,7 @@ The menu-bar icon carries a badge with the number of items that **need you**. Cl
 - a banner row when an update is ready, and a **Setup** row when the setup check has something for you;
 - an **Open inbox** button. The shortcut <kbd>⌘</kbd><kbd>⇧</kbd><kbd>I</kbd> opens the main window from anywhere.
 
-[[screenshot popover.png 420x560 The menu-bar popover: a header with the count of items that need you, rows for each of those items with the project, the kind of request and its age, and an Open inbox button at the bottom.]]
+[[screenshot popover.png 380x520 The menu-bar popover: a header with the count of items that need you, a Setup row saying how many checks need attention, rows for each item with its title, the kind of request and the project, and an Open inbox button at the bottom.]]
 
 Right-click the icon for its menu:
 
@@ -71,7 +72,7 @@ The left side also has a **Setup check** entry that opens the [Setup page](troub
 
 When Claude asks a question with `AskUserQuestion`, the item shows every question in one form. Pick an option for each, or type your own answer under **Other**. Several questions go back together when you choose **Send answers**.
 
-If Claude is waiting right now, the answers go straight back to the call it's paused on, and the session continues. This has been checked live against a desktop session. If the question isn't live any more (the session was idle when it asked), the inbox sends your answer as a new message to the session instead, which needs the `claude` CLI to be logged in.
+If Claude is waiting right now, the answers go straight back, and the session continues, while the question stays open in Claude until it takes them. This has been checked live against a desktop session in both modes. If the question isn't live any more (the session was idle when it asked), the inbox sends your answer as a new message to the session instead, which needs the `claude` CLI to be logged in.
 
 Your in-progress answers are saved as you type. Close the window and come back, and they're still there.
 
@@ -84,23 +85,23 @@ A permission item shows what Claude wants to do, so you can decide without openi
 - **For WebFetch:** the URL and what Claude wants from it.
 - **Above all of these:** what Claude said just before it asked, so you can see why.
 
-[[screenshot approval-diff.png 1200x760 A permission request for a file edit: the file path with the number of added and removed lines, a diff with old and new line numbers and green and red rows, the text Claude wrote before asking, and the Allow once, Always allow and Deny buttons.]]
+[[screenshot approval-diff.png 1440x900 The inbox window with a permission request for a file edit selected: the text Claude wrote before asking, the file path with the number of added and removed lines, a diff with old and new line numbers and green and red rows, and the Allow once, Always allow and Deny buttons.]]
 
 You have three choices:
 
 - **Allow once** lets this call run.
-- **Always allow** lets it run and adds a rule to the project's `.claude/settings.local.json`, so Claude doesn't ask again for this kind of call. This is the same place Claude's own "don't ask again for this project" writes to.
-- **Deny** stops the call. Claude is told you said no and carries on.
+- **Always allow** lets it run and adds the rule Claude itself suggests for that request, so Claude doesn't ask again for this kind of call. When Claude suggests none, or in the classic mode, it adds a rule to the project's `.claude/settings.local.json`, the same place Claude's own "don't ask again for this project" writes to.
+- **Deny** stops the call. Claude is told "Denied by the user in Session Inbox." and carries on.
 
-Allowing a held call from the inbox ran it half a second later in testing. The very first Bash call of a Claude session takes Claude itself about ten seconds to start, however long it was held.
+In the default mode, Claude's own prompt stays on screen in Claude while you decide here, and whichever you answer first wins. Allow and answers took effect about 30 ms after the decision in testing. In the classic mode, where the call is held, an allow ran it half a second later, and the very first Bash call of a Claude session takes Claude itself about ten seconds to start, however long it was held.
 
-The call is only paused while the session is in a state where Claude would have asked you anyway. See [When it holds a tool call](holds.md) for the rules and the 120 second fallback.
+When the inbox stops answering (the wait ran out, or this install only observes), the card shows "Claude is asking in its own window. Answer there." with **Open in Claude**, and the item is marked **Waiting in Claude** in the queue. See [How approvals work](holds.md) for the two modes and what each does when you don't answer.
 
 ## Replies
 
 You can send a free-text reply to a session from its item. How it travels depends on the session:
 
-- If Claude is paused on a held call, the reply goes back through that call and is shown to Claude as "The user replied: …".
+- If Claude is paused on a held call (classic mode), the reply goes back through that call and is shown to Claude as "The user replied: …". A reply to an item that's Claude's own prompt, or waiting in Claude, is refused: answer in Claude.
 - If the session is idle, the reply is sent as a new message to that same session. This needs the `claude` CLI to be logged in. When it isn't, the reply box is replaced by a sentence saying so and an **Open in Claude** button. See [Troubleshooting](troubleshooting.md#replies-dont-send-or-titles-dont-change).
 - Replies are never sent into a session that's in the middle of a turn.
 
@@ -112,7 +113,7 @@ Each item has a **Snooze** menu for putting it aside:
 
 - **Snooze 15 minutes**, **Snooze 1 hour** or **Snooze until tomorrow 9:00**. The item leaves **Needs you** and comes back, with one notification, when the time is up.
 - **Dismiss** closes the item without answering it.
-- **Mute** the project stops that project's items from notifying and from holding tool calls. Claude behaves as if Session Inbox weren't there for that project. The same menu says **Unmute** once it's muted, and [Settings](settings.md) lists muted projects with an **Unmute** button.
+- **Mute** the project stops that project's items from notifying and from being answered here. Claude behaves as if Session Inbox weren't there for that project. The same menu says **Unmute** once it's muted, and [Settings](settings.md) lists muted projects with an **Unmute** button.
 
 **Pause notifications** in the menu-bar menu silences everything except permission requests, until you turn it off.
 
@@ -123,7 +124,7 @@ Choose **Open in Claude** when something needs real work. It opens the exact ses
 - Desktop sessions open in the Claude desktop app, on that session. This has been checked live.
 - CLI sessions open through Claude's `claude://resume` link, and a ready-to-paste command is copied to your clipboard as well: `cd <dir> && claude --resume <id>`. The link for CLI sessions hasn't been checked on a real session yet.
 
-If Claude is paused on a held call, **Open in Claude** releases it first, so Claude's own prompt is on screen when you arrive and nothing is frozen. Each item's activity list also has a **Full transcript in Claude** link that does the same.
+If Claude is paused on a held call (classic mode), **Open in Claude** releases it first, so Claude's own prompt is on screen when you arrive and nothing is frozen. Each item's activity list also has a **Full transcript in Claude** link that does the same.
 
 ## Keyboard shortcuts
 

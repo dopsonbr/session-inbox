@@ -5,11 +5,13 @@
 **Docs: <https://dopsonbr.github.io/session-inbox/>** (install, using it, settings, updating, troubleshooting, how it works)
 
 - **Quiet by default.** You hear about questions, permission requests, stops and failures. Routine tool activity never notifies.
-- **Answer in place.** Approve a tool call with the diff or the full command in front of you, from the inbox or the notification. Answer several of Claude's questions in one form and they reach the waiting session together.
+- **Answer in place.** When Claude asks for permission, the same request appears in the inbox while Claude's own prompt stays on screen; allow or deny it with the diff or the full command in front of you, and whichever you answer first wins. Answer several of Claude's questions in one form and they reach the waiting session together.
 - **Claude's own structure.** Project, then session, then subagent, grouped by repository, worktrees included.
 - **Invisible when off.** If the daemon isn't running, every hook exits immediately with no output and Claude behaves exactly as if nothing were installed.
 
 Scope: sessions on **this Mac** only (the Claude desktop app's Code tab and the `claude` CLI). No cloud sessions, no sync, no transcript viewer.
+
+**How it works.** Claude Code runs a small hook program (`inbox-hook`) for each event. It passes the event to a background daemon (`inboxd`), which alone decides what you hear about; the menu-bar app and the inbox window only show that and send back your choice. By default Session Inbox answers Claude's own permission prompt through Claude Code's `PermissionRequest` hook, so nothing is paused; a classic mode that holds the tool call before Claude asks is a setting away. If the daemon is down, every hook exits at once and Claude behaves as if nothing were installed. See [How approvals work](https://dopsonbr.github.io/session-inbox/holds.html) and [How it works](https://dopsonbr.github.io/session-inbox/how-it-works.html).
 
 ## Install
 
@@ -52,13 +54,13 @@ Built, covered by tests, a smoke test and a real-launchd update test, and run ag
 
 **Checked live on a real desktop session:**
 
-- Answers sent from the inbox reach a held `AskUserQuestion`.
-- Allow and Deny from the inbox release a held tool call, about half a second later.
+- In the default mode (answering Claude's own prompt), a Read outside the project, a question, an Edit (with its diff preview and Claude's sentence before it) and a Bash `rm` were each answered from the inbox, taking effect about 30 ms later while Claude's own prompt was on screen. The denied command didn't run and Claude reported the denial.
+- In the classic mode, answers reach a held `AskUserQuestion`, and Allow and Deny release a held tool call about half a second later.
 - **Open in Claude** lands on the exact session, and session titles come from the desktop app's own title.
 - The approval preview shows a real diff.
 - The daemon-driven update works end to end under launchd against a local release server (`bun scripts/e2e-update.ts`): a held call blocks the automatic update, it applies after 30 seconds of quiet, hooks keep failing open during the swap, and a corrupted download is refused.
 
-**Not yet seen by a person:** the menu-bar app's own notification banners with their Allow, Deny, Answer and Open buttons, and a click through from one. Nobody could click **Allow** while it was being built. The plain fallback notifications that the daemon posts when the app isn't allowed are logged by macOS as displayed. Also unchecked: **Open in Claude** for CLI sessions, and a first install from a published release. The full list is on the [Troubleshooting page](https://dopsonbr.github.io/session-inbox/troubleshooting.html#not-yet-verified-by-a-person).
+**Not yet seen by a person:** the menu-bar app's own notification banners with their Allow, Deny, Answer and Open buttons, and a click through from one. Nobody could click **Allow** while it was being built. The plain fallback notifications that the daemon posts when the app isn't allowed are logged by macOS as displayed. Also unchecked: answering in Claude first while the inbox item is live (it should clear within a second or two), terminal `claude` sessions, **Open in Claude** for CLI sessions, and a first install from a published release. The full list is on the [Troubleshooting page](https://dopsonbr.github.io/session-inbox/troubleshooting.html#not-yet-verified-by-a-person).
 
 **Known limits:** replies to idle sessions and Claude-generated titles need the `claude` CLI to be logged in (the desktop app's login isn't shared); everything else works without it. The app is ad-hoc signed, not notarized. Release downloads are Apple silicon only.
 

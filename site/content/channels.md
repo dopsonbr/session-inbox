@@ -1,6 +1,6 @@
 ---
 title: GA and beta channels
-description: Run a beta build of Session Inbox beside your everyday install, compare them, choose which one holds tool calls, and remove the beta again.
+description: Run a beta build of Session Inbox beside your everyday install, compare them, choose which one answers approvals, and remove the beta again.
 nav: GA and beta channels
 order: 6
 section: Guides
@@ -47,9 +47,9 @@ session-inbox status
 
 ## Only one channel holds
 
-If both channels held tool calls, each would wait for its own answer, and one of them would always be waiting for nothing. So only one **holds**. A channel installed while the other's hooks are present starts as an **observer**: it shows the same items and sends notifications too, but never pauses Claude. An observer's permission items aren't answerable, so answer them in the channel that holds.
+If both channels held tool calls, each would wait for its own answer, and one of them would always be waiting for nothing. So only one **holds**, that is, answers approvals. A channel installed while the other's hooks are present starts as an **observer**: it shows the same items and sends notifications too, but never answers or pauses anything. An observer's permission items aren't answerable, so answer them in the channel that holds.
 
-That means you can compare the two inboxes side by side, and they match. A held call shows up in both, live only in the holder.
+That means you can compare the two inboxes side by side, and they match. A permission request shows up in both, live only in the holder.
 
 To swap roles:
 
@@ -57,7 +57,7 @@ To swap roles:
 session-inbox holds beta
 ```
 
-Beta now holds and GA observes. Switch back with `session-inbox holds ga`. Swapping restarts both daemons, so anything being held at that moment falls back to Claude's own prompt. Do it when nothing is waiting.
+Beta now holds and GA observes. Switch back with `session-inbox holds ga`. Swapping restarts both daemons, so anything the inbox is waiting on at that moment is left to Claude's own prompt. Do it when nothing is waiting.
 
 Open a channel's inbox in the browser:
 

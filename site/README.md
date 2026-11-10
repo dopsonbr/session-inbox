@@ -52,7 +52,19 @@ The file goes in `assets/screenshots/`. The numbers are the image's width and he
 [[screenshot inbox-light.png,inbox-dark.png 1440x900 Alt text.]]
 ```
 
-If the file isn't there yet, the page shows a placeholder and the build lists the missing file. Slots in use: `inbox-light.png` and `inbox-dark.png` (Home, 1440×900), `popover.png` (Using it, 420×560), `approval-diff.png` (Using it, 1200×760), `settings.png` (Settings, 1100×760) and `setup.png` (Troubleshooting, 1440×900). When a view changes, re-take its screenshot and re-check the alt text.
+If the file isn't there yet, the page shows a placeholder and the build lists the missing file. Slots in use: `inbox-light.png` and `inbox-dark.png` (Home, 1440×900), `popover.png` (Using it, 380×520), `approval-diff.png` (Using it, 1440×900), `settings.png` (Settings, 1440×900) and `setup.png` (Troubleshooting, 1440×900). The files are twice that size in pixels, for high-density screens.
+
+The screenshots are generated, not taken by hand. Build the UI once, then run the script. It starts the seeded demo daemon (`scripts/demo.ts`) and renders each view in headless Chrome (Chrome, Chromium or Edge in `/Applications`, no screen-recording permission), writing the six files to `assets/screenshots/`:
+
+```bash
+bun run --cwd apps/desktop build
+```
+
+```bash
+bun scripts/screenshots.ts
+```
+
+When a view changes, re-run it and re-check each slot's alt text.
 
 ### Keep it true
 

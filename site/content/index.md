@@ -27,7 +27,7 @@ You hear about questions, permission requests, stops and failures. Routine tool 
 
 ### You answer where you are
 
-Allow or Deny a tool call with the diff or the full command in front of you, from the inbox or from the notification. Answer several of Claude's questions in one form and they reach the waiting session together.
+When Claude asks for permission, the same request shows up in the inbox at once, while Claude's own prompt stays on screen. Allow or Deny it with the diff or the full command in front of you, from the inbox or from the notification; whichever you answer first wins, and nothing is frozen while you decide. It covers every tool Claude asks about. Answer several of Claude's questions in one form and they reach the waiting session together.
 
 ### It follows Claude's own structure
 
@@ -43,7 +43,7 @@ If the background daemon isn't running, every hook exits immediately with no out
 
 - [Install](install.md): the one-line installer, installing from a tarball or source, what it changes on your Mac, and how to remove it.
 - [Using it](using-it.md): notifications, the menu bar, the inbox window and keyboard shortcuts.
-- [When it holds a tool call](holds.md): exactly when Session Inbox pauses Claude, and what happens if you don't answer.
+- [How approvals work](holds.md): how Session Inbox answers Claude's permission prompts, the classic hold mode, and what happens if you don't answer.
 - [Settings](settings.md) and [Updating](updating.md): tune it, and keep it current.
 - [Troubleshooting](troubleshooting.md): the setup check, notification problems, logs, and what hasn't been verified by a person yet.
 - [How it works](how-it-works.md): the architecture, the files on disk and the security model.

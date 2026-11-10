@@ -15,7 +15,7 @@ Claude Code runs a small program for each hook event. That program passes the ev
 
 | Piece | What it does |
 | --- | --- |
-| **`inbox-hook`** | A compiled Bun binary that Claude runs for each hook event. It forwards the event to the daemon over a Unix socket. For risky tools and `AskUserQuestion` it waits up to 120 seconds for your decision, then falls back to Claude's own prompt. |
+| **`inbox-hook`** | A compiled Bun binary that Claude runs for each hook event. It forwards the event to the daemon over a Unix socket. While you can answer a permission prompt or question from the inbox (or, in the classic mode, a held call), it waits for the daemon's decision and prints it for Claude; otherwise it exits at once. If the daemon is down or no decision comes, it prints nothing and Claude's own prompt stands. |
 | **`inboxd`** | The daemon, and the only thing that decides anything. It classifies events, tracks session and item state, decides when to notify, dedupes, and routes replies. It runs as a launchd agent, keeps state in SQLite and serves an HTTP and server-sent-events API, and the UI, on `127.0.0.1`. |
 | **`session-inbox`** | The command-line tool: `install`, `uninstall`, `update`, `status`, `doctor`, `holds` and `open`. Both the one-line installer and the in-app update run its install code, so every install goes through one path. |
 | **Menu-bar app** | A thin Tauri shell: the tray badge with the "needs you" count, the popover, native notifications with action buttons (through macOS's current notification API), `sessioninbox://` deep links, <kbd>⌘</kbd><kbd>⇧</kbd><kbd>I</kbd> and launch at login. It posts notifications and forwards clicks, and tells the daemon whether macOS lets it show them. It decides nothing. |
@@ -27,12 +27,26 @@ The rule that holds this together: **the daemon decides; nothing else does.** Th
 
 1. **A hook fires.** Claude Code runs `inbox-hook <event>` with the event as JSON. The hook adds a little context only it can see (such as whether the session is from the desktop app or the CLI) and sends it to the daemon.
 2. **The daemon records and classifies it.** Every event is stored as received, and the daemon updates its state. A question, a permission request, a stop or a failure becomes an *item* that needs attention. Routine activity only feeds the timeline.
-3. **Some calls are held.** For a `PreToolUse` event that meets the [hold rule](holds.md), the daemon keeps the hook's request open until you decide or the 120 seconds pass.
+3. **Permission prompts are offered to you.** By default, when Claude is about to ask for permission its `PermissionRequest` hook fires, and the daemon opens an item for the request and keeps the hook's request open while you decide. Claude's own prompt stays on screen, and `PreToolUse` is only recorded. In the classic mode the daemon instead holds a `PreToolUse` event that meets the [hold rule](holds.md) for up to 120 seconds, before Claude asks. See [How approvals work](holds.md).
 4. **You're told.** The daemon pushes a notification command on its event stream. The menu-bar app posts it and updates the badge. The app reports whether macOS allows its notifications, and the daemon routes accordingly: to the app when it's allowed, to a plain macOS notification (no buttons) when the app isn't running or isn't allowed, and briefly to both while it's unsure.
 5. **You decide.** Your Allow, Deny or answer goes to the daemon as an intent, from a notification button or the inbox window.
-6. **The decision goes back.** For a held call, the daemon answers the waiting hook, and the hook returns the decision to Claude. For an idle session, a reply is sent as `claude --resume <id> -p "<reply>"`, never while a turn is running.
+6. **The decision goes back.** For a waiting request or held call, the daemon answers the waiting hook, and the hook returns the decision to Claude. If you answered in Claude instead, the daemon notices from the transcript or the tool's result and clears the item. For an idle session, a reply is sent as `claude --resume <id> -p "<reply>"`, never while a turn is running.
 
 Every state change, including your own intents, is appended to an event log with a sequence number. The UI resumes from the last number it saw, so a reconnect never loses or repeats anything.
+
+## The hooks
+
+Session Inbox registers 10 hook events in `~/.claude/settings.json`, each running `<home>/bin/inbox-hook <Event>`:
+
+| Event | Matcher | Timeout |
+| --- | --- | --- |
+| `SessionStart`, `UserPromptSubmit`, `Notification` | none | 5 s |
+| `PreToolUse` | the held tools and `AskUserQuestion` | 130 s |
+| `PostToolUse` | `*` | 5 s |
+| `PermissionRequest` | `*` | 3600 s |
+| `SubagentStart`, `SubagentStop`, `Stop`, `SessionEnd` | none | 5 s |
+
+In the default mode `PreToolUse` is only observed: the hook exits at once. `PermissionRequest` also exits at once when the inbox is only observing; when you can answer from the inbox it waits for your decision, and its timeout is above the longest wait (55 minutes) so Claude never cuts it off first.
 
 ## Files on disk
 
