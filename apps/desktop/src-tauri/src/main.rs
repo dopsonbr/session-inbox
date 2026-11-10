@@ -1,6 +1,6 @@
 //! Session Inbox shell: menu-bar bridge for the daemon. It renders nothing itself;
 //! its windows load the daemon-served UI, and it only relays notifications,
-//! the badge, deep links and the global shortcut.
+//! the badge, deep links and the global shortcut, and reports what it may do.
 mod channel;
 mod daemon;
 mod notify;
@@ -21,10 +21,49 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 const WINDOWS: [(&str, &str); 2] = [("main", "/"), ("popover", "/?view=compact")];
 
+/// Where the "Notifications are off" line goes in the tray menu (after Pause).
+const NOTIF_LINE_POS: usize = 2;
+const NOTIFICATION_SETTINGS_URL: &str = "x-apple.systempreferences:com.apple.Notifications-Settings.extension";
+
 struct Shell {
     paused: AtomicBool,
     status: MenuItem<Wry>,
     last_blur: Mutex<Option<Instant>>,
+    menu: Menu<Wry>,
+    notif_off: MenuItem<Wry>,
+    notif_off_shown: AtomicBool,
+    version: String,
+}
+
+/// Called by `notify::refresh` with the current system settings; `report` is
+/// set on startup, reconnect and change. Never retries: the next one resends.
+pub fn notifications_changed(app: &AppHandle, s: notify::Settings, report: bool) {
+    let Some(shell) = app.try_state::<Shell>() else { return };
+    let denied = s.notifications == "denied";
+    if shell.notif_off_shown.swap(denied, Ordering::Relaxed) != denied {
+        let r = if denied { shell.menu.insert(&shell.notif_off, NOTIF_LINE_POS) } else { shell.menu.remove(&shell.notif_off) };
+        if let Err(e) = r {
+            eprintln!("tray menu update failed: {e}");
+        }
+    }
+    if !report {
+        return;
+    }
+    let body = daemon::status_body(s.notifications, s.alert_style, &shell.version, channel::current().name);
+    std::thread::spawn(move || {
+        let Some(c) = daemon::current() else { return };
+        match daemon::report_status(&c, &body) {
+            Ok(code) => eprintln!("shell status {body} -> {code}"),
+            Err(e) => eprintln!("shell status report failed: {e}"),
+        }
+    });
+}
+
+fn open_notification_settings() {
+    let ok = std::process::Command::new("open").arg(NOTIFICATION_SETTINGS_URL).status().is_ok_and(|s| s.success());
+    if !ok {
+        let _ = std::process::Command::new("open").args(["-b", "com.apple.systempreferences"]).status();
+    }
 }
 
 /// `<scheme>://item/<id>` -> `#/item/<id>`, same for `session`.
@@ -129,6 +168,8 @@ fn health_loop(app: AppHandle) -> ! {
             let _ = app.state::<Shell>().status.set_text(&status);
             last = status;
         }
+        // The user may flip the app's notification switch at any time.
+        notify::refresh(false);
         std::thread::sleep(Duration::from_secs(5));
     }
 }
@@ -169,15 +210,30 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.set_activation_policy(ActivationPolicy::Accessory);
     let h = app.handle().clone();
 
-    let open = MenuItem::with_id(&h, "open", "Open inbox", true, Some(channel::current().shortcut))?;
+    let ch = channel::current();
+    let version = app.package_info().version.to_string();
+
+    let open = MenuItem::with_id(&h, "open", "Open inbox", true, Some(ch.shortcut))?;
     let pause = CheckMenuItem::with_id(&h, "pause", "Pause notifications", true, false, None::<&str>)?;
+    let notif_off = MenuItem::with_id(&h, "notif-settings", "Notifications are off — Open Settings…", true, None::<&str>)?;
     let status = MenuItem::with_id(&h, "status", "Daemon: checking…", false, None::<&str>)?;
-    let quit = MenuItem::with_id(&h, "quit", format!("Quit {}", channel::current().product_name), true, Some("CmdOrCtrl+Q"))?;
-    let menu = Menu::with_items(
-        &h,
-        &[&open, &pause, &PredefinedMenuItem::separator(&h)?, &status, &PredefinedMenuItem::separator(&h)?, &quit],
-    )?;
-    app.manage(Shell { paused: AtomicBool::new(false), status, last_blur: Mutex::new(None) });
+    let about = MenuItem::with_id(&h, "version", format!("{} {version}", ch.product_name), false, None::<&str>)?;
+    let updates = MenuItem::with_id(&h, "updates", "Check for Updates…", true, None::<&str>)?;
+    let quit = MenuItem::with_id(&h, "quit", format!("Quit {}", ch.product_name), true, Some("CmdOrCtrl+Q"))?;
+    let sep = || PredefinedMenuItem::separator(&h);
+    let menu = Menu::with_items(&h, &[&open, &pause, &sep()?, &status, &about, &updates, &sep()?, &quit])?;
+    app.manage(Shell {
+        paused: AtomicBool::new(false),
+        status,
+        last_blur: Mutex::new(None),
+        menu: menu.clone(),
+        notif_off,
+        notif_off_shown: AtomicBool::new(false),
+        version,
+    });
+
+    // Before launch finishes, so a click that cold-started the app is delivered.
+    notify::init(&h);
 
     create_windows(&h)?;
     TrayIconBuilder::with_id("main")
@@ -188,6 +244,8 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, e| match e.id().as_ref() {
             "open" => show_main(app, None),
+            "notif-settings" => open_notification_settings(),
+            "updates" => show_main(app, Some("#/update".into())),
             "pause" => app.state::<Shell>().paused.store(pause.is_checked().unwrap_or(false), Ordering::Relaxed),
             "quit" => app.exit(0),
             _ => {}
@@ -201,7 +259,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         })
         .build(&h)?;
 
-    h.global_shortcut().register(channel::current().shortcut)?;
+    // Non-essential from here on: log and keep going (another app may own the shortcut).
+    if let Err(e) = h.global_shortcut().register(ch.shortcut) {
+        eprintln!("global shortcut {} not registered: {e}", ch.shortcut);
+    }
     let links = h.clone();
     h.deep_link().on_open_url(move |e| {
         for hash in e.urls().iter().filter_map(|u| deep_link_hash(u.as_str())) {
@@ -210,21 +271,32 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Login item: register once in production, never from a dev/test run.
-    let marker = h.path().app_data_dir()?.join("autostart-registered");
-    if !daemon::dev_mode() && !marker.exists() {
-        let _ = h.autolaunch().enable();
-        let _ = std::fs::create_dir_all(marker.parent().unwrap());
-        let _ = std::fs::write(&marker, "");
+    match h.path().app_data_dir() {
+        Ok(dir) if !daemon::dev_mode() => {
+            let marker = dir.join("autostart-registered");
+            if !marker.exists() {
+                if let Err(e) = h.autolaunch().enable() {
+                    eprintln!("login item not registered: {e}");
+                }
+                let _ = std::fs::create_dir_all(&dir);
+                let _ = std::fs::write(&marker, "");
+            }
+        }
+        Ok(_) => {}
+        Err(e) => eprintln!("no app data dir, login item skipped: {e}"),
     }
 
-    notify::init();
     let stream = h.clone();
     std::thread::spawn(move || {
-        daemon::stream_loop(|m| match m {
-            Msg::Badge(n) => set_badge(&stream, n),
-            Msg::Notify(n) if !stream.state::<Shell>().paused.load(Ordering::Relaxed) || n.critical => notify::post(&stream, n),
-            _ => {}
-        })
+        daemon::stream_loop(
+            |_| notify::refresh(true),
+            |m| match m {
+                Msg::Badge(n) => set_badge(&stream, n),
+                Msg::Notify(n) if !stream.state::<Shell>().paused.load(Ordering::Relaxed) || n.critical => notify::post(&n),
+                Msg::Unnotify(ids) => notify::clear(&ids),
+                _ => {}
+            },
+        )
     });
     std::thread::spawn(move || health_loop(h));
     Ok(())

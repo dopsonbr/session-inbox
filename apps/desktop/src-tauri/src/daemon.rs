@@ -1,5 +1,5 @@
 //! Everything the shell knows about the daemon: connection.json, health, the SSE
-//! stream and the one write it makes (notification acted). No domain types.
+//! stream and its two writes (notification acted, shell status). No domain types.
 use serde::Deserialize;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -61,6 +61,8 @@ pub struct NotifyPayload {
 pub enum Msg {
     Badge(u32),
     Notify(NotifyPayload),
+    /// Remove these delivered notifications (answered elsewhere).
+    Unnotify(Vec<String>),
     Other,
 }
 
@@ -73,6 +75,7 @@ pub fn parse_message(data: &str) -> Msg {
         Some("notify") => serde_json::from_value(v["notification"].clone())
             .map(Msg::Notify)
             .unwrap_or(Msg::Other),
+        Some("unnotify") => serde_json::from_value(v["ids"].clone()).map(Msg::Unnotify).unwrap_or(Msg::Other),
         _ => Msg::Other,
     }
 }
@@ -144,8 +147,30 @@ pub fn acted(c: &Connection, notification_id: &str, action: &str) {
     }
 }
 
+/// Body of `POST /v1/shell/status`: what the shell can do, so the daemon (which
+/// owns notification policy) can fall back to its own notifications.
+pub fn status_body(notifications: &str, alert_style: &str, version: &str, channel: &str) -> serde_json::Value {
+    serde_json::json!({
+        "notifications": notifications,
+        "alertStyle": alert_style,
+        "version": version,
+        "channel": channel,
+    })
+}
+
+/// Report the shell status once. Any failure (including 404 from a daemon that
+/// predates the route) is only logged by the caller; the next change or reconnect resends.
+pub fn report_status(c: &Connection, body: &serde_json::Value) -> Result<u16, String> {
+    agent(Duration::from_secs(5))
+        .post(format!("{}/v1/shell/status", c.base()))
+        .header("Authorization", c.auth())
+        .send_json(body)
+        .map(|r| r.status().as_u16())
+        .map_err(|e| e.to_string())
+}
+
 /// Read one SSE connection until it ends. Returns whether it connected at all.
-fn stream_once(c: &Connection, on_msg: &mut impl FnMut(Msg)) -> bool {
+fn stream_once(c: &Connection, on_connect: &mut impl FnMut(&Connection), on_msg: &mut impl FnMut(Msg)) -> bool {
     let resp = agent(Duration::from_secs(90))
         .get(format!("{}/v1/stream?client=shell", c.base()))
         .header("Authorization", c.auth())
@@ -155,6 +180,7 @@ fn stream_once(c: &Connection, on_msg: &mut impl FnMut(Msg)) -> bool {
     if !resp.status().is_success() {
         return false;
     }
+    on_connect(c);
     let mut parser = SseParser::default();
     for line in BufReader::new(resp.into_body().into_reader()).lines() {
         let Ok(line) = line else { break };
@@ -166,11 +192,12 @@ fn stream_once(c: &Connection, on_msg: &mut impl FnMut(Msg)) -> bool {
 }
 
 /// Connect, stream, reconnect forever with 1s..15s backoff, re-reading connection.json each time.
-pub fn stream_loop(mut on_msg: impl FnMut(Msg)) -> ! {
+/// `on_connect` runs after each successful (re)connect.
+pub fn stream_loop(mut on_connect: impl FnMut(&Connection), mut on_msg: impl FnMut(Msg)) -> ! {
     let mut backoff = 1;
     loop {
         if let Some(c) = current() {
-            if stream_once(&c, &mut on_msg) {
+            if stream_once(&c, &mut on_connect, &mut on_msg) {
                 backoff = 1;
             }
         }
@@ -209,6 +236,26 @@ mod tests {
             }
             m => panic!("{m:?}"),
         }
+    }
+
+    #[test]
+    fn parses_unnotify() {
+        assert_eq!(
+            parse_message(r#"{"_tag":"unnotify","seq":9,"ids":["n_1","n_2"]}"#),
+            Msg::Unnotify(vec!["n_1".into(), "n_2".into()])
+        );
+        assert_eq!(parse_message(r#"{"_tag":"unnotify","seq":9,"ids":[]}"#), Msg::Unnotify(vec![]));
+        assert_eq!(parse_message(r#"{"_tag":"unnotify","seq":9}"#), Msg::Other);
+        assert_eq!(parse_message(r#"{"_tag":"unnotify","seq":9,"ids":[1]}"#), Msg::Other);
+        assert_eq!(parse_message(r#"{"_tag":"somethingNew","seq":9,"ids":["x"]}"#), Msg::Other);
+    }
+
+    #[test]
+    fn builds_status_body() {
+        assert_eq!(
+            status_body("denied", "alert", "0.2.0", "beta"),
+            serde_json::json!({"notifications":"denied","alertStyle":"alert","version":"0.2.0","channel":"beta"})
+        );
     }
 
     #[test]

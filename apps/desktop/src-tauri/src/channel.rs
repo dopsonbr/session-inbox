@@ -4,6 +4,8 @@
 //! URL scheme or shortcut.
 
 pub struct Channel {
+    /// `ga` or `beta`, as reported to the daemon.
+    pub name: &'static str,
     /// Directory under `~/Library/Application Support` (default data home).
     pub support_dir: &'static str,
     pub launchd_label: &'static str,
@@ -14,6 +16,7 @@ pub struct Channel {
 }
 
 pub const GA: Channel = Channel {
+    name: "ga",
     support_dir: "SessionInbox",
     launchd_label: "com.sessioninbox.inboxd",
     identifier: "com.sessioninbox.app",
@@ -23,6 +26,7 @@ pub const GA: Channel = Channel {
 };
 
 pub const BETA: Channel = Channel {
+    name: "beta",
     support_dir: "SessionInbox-beta",
     launchd_label: "com.sessioninbox.inboxd.beta",
     identifier: "com.sessioninbox.app.beta",
@@ -53,6 +57,7 @@ mod tests {
         assert_eq!(for_name(None).identifier, "com.sessioninbox.app");
         assert_eq!(for_name(Some("ga")).identifier, "com.sessioninbox.app");
         assert_eq!(for_name(Some("Beta")).identifier, "com.sessioninbox.app");
+        assert_eq!((GA.name, BETA.name), ("ga", "beta"));
     }
 
     #[test]
