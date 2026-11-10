@@ -213,7 +213,10 @@ const commandView = (h: H, p: Extract<ApprovalPreview, { _tag: "command" }>): Ht
             ? h.empty
             : h.span(
                 [h.Title(p.cwd)],
-                ["in ", h.span([h.Class("font-mono")], [p.displayCwd ?? p.cwd])],
+                // "." is the daemon's word for the project root; "in ." reads like a typo (UX-060).
+                p.displayCwd === "."
+                  ? ["in the project folder"]
+                  : ["in ", h.span([h.Class("font-mono")], [p.displayCwd ?? p.cwd])],
               ),
           p.timeoutMs === undefined ? h.empty : h.span([], [`timeout ${seconds(p.timeoutMs)}`]),
           p.background === true ? h.span([], ["runs in the background"]) : h.empty,

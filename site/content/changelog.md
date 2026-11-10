@@ -13,6 +13,10 @@ What changed in each release, newest first. Versions are tagged on [GitHub Relea
 
 On `main`, not in a release yet.
 
+- **Fewer steps.** After you answer or decide, the next item is selected. <kbd>j</kbd> and <kbd>k</kbd> move through the list, <kbd>e</kbd> or a **Done** button clears a review item, and <kbd>?</kbd> lists the shortcuts.
+- **Answer from the popover.** Popover rows say what is being asked, and a waiting tool call has **Allow** and **Deny** on its row.
+- **Deny with a note.** Type in **Tell Claude why (optional)** before denying and Claude gets your reason.
+- **Easier to read.** No text under 11px, larger icons, the queue tabs on one row, one line of session facts under the title, and titles that say what is asked ("Claude wants to edit src/window.ts"). Settings says that changes apply as you make them and hides the classic-only settings in the recommended mode.
 - **History and search.** A **History** view in the inbox window lists finished items, newest first, with how each ended (allowed, denied, answered, handled in Claude and so on), and searches what the inbox showed you and what you answered. It is not a transcript search. See [Using it](using-it.md#history).
 
 ## 0.2.0

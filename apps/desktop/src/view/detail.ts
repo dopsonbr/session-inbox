@@ -1097,7 +1097,14 @@ const activityView = (model: Model, detail: ItemDetail, h: H): Html => {
         [
           h.h2(
             [h.Class("text-[14px] font-semibold")],
-            [entries.length === 0 ? "No activity yet" : `Since you left · ${minutes} min`],
+            [
+              entries.length === 0
+                ? "No activity yet"
+                : // A finished item is a record, not something you stepped away from (UX-061).
+                  detail.item.queue === "done"
+                  ? "Session activity"
+                  : `Since you left · ${minutes} min`,
+            ],
           ),
           h.button(
             [

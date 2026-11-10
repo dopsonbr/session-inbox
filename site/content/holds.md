@@ -60,9 +60,9 @@ A held call waits up to **120 seconds** for your decision, set by **Wait for an 
 | **Hold tool calls for approval in the inbox** | applies | applies |
 | **How approvals reach the inbox** | applies | applies |
 | **Wait for an answer** (minutes) | shown, 1 to 55 | hidden |
-| **Tools that can be held** | disabled: "Not used while the inbox answers Claude's own prompt." | applies |
+| **Tools that can be held** | hidden | applies |
 | **Wait for an answer** (seconds) | hidden | applies, 15 to 120 |
-| **Bash commands never held** | disabled with the same note | applies |
+| **Bash commands never held** | hidden | applies |
 
 ## When approvals aren't answerable from the inbox
 

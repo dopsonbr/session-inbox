@@ -4,6 +4,8 @@ Status as of 2026-11-10. **[v0.2.0](https://github.com/dopsonbr/session-inbox/re
 
 ## Where things stand
 
+**Since the release (on `main`, not released):** History and search (G-032, C-027, C-028, D-096, D-097, U-052 to U-058) and a UX review with its fixes (U-059 to U-077). [UX.md](../UX.md) is the running UX log: scores per feature, step counts per task and findings; eight findings are still open there. Checked in the browser against the demo daemon in light and dark, popover included; not yet seen in the real app windows. The installed GA and beta on this Mac are still 0.2.0 without any of it. The next release would be 0.3.0 (`bun scripts/bump.ts minor`, move the changelog's "Unreleased" notes under it, publish when the owner asks), and it is the first chance to watch a real self-update.
+
 **Merged on `main`, tests green:**
 
 - **Releases and the CLI.** `VERSION` is 0.2.0. `scripts/release.ts` builds a tarball (hook, daemon, `session-inbox` CLI, UI, menu-bar app; Apple silicon only, about 125 MB) and `install.sh` installs it with one `curl | sh`. `session-inbox` has `install`, `uninstall`, `update`, `status`, `doctor`, `holds` and `open`. Install from a mirror works too (G-024 to G-029, H-019 to H-035).

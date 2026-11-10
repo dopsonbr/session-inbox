@@ -33,12 +33,13 @@ When the menu-bar app isn't allowed to show notifications, or isn't running, Ses
 The menu-bar icon carries a badge with the number of items that **need you**. Click it for the popover:
 
 - a header with the counts ("2 need you", "1 working · 3 to review");
-- the items that need you, one row each. Click a row to open it in the inbox window;
+- the items that need you, one row each, with what is being asked ("Wants to run bun run migrate") and the project. Click a row to open it in the inbox window;
+- **Allow** and **Deny** on the row of a tool call that is waiting right now, so you can answer without opening the window. There is no preview and no **Always allow** here; open the row when you want to see the diff first;
 - when nothing needs you, up to five **Ready to review** rows with a one-line summary of what was done;
 - a banner row when an update is ready, and a **Setup** row when the setup check has something for you;
 - an **Open inbox** button. The shortcut <kbd>⌘</kbd><kbd>⇧</kbd><kbd>I</kbd> opens the main window from anywhere.
 
-[[screenshot popover.png 380x520 The menu-bar popover: a header with the count of items that need you, a Setup row saying how many checks need attention, rows for each item with its title, the kind of request and the project, and an Open inbox button at the bottom.]]
+[[screenshot popover.png 380x520 The menu-bar popover: a header with the count of items that need you, a Setup row saying how many checks need attention, rows for each item with its title, what is being asked and the project, Allow and Deny buttons on the tool calls that are waiting, and an Open inbox button at the bottom.]]
 
 Right-click the icon for its menu:
 
@@ -57,12 +58,14 @@ The window has a tree on the left (project, then session, then subagent), a queu
 
 - **Needs you:** questions, permission requests and failures. This is the list that drives the badge.
 - **Working:** sessions that are running right now. Nothing for you to do, but handy to see what's in flight.
-- **Ready to review:** sessions that stopped cleanly. Open one when you're ready to look at the result.
+- **Review:** sessions that stopped cleanly, the items marked **Ready to review**. Open one when you're ready to look at the result, then choose **Done**.
 - **Snoozed:** items you've put off. They come back at the time you chose and notify once.
 
 The inbox never decides which queue an item belongs in. The daemon does, and the window shows its answer.
 
-The selected item shows when and where the session runs (the desktop app or the CLI, its worktree or branch, its state and its last activity). For a finished or failed session it also shows **Claude's last message**, in full and formatted as Markdown, so you can review the result without opening Claude. A long message is collapsed; use **Show all** to expand it.
+When you answer, decide, snooze or clear the selected item, the next item in the list is selected for you, so a run of requests is one keystroke each. A reply doesn't move on, so you can see it being delivered.
+
+Under its title, the selected item has one line saying where the session runs (the desktop app or the CLI), its worktree or branch, its state and its last activity. For a finished or failed session it also shows **Claude's last message**, in full and formatted as Markdown, so you can review the result without opening Claude. A long message is collapsed; use **Show all** to expand it.
 
 Session titles come from the Claude desktop app's own title for the session when there is one. Otherwise they start as your first prompt and are replaced a moment later by a short title written by Claude, which needs the `claude` CLI to be logged in. Turn that off with **Generate short session titles** in [Settings](settings.md).
 
@@ -91,7 +94,7 @@ You have three choices:
 
 - **Allow once** lets this call run.
 - **Always allow** lets it run and adds one narrow rule, so Claude doesn't ask again for this kind of call. The card says what it adds: "Always allow adds <rule> <where>." For a file tool that's that one file, for WebFetch the host, for Bash the exact command, for an MCP tool that tool. If Claude suggests its own rule, that rule is used and the card shows where it's saved (this session, this project's `.claude/settings.local.json`, the project settings or your user settings). When no narrow rule fits, the button isn't shown. It never allows a whole tool by name. See [How approvals work](holds.md#what-each-answer-does).
-- **Deny** stops the call. Claude is told "Denied by the user in Session Inbox." and carries on.
+- **Deny** stops the call. Claude is told "Denied by the user in Session Inbox." and carries on. To say why, type in **Tell Claude why (optional)** beside the button first and press <kbd>↵</kbd> or **Deny**: Claude gets your words with the denial, and the finished item shows them as "Sent with the denial: …". The field is there while the inbox can still answer the call.
 
 In the default mode, Claude's own prompt stays on screen in Claude while you decide here, and whichever you answer first wins. Allow and answers took effect about 30 ms after the decision in testing. In the classic mode, where the call is held, an allow ran it half a second later, and the very first Bash call of a Claude session takes Claude itself about ten seconds to start, however long it was held.
 
@@ -109,10 +112,12 @@ A reply shows as pending, then delivered once the session's next activity confir
 
 ## Snooze, dismiss and mute
 
-Each item has a **Snooze** menu for putting it aside:
+A **Ready to review** or **Stopped with errors** item has a **Done** button (or press <kbd>e</kbd>): it clears the item once you've looked. In [History](#history) it shows as **Dismissed**.
+
+Each open item has a **Snooze** menu for putting it aside:
 
 - **Snooze 15 minutes**, **Snooze 1 hour** or **Snooze until tomorrow 9:00**. The item leaves **Needs you** and comes back, with one notification, when the time is up.
-- **Dismiss** closes the item without answering it.
+- **Dismiss** closes a question or permission request without answering it. Review and failed items have **Done** instead.
 - **Mute** the project stops that project's items from notifying and from being answered here. Claude behaves as if Session Inbox weren't there for that project. The same menu says **Unmute** once it's muted, and [Settings](settings.md) lists muted projects with an **Unmute** button.
 
 **Pause notifications** in the menu-bar menu silences everything except permission requests, until you turn it off.
@@ -130,6 +135,8 @@ Once you answer an item, or Claude moves on without it, the item leaves the queu
 | **Session moved on** | A finished or failed session that carried on without a reply from the inbox. |
 | **Not answered** | A tool call the inbox was holding (classic mode) was released unanswered because the turn or the session ended first. |
 | **Dismissed** | You dismissed it. |
+
+[[screenshot history.png 1440x900 The inbox window on History: a search field and kind chips above finished items grouped under Today, Yesterday and a date, each row with how it ended (Answered, Allowed, Denied, Session moved on, Dismissed), and on the right a denied git push with the line Decided here: Denied.]]
 
 Type in **Search history** to narrow the list. Every word has to match, in any of: the item's summary, the session's title, branch and folder, the project's name, a question, its options and your answers, a tool call's name and input (commands and file paths included), a deny reason, or a reply you sent. When a word matched somewhere the row doesn't show, the row adds a line such as "Matched in answer: …". The chips **All**, **Questions**, **Permissions**, **Reviews** and **Errors** filter by kind. **Load more** fetches older entries.
 
@@ -154,10 +161,13 @@ If Claude is paused on a held call (classic mode), **Open in Claude** releases i
 | <kbd>⌘</kbd><kbd>K</kbd> | Jump to a session or project by name |
 | <kbd>⌘</kbd><kbd>↵</kbd> | Send answers, allow once, or send the reply: whichever is the main action of the selected item. While you're typing it works only from the reply box or a question's **Other** field. |
 | <kbd>⌘</kbd><kbd>⌫</kbd> | Deny the permission request on screen. Ignored while you're typing, so it still deletes text. |
+| <kbd>j</kbd> <kbd>k</kbd> | Next and previous item in the list on screen: the queue, the sessions under **Working**, or the entries in History |
+| <kbd>e</kbd> | **Done**: clear the selected review or failed item |
+| <kbd>?</kbd> | Show the list of shortcuts. **Shortcuts** at the bottom of the left side opens it too. |
 | <kbd>↑</kbd> <kbd>↓</kbd> | Move through the session tree |
 | <kbd>⌘</kbd><kbd>,</kbd> | Open [Settings](settings.md) |
 
-<kbd>⌘</kbd><kbd>↵</kbd>, <kbd>⌘</kbd><kbd>⌫</kbd>, <kbd>⌘</kbd><kbd>K</kbd> and <kbd>⌘</kbd><kbd>,</kbd> work in the inbox window, not in the popover. <kbd>⌘</kbd><kbd>↵</kbd> and <kbd>⌘</kbd><kbd>⌫</kbd> act only on the inbox view with no dialog or menu open, so they never answer an item hidden behind Settings or the <kbd>⌘</kbd><kbd>K</kbd> jump box.
+The letter keys and <kbd>?</kbd> do nothing while you type in a field or while a dialog or menu is open. <kbd>⌘</kbd><kbd>↵</kbd>, <kbd>⌘</kbd><kbd>⌫</kbd>, <kbd>⌘</kbd><kbd>K</kbd> and <kbd>⌘</kbd><kbd>,</kbd> work in the inbox window, not in the popover. <kbd>⌘</kbd><kbd>↵</kbd> and <kbd>⌘</kbd><kbd>⌫</kbd> act only on the inbox view with no dialog or menu open, so they never answer an item hidden behind Settings or the <kbd>⌘</kbd><kbd>K</kbd> jump box.
 
 ## Opening the inbox in a browser
 

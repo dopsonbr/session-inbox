@@ -48,6 +48,7 @@ entries with your section's prefix (G, C, D, H, U, S, P) and the next free numbe
   5. **History and search** over finished items and sessions (cut). The snapshot is deliberately a 24-hour working set (D-025) and v1 is an inbox, not a transcript viewer; search adds an index, a query API and a new view for something Claude's own session list already does.
 - G-031 — Delegation for this round: Opus 5.5 (medium) for the release/installer CLI, the updater, settings and the approval preview; Sonnet 5.5 (medium) for finishing the beta shell. User instruction: Opus on medium wherever possible, Sonnet never above high.
 - G-032 — History and search is built after all (reverses the cut in G-030, on the owner's word, 2026-11-10); the phone push relay stays cut: the product is local and desktop-only. Scope: finished items and how each ended, searchable by what the inbox showed and what you answered. Not Claude's messages or transcripts. Why: once an item is answered it leaves every queue, so "what did I allow an hour ago?" had no answer in the app.
+- G-033 — `UX.md` is the running UX log: a dated score per feature, step counts per task, findings (`UX-NNN`) with a status, and a change list. Decisions that come out of a review still go here in the U section and name the finding. Why: "is it better?" needs numbers that can be re-taken (steps, smallest text, target sizes), not a one-off opinion; a new column is added per pass, old ones are kept.
 
 ## Contracts
 
@@ -288,6 +289,7 @@ entries with your section's prefix (G, C, D, H, U, S, P) and the next free numbe
 - U-074 — Settings (UX-012..UX-015, UX-026): title "Settings", a "Beta" badge on the beta channel only, and "Changes apply as you make them." under it. The classic hold's fields (tools, seconds wait, Bash commands never held) are shown only while classic is chosen (`showWhen`); the daemon keeps their values either way, so the two "Wait for an answer" fields are never on screen together. Tool chips: selected is the primary fill with a check, unselected is dashed and empty.
 - U-075 — History (UX-006 follow-up): the title, search, kind chips and status line stick to the top of the column; kind chips stay on one row; a row's summary wraps to two lines before truncating.
 - U-076 — Icons are explicit pixel sizes (UX-021): 14px beside body text, 12px beside 11–12px labels (badges, chips, links), 16px for the lone Settings gear; stroke unchanged; every icon still sits beside a word.
+- U-077 — A permission title drops the summary's trailing diff count ("Claude wants to edit src/window.ts", not "… +2 −1"), and a denied card shows "Sent with the denial: <reason>" when the user wrote one (C-028). Why: the count wrapped the 22px title and is already on the row and above the diff (UX-053); a note you can send but never see again reads as lost (UX-054).
 
 
 ## Shell
