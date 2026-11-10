@@ -2,197 +2,73 @@
 
 **A macOS menu-bar inbox for your local Claude Code sessions.** It tells you when a session needs you, lets you answer a question or approve a tool call without switching to Claude, and drops you into the exact session when there's real work to do.
 
+**Docs: <https://dopsonbr.github.io/session-inbox/>** (install, using it, settings, updating, troubleshooting, how it works)
+
 - **Quiet by default.** You hear about questions, permission requests, stops and failures. Routine tool activity never notifies.
-- **Answer in place.** Allow or Deny from the notification itself. Answer several of Claude's questions in one form and they reach the waiting session together.
-- **Claude's own structure.** Project → session → subagent, grouped by repository, worktrees included.
+- **Answer in place.** Approve a tool call with the diff or the full command in front of you, from the inbox or the notification. Answer several of Claude's questions in one form and they reach the waiting session together.
+- **Claude's own structure.** Project, then session, then subagent, grouped by repository, worktrees included.
 - **Invisible when off.** If the daemon isn't running, every hook exits immediately with no output and Claude behaves exactly as if nothing were installed.
 
-Scope for v1: sessions on **this Mac** only (the Claude desktop app's Code tab and the `claude` CLI). No cloud sessions, no sync, no transcript viewer.
-
-## How it works
-
-```
- Claude Code session                                   you
- ───────────────────                                   ───
- hook fires ──JSON──▶ inbox-hook ──unix socket──▶ inboxd ──SSE──▶ menu-bar app ──▶ notification
-      ▲                   │ (holds PreToolUse        │  (Bun daemon,        │       │ Allow / Deny / Open
-      │                   │  until you decide)       │   SQLite)            ▼       ▼
-      └──── allow / deny / answers ◀─────────────────┴◀──── intents ◀── inbox window (Foldkit UI)
-```
-
-| Piece | What it does |
-| --- | --- |
-| **`inbox-hook`** | A compiled Bun binary that Claude runs for each hook event. It forwards the event to the daemon. For risky tools and `AskUserQuestion` it waits up to 120 s for your decision, then falls back to Claude's own prompt. |
-| **`inboxd`** | The only thing that decides anything: it classifies events, tracks session and item state, decides when to notify, dedupes, and routes replies. It runs as a launchd agent, keeps state in SQLite, and serves an HTTP + SSE API and the UI on `127.0.0.1`. |
-| **Menu-bar app** | A thin Tauri v2 shell: tray badge with the "needs you" count, a popover, native notifications with action buttons, `sessioninbox://` deep links, ⌘⇧I, launch at login. |
-| **Inbox UI** | Foldkit + Effect, rendered from daemon state: project tree, queues, question form, approval card, activity timeline. |
-
-**When does it interrupt a session?** It only holds a tool call when Claude itself would have asked you. That means the session is in the default permission mode, the tool is one of Bash, Write, Edit, MultiEdit, NotebookEdit or WebFetch, and none of your allow rules match. `AskUserQuestion` is always routed through the inbox. Clicking **Open in Claude** on a held item releases it at once, so Claude's own prompt appears.
-
-**Replies.** Answers to a question Claude is waiting on go back through its held hook. Free-text replies to an idle session go out as `claude --resume <id> -p "<reply>"`, and never while a turn is running.
+Scope: sessions on **this Mac** only (the Claude desktop app's Code tab and the `claude` CLI). No cloud sessions, no sync, no transcript viewer.
 
 ## Install
 
-Requirements: an Apple-silicon Mac and the Claude desktop app or the `claude` CLI. Nothing else: the release is prebuilt.
+You need an Apple silicon Mac and the Claude desktop app or the `claude` CLI. The release is prebuilt (about 125 MB), so no Bun or Rust is needed.
+
+<!-- REMOVE AFTER FIRST RELEASE -->
+> **The first release hasn't been published yet**, so the one-liner below currently answers "no published release found". The repository owner publishes it with `bun scripts/release.ts --publish` from a clean checkout of `main` (about a minute, needs `gh`), or by running the **Release** workflow from the Actions tab. Until then, install from a tarball or from source (see the docs' [Install page](https://dopsonbr.github.io/session-inbox/install.html)).
+<!-- /REMOVE AFTER FIRST RELEASE -->
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dopsonbr/session-inbox/main/install.sh | sh
 ```
 
-The script checks the download's SHA-256, then hands over to the release's own `session-inbox install`, which:
-
-1. Copies `inbox-hook`, `inboxd`, `session-inbox` and the UI to `~/Library/Application Support/SessionInbox/`.
-2. Loads the launchd agent `com.sessioninbox.inboxd`.
-3. Merges the hooks into `~/.claude/settings.json`. It backs the file up first, keeps everything else in it, and re-running it changes nothing.
-4. Installs and opens `~/Applications/Session Inbox.app`.
-5. Links `~/.local/bin/session-inbox` (add `~/.local/bin` to your `PATH` if it isn't there).
-
-Nothing needs `sudo`. Options go after `sh -s --`, for example `curl -fsSL …/install.sh | sh -s -- --no-app`, and `SESSION_INBOX_VERSION=v0.2.0` picks a version. To see every change before making it, download a release tarball, unpack it, and run `bin/session-inbox install` without `--yes` (a dry run). A tarball downloaded with a browser works too: the installer clears macOS's quarantine flag on the files it copies. New Claude sessions pick up the hooks. Restart any session that's already open. When it's done, macOS asks whether Session Inbox may show notifications: click **Allow**. `session-inbox doctor` checks the whole setup.
-
-**Install from a mirror.** To install and update from somewhere other than GitHub, set `SESSION_INBOX_RELEASES_URL` (a GitHub-style releases API: `<url>/latest` and `<url>/tags/v<version>`) and, if the files live elsewhere, `SESSION_INBOX_ASSET_URL` (the download base; `{tag}` and `{version}` in it are filled in, so `https://mirror.example/session-inbox/{tag}` works, and a flat directory needs neither), or pass `--releases-url` / `--asset-url` to `session-inbox install`. The installer records them in `<home>/install.json` and in the launchd agent's environment, so the daemon's update checks and every later `session-inbox update` use the same mirror; an update keeps them. Without them, releases come from GitHub as usual.
-
-### Update
+The script checks the download's SHA-256 and hands over to the release's own `session-inbox install`. When it's done, click **Allow** when macOS asks about notifications, restart any Claude session that was already open, and run the setup check:
 
 ```bash
-session-inbox update --check   # is there a newer release?
-session-inbox update --yes     # download, verify, and install it over this one
+session-inbox doctor
 ```
 
-An update moves hook, daemon, UI and app together and keeps the choices you installed with (`<home>/install.json`). `session-inbox status` shows what's installed and running. The daemon also checks by itself every 6 hours and installs an update once no session is waiting on you; it writes `<home>/update.log`.
+What the installer changes on your Mac, installing from a tarball, updating, rolling back and uninstalling are on the [Install](https://dopsonbr.github.io/session-inbox/install.html) and [Updating](https://dopsonbr.github.io/session-inbox/updating.html) pages. `session-inbox uninstall --yes` removes it.
 
 ### Install from source
 
-Needed on an Intel Mac (releases are Apple silicon only), and for development. Requirements: [Bun](https://bun.sh) ≥ 1.4, and Rust (`brew install rust`) for the menu-bar app.
+Needed on an Intel Mac (releases are Apple silicon only), and for development. You need [Bun](https://bun.sh) 1.4 or later, and Rust (`brew install rust`) for the menu-bar app.
 
 ```bash
 git clone https://github.com/dopsonbr/session-inbox && cd session-inbox
 bun install
-bun scripts/install.ts           # dry run: prints every file, launchd and settings.json change
-bun scripts/install.ts --yes     # builds from this checkout and runs the same installer
+bun scripts/install.ts            # dry run: prints every file, launchd and settings.json change
+bun scripts/install.ts --yes --app   # build from this checkout, install, and open the menu-bar app
 ```
 
-Add `--app` to also build the menu-bar app, install it as `~/Applications/Session Inbox.app` and open it (the first Rust build takes a few minutes). `session-inbox update --yes` replaces a source install with the release build.
-
-### GA and beta side by side
-
-Install a second, **beta** channel from a working branch to compare it with the GA install:
-
-```bash
-git switch my-branch
-bun scripts/install.ts --channel beta --yes --app   # → ~/Applications/Session Inbox Beta.app
-session-inbox status                                  # both channels: version, running, holds, URL
-```
-
-Beta has its own data (`~/Library/Application Support/SessionInbox-beta`), launchd agent (`com.sessioninbox.inboxd.beta`), port, app, `sessioninbox-beta://` links, ⌘⌥⇧I and `~/.local/bin/session-inbox-beta`. It never updates from releases. Both channels see every session. Only one may **hold** tool calls (otherwise each would wait for its own answer), so a channel installed beside another starts as an observer: it shows the same items and notifies too, but never holds (its permission items aren't answerable; answer in the channel that holds). To swap roles:
-
-```bash
-session-inbox holds beta   # beta holds, GA observes (holds ga to switch back)
-session-inbox open beta    # beta inbox in the browser
-```
-
-(`bun scripts/channels.ts` does the same from a checkout.) Remove beta with `bun scripts/uninstall.ts --channel beta --yes --app`. GA's hooks are left alone.
-
-### Try it in one project first
-
-To leave your global Claude settings untouched, install the hooks into a single repository and run the daemon in a terminal:
-
-```bash
-bun scripts/install.ts --yes --no-launchd --settings /path/to/repo/.claude/settings.local.json
-bun apps/daemon/src/main.ts      # logs the inbox URL; Ctrl-C to stop
-```
-
-### Uninstall
-
-```bash
-session-inbox uninstall          # dry run
-session-inbox uninstall --yes    # removes our hooks (only ours), the launchd agent, the PATH link and the app
-session-inbox uninstall --yes --purge   # also deletes ~/Library/Application Support/SessionInbox (data too)
-```
-
-From a checkout, `bun scripts/uninstall.ts` takes the same flags.
-
-## Using it
-
-| Where | What you can do |
-| --- | --- |
-| Notification | **Allow** / **Deny** a permission request without opening a window; **Answer** or **Open** a question. A click opens the item. |
-| Menu bar | Badge = items that need you. The popover lists them; **Open inbox** or ⌘⇧I opens the main window. |
-| Inbox window | Queues: **Needs you**, **Working**, **Ready to review**, **Snoozed**. Snooze 15 m / 1 h / tomorrow, dismiss, mute a project. |
-| Keyboard | ⌘K jump to a session · ⌘↵ send answers or allow · ⌘⌫ deny · arrow keys to move through the tree |
-| Open in Claude | Desktop sessions open via `claude://code/continue?session=…`. CLI sessions open via `claude://resume?session=…`, and `cd <dir> && claude --resume <id>` is also copied to your clipboard. |
-
-Session titles start as your first prompt and are replaced by a short Claude-written title a moment later (via `claude -p --model haiku`, with hooks disabled for that call).
-
-## Files and configuration
-
-Everything lives in `~/Library/Application Support/SessionInbox/`:
-
-| File | Purpose |
-| --- | --- |
-| `bin/inbox-hook`, `bin/inboxd`, `bin/session-inbox`, `ui/` | Installed binaries and UI |
-| `install.json` | Version, channel and the options it was installed with; `update` re-applies them |
-| `update-state.json`, `update.log`, `updates/` | Progress and log of the last update, and its download while it runs |
-| `inbox.db` | SQLite (WAL): sessions, items, events, outbox, notifications, drafts, settings |
-| `inboxd.sock` | Unix socket for hooks (mode 0600) |
-| `connection.json`, `token` | HTTP port and bearer token for the app (mode 0600) |
-| `inboxd.log` | Daemon log (launchd stdout and stderr) |
-
-Change settings in the app: the gear button in the header, or ⌘,. Each control saves on its own and the daemon applies it at once, no restart. The pane covers:
-
-| Pane (group) | Key | Default | Meaning |
-| --- | --- | --- | --- |
-| Approvals | `holds.enabled` | `true` | Hold tool calls for approval in the inbox. Off: observe and notify only (an install beside another may default to off, H-016) |
-| Approvals | `holds.tools` | Bash, Write, Edit, MultiEdit, NotebookEdit, WebFetch | Tools that may be held. AskUserQuestion always comes to the inbox |
-| Approvals | `holds.budgetMs` | `120000` | How long a held call waits before Claude's own prompt appears (15–120 s; the hook gives up at 120 s) |
-| Approvals | `holds.safeBashPrefixes` | `ls`, `git status`, … | Bash commands never held |
-| Notifications | `notifications.fallback` | `true` | Use `osascript` notifications when the menu-bar app isn't running |
-| Notifications | `notifications.reviewGroupMs` | `30000` | Window for grouping "ready to review" notifications (0–600 s) |
-| Sessions | `titles.generate` | `true` | Ask Claude for a short session title |
-| Sessions | (muted projects) | | Unmute a project muted from an item's menu |
-
-Turning holds off releases any call being held, so Claude shows its own prompt. The same API is `GET`/`PUT /v1/settings` (partial body; `null` resets a key).
-
-Settings are rows in the `settings` table (value as JSON). Rows win over the install's defaults (`SESSION_INBOX_SETTINGS` in the launchd plist), which win over the code defaults. Keys the pane doesn't show, such as `questions.answerMode` (`updatedInput`; `denyWithReason` is the fallback), can still be set by hand; the daemon reads rows only at startup, so restart it afterwards:
-
-```bash
-sqlite3 ~/Library/Application\ Support/SessionInbox/inbox.db \
-  "insert or replace into settings values ('questions.answerMode', '\"denyWithReason\"')"
-launchctl kickstart -k gui/$(id -u)/com.sessioninbox.inboxd
-```
-
-Environment overrides, mostly for development:
-
-- `SESSION_INBOX_HOME`: moves the whole data directory.
-- `SESSION_INBOX_UI_DIR`: where the daemon serves the UI from.
-- `SESSION_INBOX_CLAUDE`: path to the `claude` binary.
-- `CLAUDE_CONFIG_DIR`: where Claude settings are read for allow rules.
-- `SESSION_INBOX_HOLD_SECONDS`: the hook's hold budget.
-
-## Troubleshooting
-
-Start with `session-inbox doctor` (`--json` for the raw report). It asks the running daemon for its setup check and prints each item with what to do about it. If the daemon doesn't answer within 3 s, it checks what it can from the outside instead: the home, the binaries, the launchd agent, the hooks in your settings file and the last lines of `inboxd.log`. It exits 0 when everything is fine.
-
-- **The menu-bar app says "daemon offline":** run `launchctl print gui/$(id -u)/com.sessioninbox.inboxd` and check `inboxd.log`. To restart, run `launchctl kickstart -k gui/$(id -u)/com.sessioninbox.inboxd`.
-- **Nothing shows up for a session:** the hooks load when a session starts, so restart it. Check that `~/.claude/settings.json` lists `inbox-hook` under `hooks`.
-- **Claude seems to pause before running a command:** that's a held approval waiting for you. It falls back to Claude's own prompt after 120 s, or at once when you click **Open in Claude**.
-- **No notification actions:** the app is ad-hoc signed. macOS may need **Alerts** style for "Session Inbox" in System Settings → Notifications for the buttons to show.
+The first Rust build takes a few minutes. Without `--app` you get the daemon, the hook and the browser UI, but no menu-bar badge or native notifications. A second, beta install from a branch can sit beside the everyday one: see [GA and beta channels](https://dopsonbr.github.io/session-inbox/channels.html).
 
 ## Status
 
-v1 is built and covered by tests, a smoke test and a browser check against a live daemon. Not yet confirmed on a real installed setup:
+Built, covered by tests, a smoke test and a real-launchd update test, and run against real Claude desktop sessions.
 
-- That hooks fire for sessions started in the desktop app. Static analysis says yes; see [docs/spike.md](docs/spike.md).
-- That `AskUserQuestion` answers land through `updatedInput`. The daemon switches to `denyWithReason` automatically if they don't.
-- That the exact-session deep link lands on the right session.
-- Notification clicks and buttons on a real desktop.
+**Publishing a release is the one step still to do**, and it's the repository owner's. Until then a second Mac can install from a tarball made on the first one (`bun scripts/release.ts`).
 
-The design and its reasoning are in [docs/implementation.md](docs/implementation.md) (spec snapshot) and [DECISIONS.md](DECISIONS.md), which records every decision and where it departs from the spec.
+**Checked live on a real desktop session:**
+
+- Answers sent from the inbox reach a held `AskUserQuestion`.
+- Allow and Deny from the inbox release a held tool call, about half a second later.
+- **Open in Claude** lands on the exact session, and session titles come from the desktop app's own title.
+- The approval preview shows a real diff.
+- The daemon-driven update works end to end under launchd against a local release server (`bun scripts/e2e-update.ts`): a held call blocks the automatic update, it applies after 30 seconds of quiet, hooks keep failing open during the swap, and a corrupted download is refused.
+
+**Not yet seen by a person:** the menu-bar app's own notification banners with their Allow, Deny, Answer and Open buttons, and a click through from one. Nobody could click **Allow** while it was being built. The plain fallback notifications that the daemon posts when the app isn't allowed are logged by macOS as displayed. Also unchecked: **Open in Claude** for CLI sessions, and a first install from a published release. The full list is on the [Troubleshooting page](https://dopsonbr.github.io/session-inbox/troubleshooting.html#not-yet-verified-by-a-person).
+
+**Known limits:** replies to idle sessions and Claude-generated titles need the `claude` CLI to be logged in (the desktop app's login isn't shared); everything else works without it. The app is ad-hoc signed, not notarized. Release downloads are Apple silicon only.
+
+The design and its reasoning are in [docs/implementation.md](docs/implementation.md) (spec snapshot) and [DECISIONS.md](DECISIONS.md), which records every decision and where it departs from the spec. [docs/handoff.md](docs/handoff.md) says where to pick up.
 
 ## Development
 
 ```bash
 bun install
-bun test                              # unit, lifecycle-table, fixture-replay and API tests
+bun test                              # unit, lifecycle-table, fixture-replay, API and site tests
 bun run typecheck
 bun run lint                          # Biome
 bun scripts/smoke.ts                  # real daemon + real inbox-hook end to end; no Claude account needed
@@ -200,23 +76,27 @@ bun scripts/demo.ts                   # real daemon seeded with sample sessions;
 bun run --cwd apps/desktop dev:mock   # UI against an in-memory fake daemon
 bun run --cwd apps/daemon dev         # daemon with --watch on .dev/home
 cd apps/desktop/src-tauri && cargo test && cargo clippy -- -D warnings
-bun scripts/release.ts --skip-app     # payload + tarball + .sha256 in dist/release (no app: fast)
+bun scripts/release.ts --skip-app     # payload, tarball and .sha256 in dist/release (no app: fast)
+bun scripts/verify-release.ts         # check that tarball the way a user gets it
+bun scripts/e2e-update.ts             # real-launchd update test against a local release server (about a minute)
+bun scripts/build-site.ts --check     # build the docs site and check every link
 ```
 
-Releases: the **Release** GitHub workflow (Actions → Release → Run, pick patch/minor/major) bumps `VERSION`, runs every check, builds with `bun scripts/release.ts`, tags and publishes the tarball, its checksum and `install.sh`. CI runs the same checks on every push.
+When behaviour changes, update the matching page in `site/content/` in the same change. Releases: `bun scripts/release.ts --publish`, or the **Release** workflow (Actions, Release, Run: it bumps `VERSION`, runs every check, builds, tags and publishes). CI runs the same checks on every push.
 
 | Path | What |
 | --- | --- |
-| `apps/daemon` | `inboxd`: ingest, attention-item state machine, holds, outbox, notification policy, HTTP + SSE |
+| `apps/daemon` | `inboxd`: ingest, attention-item state machine, holds, outbox, notification policy, updates, setup check, HTTP + SSE |
 | `apps/hook` | `inbox-hook`: forward, long-poll, fail open; `record` mode writes fixtures; settings merge |
-| `apps/cli` | `session-inbox`: install, uninstall, update, status (the one install path) |
+| `apps/cli` | `session-inbox`: install, uninstall, update, status, doctor (the one install path) |
 | `apps/desktop/src` | Foldkit + Effect UI: main window and `?view=compact` popover |
 | `apps/desktop/src-tauri` | Tauri v2 shell: tray, popover, notifications, deep links, autostart |
 | `packages/contracts` | Effect Schemas shared by the daemon and the UI: the only shared code |
 | `fixtures/` | Recorded (real) and synthetic hook payloads replayed by the tests |
 | `ops/` | launchd plist template, Claude settings snippet |
-| `scripts/` | Bun scripts: install, uninstall, build, build-shell, release, bump, smoke, demo, spike tools |
+| `scripts/` | Bun scripts: install, uninstall, build, build-shell, release, bump, verify-release, e2e-update, build-site, smoke, demo, spike tools |
+| `site/` | The docs site (Markdown in `site/content`, built by `scripts/build-site.ts`) |
 | `install.sh` | The `curl \| sh` bootstrap: download, verify, hand over to `session-inbox install` |
-| `docs/` | Spec snapshot, mockups, Phase 0 spike report |
+| `docs/` | Spec snapshot, mockups, Phase 0 spike report, handoff |
 
 Stack: Bun 1.4 · Effect 4.1.2 · Foldkit 0.170 · Basecoat CSS · Tailwind 4 · Tauri 2 · SQLite. Contributor and agent guidance is in [CLAUDE.md](CLAUDE.md).

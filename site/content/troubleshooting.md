@@ -81,11 +81,13 @@ Claude reads hooks when a session starts. **Restart the session**, and it will r
 grep -c inbox-hook ~/.claude/settings.json
 ```
 
-A count of zero means the hooks aren't installed. Run `session-inbox doctor`, or run the installer again; it's safe to repeat:
+A count of zero means the hooks aren't installed. Run `session-inbox doctor` to see what it says, then run the installer again; it's safe to repeat:
 
 ```bash
-session-inbox install --yes
+curl -fsSL https://raw.githubusercontent.com/dopsonbr/session-inbox/main/install.sh | sh
 ```
+
+If you installed from a tarball or from source, run that installer again instead (`bin/session-inbox install --yes` from the unpacked tarball, or `bun scripts/install.ts --yes`).
 
 ## Claude pauses before running a command
 
@@ -128,7 +130,7 @@ For a second channel, use `SessionInbox-beta` in place of `SessionInbox`.
 
 ## Start from a clean slate
 
-If an install is in a bad state, run the installer again. It repairs missing pieces and doesn't duplicate anything. To remove Session Inbox completely, see [Uninstall](install.md#uninstall).
+If an install is in a bad state, run the installer you used the first time again (the one-liner, the tarball's `bin/session-inbox install --yes`, or `bun scripts/install.ts --yes`). It repairs missing pieces and doesn't duplicate anything. To remove Session Inbox completely, see [Uninstall](install.md#uninstall).
 
 If you think you've found a bug, [open an issue](https://github.com/dopsonbr/session-inbox/issues) with the output of `session-inbox doctor` and the last lines of `inboxd.log`.
 
