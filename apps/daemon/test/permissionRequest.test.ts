@@ -347,6 +347,13 @@ describe("decide mode (holds.via = permissionRequest, the default since D-074)",
     await Bun.sleep(10)
     ctrl.abort()
     await waiting
+    // Not at once: the hook gets 5 s to re-poll after a stall (D-080).
+    expect(shape(h)).toEqual([["permission", "open"]])
+    h.clock.advance(4_000)
+    h.engine.tick()
+    expect(shape(h)).toEqual([["permission", "open"]])
+    h.clock.advance(1_000)
+    h.engine.tick()
     expect(shape(h)).toEqual([["permission", "resolved"]])
     expect(rows(h).approvals[0]?.live).toBe(0)
     expect(rows(h).notifications[0]?.state).toBe("cleared")
@@ -357,6 +364,37 @@ describe("decide mode (holds.via = permissionRequest, the default since D-074)",
       ),
     ).toBe(true)
     expect(published).toContain("delta")
+  })
+
+  test("a poll that closes and is re-polled within 5 s stays live; a decision still lands", async () => {
+    const h = makeHarness({ settings: DECIDE })
+    const r = await decideReq(h, "t1", "rm -rf build")
+    const ctrl = new AbortController()
+    const first = h.engine.waitDecision(r.requestId ?? "", 30, ctrl.signal)
+    await Bun.sleep(5)
+    ctrl.abort()
+    await first
+    h.clock.advance(1_000)
+    const again = h.engine.waitDecision(r.requestId ?? "", 30)
+    h.clock.advance(10_000)
+    h.engine.tick()
+    expect(shape(h)).toEqual([["permission", "open"]])
+    h.engine.decide(rows(h).items[0]?.id ?? "", "allow", null)
+    expect((await again).decision).toBe("allow")
+  })
+
+  test("a graceful stop's closed polls change nothing", async () => {
+    const h = makeHarness({ settings: DECIDE })
+    const r = await decideReq(h, "t1", "rm -rf build")
+    const ctrl = new AbortController()
+    const waiting = h.engine.waitDecision(r.requestId ?? "", 30, ctrl.signal)
+    await Bun.sleep(5)
+    h.engine.stopping = true
+    ctrl.abort()
+    await waiting
+    h.clock.advance(6_000)
+    h.engine.tick()
+    expect(h.engine.snapshot().items.map((i) => [i.state, i.live])).toEqual([["open", true]])
   })
 
   test("a PreToolUse hook's poll closing changes nothing (it may re-poll)", async () => {
@@ -464,6 +502,119 @@ describe("decide mode (holds.via = permissionRequest, the default since D-074)",
     const r = await decideReq(h, "t1", "rm -rf build")
     expect(r.requestId).toBeNull()
     expect(h.engine.snapshot().items.map((i) => [i.state, i.live])).toEqual([["open", false]])
+  })
+})
+
+describe("subagents and concurrent prompts (D-083, D-084)", () => {
+  const as = (agent: string, e: ReturnType<typeof ev>) => ({
+    ...e,
+    payload: { ...e.payload, agent_id: agent, agent_type: "general-purpose" },
+  })
+  const prompt = (tool = "Bash") =>
+    ev("Notification", {
+      notification_type: "permission_prompt",
+      message: `Claude needs your permission to use ${tool}`,
+    })
+
+  test("two agents, identical commands: each request gets its own agent's tool_use_id", async () => {
+    const h = makeHarness({ settings: DECIDE })
+    await h.engine.ingest("PreToolUse", as("a2", preBash("t2", "make")))
+    await h.engine.ingest("PreToolUse", as("a1", preBash("t1", "make")))
+    // a2's request: the newest identical PreToolUse is a1's, which isn't its call.
+    const r2 = await h.engine.ingest(
+      "PermissionRequest",
+      as("a2", request("Bash", bashInput("make"))),
+    )
+    expect(rows(h).approvals.map((a) => a.tool_use_id)).toEqual(["t2"])
+    // a1 runs its own (no prompt for it): a2's item and waiting hook are untouched.
+    await h.engine.ingest("PostToolUse", as("a1", postBash("t1", "make")))
+    expect(shape(h)).toEqual([["permission", "open"]])
+    expect(rows(h).approvals[0]?.live).toBe(1)
+    const waiting = h.engine.waitDecision(r2.requestId ?? "", 30)
+    h.engine.decide(rows(h).items[0]?.id ?? "", "allow", null)
+    expect((await waiting).decision).toBe("allow")
+  })
+
+  test("no tool_use_id: another agent's identical PostToolUse doesn't resolve it", async () => {
+    const h = makeHarness({ settings: DECIDE })
+    await h.engine.ingest("PermissionRequest", as("a2", request("Read", { file_path: "/etc/a" })))
+    await h.engine.ingest(
+      "PostToolUse",
+      as(
+        "a1",
+        ev("PostToolUse", {
+          tool_name: "Read",
+          tool_use_id: "z1",
+          tool_input: { file_path: "/etc/a" },
+        }),
+      ),
+    )
+    expect(shape(h)).toEqual([["permission", "open"]])
+  })
+
+  test("observe mode: a second agent's concurrent prompt is its own item", async () => {
+    const h = makeClassicHarness({ settings: { "holds.enabled": false } })
+    await h.engine.ingest("PermissionRequest", as("a1", request("Bash", bashInput("make a"))))
+    await h.engine.ingest("PermissionRequest", as("a2", request("Bash", bashInput("make b"))))
+    expect(rows(h).items.map((i) => [i.summary, i.state])).toEqual([
+      ["Wants to run make a", "open"],
+      ["Wants to run make b", "open"],
+    ])
+    // The same agent's second, different prompt is new too; a repeat of the same call isn't.
+    await h.engine.ingest("PermissionRequest", as("a1", request("Bash", bashInput("make c"))))
+    await h.engine.ingest("PermissionRequest", as("a1", request("Bash", bashInput("make a"))))
+    expect(rows(h).items).toHaveLength(3)
+  })
+
+  test("the permission_prompt Notification with two prompts for the tool open: nothing", async () => {
+    const h = makeClassicHarness({ settings: { "holds.enabled": false } })
+    await h.engine.ingest("PermissionRequest", as("a1", request("Bash", bashInput("make a"))))
+    await h.engine.ingest("PermissionRequest", as("a2", request("Bash", bashInput("make b"))))
+    const before = rows(h).items.map((i) => i.updated_at)
+    const notified = rows(h).notifications.length
+    h.clock.advance(6_000)
+    await h.engine.ingest("Notification", prompt("Bash"))
+    expect(rows(h).items).toHaveLength(2)
+    expect(rows(h).items.map((i) => i.updated_at)).toEqual(before)
+    expect(rows(h).notifications).toHaveLength(notified)
+    // One open for the tool: it is refreshed, as before (D-067).
+    const h1 = makeClassicHarness({ settings: { "holds.enabled": false } })
+    await h1.engine.ingest("PermissionRequest", as("a1", request("Bash", bashInput("make a"))))
+    h1.clock.advance(6_000)
+    await h1.engine.ingest("Notification", prompt("Bash"))
+    expect(rows(h1).items).toHaveLength(1)
+    expect(rows(h1).items[0]?.updated_at).toBe(h1.clock.now())
+  })
+})
+
+describe("dismissed in observe mode (D-085)", () => {
+  test("the Notification 6 s later doesn't bring it back; a minute later a prompt is new", async () => {
+    const h = makeClassicHarness({ settings: { "holds.enabled": false } })
+    await h.engine.ingest("PermissionRequest", request("Bash", bashInput("make a")))
+    h.engine.dismiss(rows(h).items[0]?.id ?? "")
+    h.clock.advance(6_000)
+    await h.engine.ingest(
+      "Notification",
+      ev("Notification", {
+        notification_type: "permission_prompt",
+        message: "Claude needs your permission to use Bash",
+      }),
+    )
+    expect(shape(h)).toEqual([["permission", "dismissed"]])
+    expect(h.engine.snapshot().counts.needsYou).toBe(0)
+    h.clock.advance(60_000)
+    await h.engine.ingest("UserPromptSubmit", ev("UserPromptSubmit", { prompt: "go" }))
+    await h.engine.ingest(
+      "Notification",
+      ev("Notification", {
+        notification_type: "permission_prompt",
+        message: "Claude needs your permission to use Bash",
+      }),
+    )
+    expect(shape(h)).toEqual([
+      ["permission", "dismissed"],
+      ["permission", "open"],
+    ])
   })
 })
 

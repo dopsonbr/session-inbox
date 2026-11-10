@@ -172,6 +172,70 @@ describe("answered in Claude, from the transcript (D-076)", () => {
     expect(shape(h)[0]?.[1]).toBe("open")
   })
 
+  const at = (line: string, ms: number) =>
+    JSON.stringify({ ...JSON.parse(line), timestamp: new Date(ms).toISOString() })
+
+  test("an identical call that already ran, inside the timestamp slack, isn't this one (D-088)", async () => {
+    const h = makeHarness()
+    const t0 = h.clock.now()
+    write(h, at(use("t-prev", "Read", READ), t0 - 2_000), at(result("t-prev"), t0 - 1_000))
+    await h.engine.ingest(
+      "PermissionRequest",
+      ev("PermissionRequest", { tool_name: "Read", tool_input: READ }),
+    )
+    after(h, 3_000)
+    const id = h.engine.snapshot().items[0]?.id ?? ""
+    expect(shape(h)[0]?.[1]).toBe("open")
+    expect(h.engine.store.approval(id)?.tool_use_id).toBeNull()
+    // The real call shows up without a result: that one is taken.
+    write(
+      h,
+      at(use("t-prev", "Read", READ), t0 - 2_000),
+      at(result("t-prev"), t0 - 1_000),
+      at(use("t-now", "Read", READ), t0 + 500),
+    )
+    after(h, 1_000)
+    expect(h.engine.store.approval(id)?.tool_use_id).toBe("t-now")
+    expect(shape(h)[0]?.[1]).toBe("open")
+  })
+
+  test("a tool_result older than the item never resolves it (D-088)", async () => {
+    const h = makeHarness()
+    const t0 = h.clock.now()
+    await ask(h, "tb1", "make")
+    write(h, at(use("tb1", "Bash", bash("make")), t0 - 1_000), at(result("tb1"), t0 - 500))
+    after(h, 3_000)
+    expect(shape(h)[0]?.[1]).toBe("open")
+    write(h, at(use("tb1", "Bash", bash("make")), t0 - 1_000), at(result("tb1"), t0 + 2_500))
+    after(h, 1_000)
+    expect(shape(h)[0]?.[1]).toBe("resolved")
+  })
+
+  test("once the call's block can't be in the tail any more, the transcript isn't read for it (D-089)", async () => {
+    const h = makeHarness()
+    const t0 = h.clock.now()
+    await ask(h, "tb1", "make")
+    let reads = 0
+    const tail = h.files.tail
+    h.files.tail = (p, n) => {
+      reads++
+      return tail(p, n)
+    }
+    after(h, 2_000)
+    expect(reads).toBe(1)
+    // Much later: the tail holds only newer entries, none of them this call.
+    h.clock.advance(70_000)
+    write(h, at(use("other", "Bash", bash("ls")), t0 + 65_000), at(result("other"), t0 + 66_000))
+    after(h, 1_000)
+    expect(reads).toBe(2)
+    after(h, 1_000)
+    after(h, 1_000)
+    expect(reads).toBe(2)
+    expect(shape(h)[0]?.[1]).toBe("open") // other signals still end it
+    await h.engine.ingest("Stop", ev("Stop", {}))
+    expect(shape(h)[0]?.[1]).toBe("resolved")
+  })
+
   test("no transcript, or an unreadable one: nothing happens, nothing throws", async () => {
     const h = makeHarness()
     await ask(h, "tb1", "ls -la /")

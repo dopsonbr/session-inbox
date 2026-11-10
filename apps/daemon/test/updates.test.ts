@@ -15,6 +15,7 @@ import {
   type UpdateMemo,
 } from "../src/updates.ts"
 import {
+  attachPoll,
   envelope,
   FakeClaude,
   FakeClock,
@@ -24,6 +25,7 @@ import {
   FakeUpdater,
   makeClassicHarness as makeHarness,
   silentLog,
+  T0,
 } from "./fakes.ts"
 
 const SID = "cccccccc-0000-4000-8000-000000000001"
@@ -141,12 +143,14 @@ describe("auto-apply only when quiet", () => {
       envelope("PreToolUse", { ...base, tool_name: "Bash", tool_input: { command: "rm x" } }),
     )
     expect(r.requestId).not.toBeNull()
+    const detach = attachPoll(t.h.engine, r.requestId)
     await t.step(STARTUP_CHECK_DELAY_MS)
     expect(t.m.status()).toMatchObject({ state: "available", auto: true })
     expect(t.updater.applied).toEqual([])
     const item = t.h.engine.snapshot().items[0]
     expect(t.h.engine.busyReason(QUIET_MS)).toBe("a held tool call is waiting")
     t.h.engine.decide(item?.id ?? "", "allow", "k1")
+    detach()
     expect(t.h.engine.busyReason(QUIET_MS)).toBeNull()
     await t.step(1000)
     expect(t.updater.applied).toEqual(["0.3.0"])
@@ -310,6 +314,40 @@ describe("after an update", () => {
     const again = setup({ prepare, memo: t.memo.value })
     expect(again.events("daemon:updated")).toEqual([])
     expect(again.m.status().justUpdatedFrom).toBeNull()
+  })
+
+  test("started while the installer is still on its app step: announced on done, from kept (D-091)", async () => {
+    const prepare = (u: FakeUpdater) => {
+      u.stateFile = { version: "0.1.0", state: "installing", error: null, at: T0 }
+    }
+    const t = setup({ prepare, memo: { lastRun: "0.0.9" } })
+    expect(t.events("daemon:updated")).toEqual([])
+    expect(t.memo.value).toMatchObject({ lastRun: "0.0.9" })
+    // A second restart before it finishes still knows where we came from.
+    const t2 = setup({ prepare, memo: t.memo.value })
+    await t2.step(1_000)
+    expect(t2.events("daemon:updated")).toEqual([])
+    t2.updater.stateFile = { version: "0.1.0", state: "done", error: null, at: T0 + 2_000 }
+    await t2.step(1_000)
+    expect(t2.events("daemon:updated")).toEqual([
+      { hook: "daemon:updated", payload: { version: "0.1.0", from: "0.0.9" } },
+    ])
+    expect(t2.m.status()).toMatchObject({ justUpdatedFrom: "0.0.9", state: "idle" })
+    expect(t2.published.at(-1)?.justUpdatedFrom).toBe("0.0.9")
+    expect(t2.memo.value).toMatchObject({ announced: "0.1.0", lastRun: "0.1.0" })
+    await t2.step(1_000)
+    expect(t2.events("daemon:updated")).toHaveLength(1)
+  })
+
+  test("an own install that fails or stalls is never announced; lastRun moves on", async () => {
+    const prepare = (u: FakeUpdater) => {
+      u.stateFile = { version: "0.1.0", state: "installing", error: null, at: T0 }
+    }
+    const t = setup({ prepare, memo: { lastRun: "0.0.9" } })
+    t.updater.stateFile = { version: "0.1.0", state: "failed", error: "app", at: T0 + 1 }
+    await t.step(1_000)
+    expect(t.events("daemon:updated")).toEqual([])
+    expect(t.memo.value).toMatchObject({ lastRun: "0.1.0" })
   })
 
   test("hello carries version/build; the update greeting follows it", async () => {

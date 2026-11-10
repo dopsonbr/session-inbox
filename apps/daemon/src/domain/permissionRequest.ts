@@ -3,6 +3,7 @@
  * tool call, and what "Always allow" echoes back.
  */
 import { createHash } from "node:crypto"
+import { MCP_TOOL } from "./permissions.ts"
 
 /** JSON with object keys sorted at every level, so equal inputs compare equal as text. */
 export const canonicalJson = (v: unknown): string => {
@@ -40,9 +41,42 @@ export const allowAlwaysPermissions = (suggestions: unknown): unknown[] => {
       isRecord(s) &&
       s.type === "addRules" &&
       s.behavior === "allow" &&
+      typeof s.destination === "string" &&
+      Object.hasOwn(DESTINATION_WORDS, s.destination) &&
       Array.isArray(s.rules) &&
       s.rules.length > 0 &&
-      s.rules.every((r) => isRecord(r) && typeof r.toolName === "string" && r.toolName !== "") &&
+      s.rules.every(specificRule) &&
       !JSON.stringify(s).includes("bypassPermissions"),
   )
 }
+
+/**
+ * A rule naming a tool and saying which calls (D-082): a `ruleContent`, or an MCP tool name with
+ * server and tool parts. A bare `Edit` or `Read` would allow every such call.
+ */
+const specificRule = (r: unknown): boolean =>
+  isRecord(r) &&
+  typeof r.toolName === "string" &&
+  r.toolName !== "" &&
+  ((typeof r.ruleContent === "string" && r.ruleContent.trim() !== "") ||
+    (r.ruleContent === undefined && MCP_TOOL.test(r.toolName)))
+
+/** Where an `addRules` suggestion saves its rules, in the card's words (C-026). */
+export const DESTINATION_WORDS: Record<string, string> = {
+  session: "for this session",
+  localSettings: "in this project's .claude/settings.local.json",
+  projectSettings: "in this project's .claude/settings.json",
+  userSettings: "in your user settings (all projects)",
+}
+
+/** What the card says Always allow does when it echoes these (already filtered) entries. */
+export const describeSuggestions = (entries: ReadonlyArray<unknown>): string =>
+  entries
+    .filter(isRecord)
+    .map((s) => {
+      const rules = (s.rules as Array<{ toolName: string; ruleContent?: string }>)
+        .map((r) => (r.ruleContent === undefined ? r.toolName : `${r.toolName}(${r.ruleContent})`))
+        .join(", ")
+      return `${rules} ${DESTINATION_WORDS[String(s.destination)]}`
+    })
+    .join("; ")

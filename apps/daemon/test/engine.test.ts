@@ -359,6 +359,68 @@ describe("engine behaviours", () => {
     expect(JSON.parse(row?.value_json ?? "{}")).toEqual({ cli: "denyWithReason" })
   })
 
+  test("answers that landed with other spacing or multi-select order keep updatedInput (D-087)", async () => {
+    const h = makeHarness()
+    const input = {
+      questions: [
+        { question: "Q?", options: [{ label: "a" }, { label: "b" }] },
+        { question: "Which?", multiSelect: true, options: [{ label: "x" }, { label: "y" }] },
+      ],
+    }
+    await h.engine.ingest(
+      "PreToolUse",
+      envelope("PreToolUse", {
+        ...base,
+        tool_name: "AskUserQuestion",
+        tool_use_id: "t1",
+        tool_input: input,
+      }),
+    )
+    const id = h.engine.snapshot().items[0]?.id ?? ""
+    h.engine.answers(id, "k1", [
+      { idx: 0, selected: ["a"] },
+      { idx: 1, selected: ["x", "y"] },
+    ])
+    await h.engine.ingest(
+      "PostToolUse",
+      envelope("PostToolUse", {
+        ...base,
+        tool_name: "AskUserQuestion",
+        tool_use_id: "t1",
+        tool_input: input,
+        tool_response: { answers: { "Q?": " a ", "Which?": "y,x" } },
+      }),
+    )
+    expect(h.engine.answerModeFor("cli")).toBe("updatedInput")
+    expect(h.engine.snapshot().items[0]?.unconfirmed).toBe(false)
+  })
+
+  test("a question answered in Claude, not by us, never switches the mode (D-087)", async () => {
+    const h = makeHarness()
+    const q = (text: string) => ({ questions: [{ question: text, options: [{ label: "a" }] }] })
+    await h.engine.ingest(
+      "PreToolUse",
+      envelope("PreToolUse", {
+        ...base,
+        tool_name: "AskUserQuestion",
+        tool_use_id: "t1",
+        tool_input: q("First?"),
+      }),
+    )
+    h.engine.answers(h.engine.snapshot().items[0]?.id ?? "", "k1", [{ idx: 0, selected: ["a"] }])
+    // A different question with no id, answered in Claude's own window.
+    await h.engine.ingest(
+      "PostToolUse",
+      envelope("PostToolUse", {
+        ...base,
+        tool_name: "AskUserQuestion",
+        tool_input: q("Second?"),
+        tool_response: { answers: { "Second?": "something else" } },
+      }),
+    )
+    expect(h.engine.answerModeFor("cli")).toBe("updatedInput")
+  })
+
   test("outbox: waits while running, retries with backoff, fails after 3", async () => {
     const h = makeHarness()
     await h.engine.ingest("Stop", envelope("Stop", base))

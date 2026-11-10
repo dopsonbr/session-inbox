@@ -50,10 +50,22 @@ import {
   stateFromRow,
   transition,
 } from "./domain/lifecycle.ts"
-import { allowAlwaysPermissions, canonicalJson, inputKey } from "./domain/permissionRequest.ts"
-import { allowAlwaysRule, appendAllowRule, ruleVerdict } from "./domain/permissions.ts"
+import {
+  allowAlwaysPermissions,
+  canonicalJson,
+  DESTINATION_WORDS,
+  describeSuggestions,
+  inputKey,
+} from "./domain/permissionRequest.ts"
+import { appendAllowRule, ruleVerdict, scopedAllowRule } from "./domain/permissions.ts"
 import { displayPathFor } from "./domain/preview.ts"
-import { matchPrompt, type PromptCandidate, promptTool } from "./domain/prompts.ts"
+import {
+  ambiguousPrompt,
+  DISMISSED_RECENT_MS,
+  matchPrompt,
+  type PromptCandidate,
+  promptTool,
+} from "./domain/prompts.ts"
 import {
   type AnswerMode,
   encodeLiveAnswers,
@@ -72,6 +84,7 @@ import {
   summaryLine,
   TITLE_HEAD_BYTES,
   TRANSCRIPT_TAIL_BYTES,
+  tailStartsAt,
   toolLine,
   toolUsesIn,
   transcriptTitle,
@@ -89,6 +102,7 @@ import {
   type LoggerShape,
   type NotifierShape,
   type OpenerShape,
+  processAlive,
   UNKNOWN_AUTH,
 } from "./services.ts"
 import { DEFAULT_SETTINGS, type Settings } from "./settings.ts"
@@ -123,6 +137,8 @@ export interface EngineDeps {
   readonly log: LoggerShape
   /** Preview reads (D-056); the live filesystem when omitted. */
   readonly files?: FilesShape
+  /** Is a Claude process still running (D-090)? `processAlive` (signal 0) when omitted. */
+  readonly alive?: (pid: number) => boolean
   /** Usually ~/.claude; injectable so tests never read the real one. */
   readonly claudeConfigDir: string
   readonly settings: Settings
@@ -173,6 +189,20 @@ export const TEST_NOTIFICATION = {
   body: "If you can read this, notifications work. Click to open the inbox.",
 }
 
+/** A live request with no long-poll attached for longer than this has no hook left (D-080). */
+export const NO_POLL_LAPSE_MS = 20_000
+/** A poll that closed while the daemon runs gets this long to be re-polled (D-080). */
+export const POLL_DROP_GRACE_MS = 5_000
+
+/** A tail that starts this long after an item opened can no longer hold its call (D-089). */
+const TAIL_GONE_MS = 60_000
+
+/** How often the tick checks that Claude is still running for its waiting prompts (D-090). */
+const LIVENESS_EVERY_MS = 10_000
+
+/** How long an ingest waits for git before answering without it (D-081). */
+const GIT_WAIT_MS = 50
+
 const LAST_MESSAGE_MAX = 20_000
 const DOCTOR_RECHECK_MS = 60_000
 const PRUNE_EVERY_MS = 24 * 3600_000
@@ -211,6 +241,15 @@ export const STILL_WAITING_PREFIX = "Still waiting in Claude: "
 
 const PERMISSION_NOTIFICATIONS = new Set(["permission_prompt", "worker_permission_prompt"])
 const INPUT_NOTIFICATIONS = new Set(["idle_prompt", "agent_needs_input"])
+
+/** The hook envelope's Claude pid, when it is a plausible one (D-090). */
+const pidOf = (env: HookEnv): number | null =>
+  typeof env.claudePid === "number" &&
+  Number.isInteger(env.claudePid) &&
+  env.claudePid > 1 &&
+  env.claudePid !== process.pid
+    ? env.claudePid
+    : null
 
 const mainAgentId = (sessionId: string) => `${sessionId}:main`
 const subAgentId = (sessionId: string, agentId: string) => `${sessionId}:${agentId}`
@@ -264,8 +303,31 @@ export const openUrlFor = (session: Session): string | null => {
   return null
 }
 
+/** POSIX single quotes: nothing inside is expanded; a `'` becomes `'\''` (D-086). */
+export const shellQuote = (s: string): string => `'${s.replaceAll("'", "'\\''")}'`
+
 export const resumeCommandFor = (session: Session): string =>
-  `${session.cwd ? `cd ${JSON.stringify(session.cwd)} && ` : ""}claude --resume ${session.id}`
+  `${session.cwd ? `cd ${shellQuote(session.cwd)} && ` : ""}claude --resume ${shellQuote(session.id)}`
+
+/**
+ * Did an answer we sent land as Claude recorded it (D-087)? Trimmed, and a comma-separated
+ * multi-select compared as a set, so "A, B" and "B,A" agree.
+ */
+export const sameAnswer = (sent: unknown, got: unknown): boolean => {
+  if (typeof sent !== "string" || typeof got !== "string") return sent === got
+  const set = (s: string) =>
+    [
+      ...new Set(
+        s
+          .split(",")
+          .map((x) => x.trim())
+          .filter((x) => x !== ""),
+      ),
+    ]
+      .sort()
+      .join("\n")
+  return sent.trim() === got.trim() || set(sent) === set(got)
+}
 
 /** One timeline line for a stored event (activity hooks, plus the source events of items). */
 const timelineText = (hook: string, p: Record<string, unknown>, show: ShowPath): string => {
@@ -302,10 +364,23 @@ export class Engine {
   readonly hub: StreamHub
   readonly startedAt: number
   private readonly gitCache = new Map<string, GitInfo>()
+  /** Sessions whose project was guessed while git was slow; a late answer may move them (D-081). */
+  private readonly guessedProject = new Set<string>()
   private readonly waiters = new Map<string, Set<() => void>>()
   private readonly inflight = new Set<Promise<unknown>>()
   private readonly sendingSessions = new Set<string>()
   private lastBadge = -1
+  /**
+   * Per live request (D-080), in memory: long-polls attached now, when one last was, and when
+   * the last one closed early while we were running. At startup every live request counts as
+   * polled now, so the hooks that are retrying (H-050) have a window to come back.
+   */
+  private readonly polls = new Map<
+    string,
+    { attached: number; lastAt: number; droppedAt: number | null }
+  >()
+  /** Set before the sockets close on a graceful stop: aborted polls then mean nothing (D-080). */
+  stopping = false
 
   /** What the connected menu-bar app last said about itself (C-022); reset when none is connected. */
   private shell: { status: ShellStatus | null; connectedAt: number | null } = {
@@ -324,6 +399,7 @@ export class Engine {
   lastHookAt: number | null = null
   private nextDoctorAt = 0
   private nextPruneAt = 0
+  private nextLivenessAt = 0
   /** Set by the setup check: re-evaluate and tell pages when its attention count changed. */
   onDoctorChange: (() => void) | null = null
 
@@ -333,6 +409,10 @@ export class Engine {
     this.startedAt = deps.clock.now()
     this.hub.onShellChange = (connected) => this.onShellChange(connected)
     this.lastBadge = this.store.counts().needsYou
+    for (const r of this.store.all<{ hook_request_id: string }>(
+      "SELECT hook_request_id FROM approvals WHERE live = 1",
+    ))
+      this.pollEntry(r.hook_request_id)
     const last = this.store.one<{ payload_json: string }>(
       "SELECT payload_json FROM events WHERE hook = 'daemon:shell-status' ORDER BY seq DESC LIMIT 1",
     )
@@ -622,16 +702,46 @@ export class Engine {
       return store(event, envelope.payload, envelope.env, msg)
     }
 
+    // Git is looked up for at most GIT_WAIT_MS: the hook gives up on the ingest at 500 ms and a
+    // new cwd's lookup can take longer. A late answer is filled in afterwards (D-081).
     let git: GitInfo | null = null
-    if (payload.cwd) {
-      try {
-        git = await this.gitFor(payload.cwd, event === "SessionStart")
-      } catch (e) {
-        this.deps.log.warn("git resolve failed", e)
+    let late: Promise<GitInfo> | null = null
+    const cwd = payload.cwd
+    if (cwd) {
+      const cached = this.gitCache.get(cwd) ?? null
+      const refresh = event === "SessionStart"
+      if (cached && !refresh) git = cached
+      else {
+        const lookup = this.gitFor(cwd, refresh)
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const r = await Promise.race([
+          lookup.then(
+            (g) => ({ g }),
+            (e: unknown) => ({ e }),
+          ),
+          new Promise<null>((resolve) => {
+            timer = setTimeout(() => resolve(null), GIT_WAIT_MS)
+          }),
+        ])
+        clearTimeout(timer)
+        if (r === null) {
+          git = cached
+          late = lookup
+        } else if ("g" in r) git = r.g
+        else this.deps.log.warn("git resolve failed", r.e)
       }
     }
     try {
-      return this.tx((c) => this.applyHook(c, event, payload, envelope.env, git))
+      const out = this.tx((c) => this.applyHook(c, event, payload, envelope.env, git))
+      if (late && cwd) {
+        const sid = payload.session_id
+        this.track(
+          late
+            .then((info) => this.fillGit(sid, cwd, info))
+            .catch((e) => this.deps.log.warn("git resolve failed", e)),
+        )
+      }
+      return out
     } catch (e) {
       this.deps.log.error(`applying ${event} failed; stored raw`, e)
       return store(
@@ -643,12 +753,78 @@ export class Engine {
     }
   }
 
+  /** The longest known project root that contains `cwd`: the guess while git is slow (D-081). */
+  private guessRoot(cwd: string | undefined): string | null {
+    if (!cwd) return null
+    return (
+      this.store.one<{ root_path: string }>(
+        `SELECT root_path FROM projects WHERE root_path = ? OR substr(?, 1, length(root_path) + 1) = root_path || '/'
+           ORDER BY length(root_path) DESC LIMIT 1`,
+        cwd,
+        cwd,
+      )?.root_path ?? null
+    )
+  }
+
+  /**
+   * A git lookup that answered after the ingest did (D-081): correct the session's project
+   * (when it was a guess), branch and worktree in one transaction with a `daemon:git` event.
+   */
+  private fillGit(sessionId: string, cwd: string, info: GitInfo) {
+    const guessed = this.guessedProject.delete(sessionId)
+    this.tx((c) => {
+      const s = this.store.session(sessionId)
+      if (!s || s.cwd !== cwd) return
+      const projectId = guessed ? projectIdFor(info.root) : s.project_id
+      if (
+        projectId === s.project_id &&
+        s.branch === info.branch &&
+        (s.worktree ?? null) === info.worktree
+      )
+        return
+      this.appendEvent(c, {
+        sessionId,
+        hook: "daemon:git",
+        payload: { cwd, root: info.root, branch: info.branch, worktree: info.worktree },
+      })
+      if (projectId !== s.project_id) {
+        this.store.run(
+          "INSERT INTO projects (id, root_path, name, muted, created_at) VALUES (?, ?, ?, 0, ?) ON CONFLICT(id) DO NOTHING",
+          projectId,
+          info.root,
+          basename(info.root) || info.root,
+          this.now(),
+        )
+        c.projects.add(projectId)
+      }
+      this.store.run(
+        "UPDATE sessions SET project_id = ?, branch = ?, worktree = ? WHERE id = ?",
+        projectId,
+        info.branch,
+        info.worktree,
+        sessionId,
+      )
+      c.sessions.add(sessionId)
+      // The guessed project row, when this session alone made it and nothing else points at it.
+      if (projectId !== s.project_id)
+        this.store.run(
+          `DELETE FROM projects WHERE id = ? AND root_path = ? AND muted = 0
+             AND NOT EXISTS (SELECT 1 FROM sessions WHERE project_id = projects.id)`,
+          s.project_id,
+          cwd,
+        )
+    })
+  }
+
   private upsertSession(c: Changes, p: Payload, env: HookEnv, git: GitInfo | null): SessionRow {
     const now = this.now()
     const existing = this.store.session(p.session_id)
     let projectId = existing?.project_id
     if (!existing || (git && !existing.cwd)) {
-      const root = git?.root ?? p.cwd ?? "(unknown)"
+      const guess = git ? null : this.guessRoot(p.cwd)
+      const root = git?.root ?? guess ?? p.cwd ?? "(unknown)"
+      if (!git && p.cwd) this.guessedProject.add(p.session_id)
+      else this.guessedProject.delete(p.session_id)
       projectId = projectIdFor(root)
       this.store.run(
         "INSERT INTO projects (id, root_path, name, muted, created_at) VALUES (?, ?, ?, 0, ?) ON CONFLICT(id) DO NOTHING",
@@ -663,8 +839,8 @@ export class Engine {
     if (!existing) {
       this.store.run(
         `INSERT INTO sessions (id, project_id, title, runtime, host_session_id, cwd, branch, worktree,
-           transcript_path, permission_mode, state, created_at, last_event_at)
-         VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'idle', ?, ?)`,
+           transcript_path, permission_mode, state, created_at, last_event_at, claude_pid)
+         VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'idle', ?, ?, ?)`,
         p.session_id,
         projectId,
         runtime ?? "unknown",
@@ -676,6 +852,7 @@ export class Engine {
         p.permission_mode ?? null,
         now,
         now,
+        pidOf(env),
       )
     } else {
       this.store.run(
@@ -684,7 +861,7 @@ export class Engine {
            host_session_id = COALESCE(?, host_session_id), cwd = COALESCE(?, cwd),
            branch = COALESCE(?, branch), worktree = CASE WHEN ? THEN ? ELSE worktree END,
            transcript_path = COALESCE(?, transcript_path), permission_mode = COALESCE(?, permission_mode),
-           last_event_at = ? WHERE id = ?`,
+           claude_pid = COALESCE(?, claude_pid), last_event_at = ? WHERE id = ?`,
         projectId,
         runtime,
         runtime,
@@ -695,6 +872,7 @@ export class Engine {
         git?.worktree ?? null,
         p.transcript_path ?? null,
         p.permission_mode ?? null,
+        pidOf(env),
         now,
         p.session_id,
       )
@@ -847,7 +1025,7 @@ export class Engine {
         requestId = this.onPreToolUse(c, session, agentId, p)
         break
       case "PostToolUse":
-        this.finishMatchedRequest(c, sid, p)
+        this.finishMatchedRequest(c, sid, agentId, p)
         this.setSessionState(c, sid, "running")
         this.setAgentState(c, agentId, "running")
         break
@@ -980,21 +1158,34 @@ export class Engine {
    */
   private checkAnswersLanded(c: Changes, session: SessionRow, p: Payload): string | null {
     const toolUseId = typeof p.tool_use_id === "string" ? p.tool_use_id : null
-    const a = this.store.one<ApprovalRow>(
-      `SELECT a.* FROM approvals a JOIN attention_items i ON i.id = a.item_id
-         WHERE i.session_id = ? AND a.tool = 'AskUserQuestion' AND a.updated_input_json IS NOT NULL
-           AND (? IS NULL OR a.tool_use_id IS NULL OR a.tool_use_id = ?)
-         ORDER BY a.decided_at DESC LIMIT 1`,
-      session.id,
-      toolUseId,
-      toolUseId,
-    )
+    // Only a call we answered (allow + updatedInput), and only this very call (D-087): its id,
+    // or, when either side has none, the same questions.
+    const questionsOf = (input: unknown) =>
+      canonicalJson((input as { questions?: unknown } | null)?.questions ?? null)
+    const want = questionsOf(p.tool_input)
+    const a = this.store
+      .all<ApprovalRow>(
+        `SELECT a.* FROM approvals a JOIN attention_items i ON i.id = a.item_id
+           WHERE i.session_id = ? AND a.tool = 'AskUserQuestion' AND a.decision = 'allow'
+             AND a.updated_input_json IS NOT NULL AND (i.state = 'answered' OR a.decided_at > ?)
+           ORDER BY a.decided_at DESC LIMIT 20`,
+        session.id,
+        this.now() - 60_000,
+      )
+      .find((r) => {
+        if (toolUseId !== null && r.tool_use_id !== null) return r.tool_use_id === toolUseId
+        try {
+          return questionsOf(JSON.parse(r.input_json)) === want
+        } catch {
+          return false
+        }
+      })
     if (!a?.updated_input_json) return null
     const sent =
-      (JSON.parse(a.updated_input_json) as { answers?: Record<string, string> }).answers ?? {}
+      (JSON.parse(a.updated_input_json) as { answers?: Record<string, unknown> }).answers ?? {}
     const resp = p.tool_response as { answers?: Record<string, unknown> } | null | undefined
     const got = resp && typeof resp === "object" ? (resp.answers ?? {}) : {}
-    const landed = Object.entries(sent).every(([q, ans]) => got[q] === ans)
+    const landed = Object.entries(sent).every(([q, ans]) => sameAnswer(ans, got[q]))
     if (landed) return null
     const runtime = session.runtime
     this.deps.log.warn(
@@ -1062,7 +1253,11 @@ export class Engine {
       // Already tracked only when it's the same prompt: an open item for the same tool, or a
       // hold of that tool that lapsed into Claude's own prompt (D-067). A lapsed AskUserQuestion
       // hold also reaches us as "…permission to use AskUserQuestion" (D-034).
-      const match = matchPrompt(this.promptCandidates(session.id), promptTool(message), this.now())
+      const named = promptTool(message)
+      const candidates = this.promptCandidates(session.id)
+      // It names no agent or call: with two such prompts open, it can't say which (D-084).
+      if (ambiguousPrompt(candidates, named)) return
+      const match = matchPrompt(candidates, named, this.now())
       if (match) {
         const row = match.open ? this.store.item(match.itemId) : null
         if (row) this.apply(c, row, { _tag: "Refresh" })
@@ -1098,25 +1293,44 @@ export class Engine {
    * The session's permission/question items a new permission prompt could be about (D-067):
    * open ones, and ones whose hold ended in `ask` in the last day.
    */
-  private promptCandidates(sessionId: string): PromptCandidate[] {
+  private promptCandidates(sessionId: string): Array<
+    PromptCandidate & {
+      agentId: string | null
+      via: string | null
+      toolUseId: string | null
+      inputKey: string | null
+    }
+  > {
     const rows = this.store.all<{
       id: string
       kind: string
       state: string
       agent_id: string | null
+      updated_at: number
       tool: string | null
       decision: string | null
       decided_at: number | null
+      via: string | null
+      tool_use_id: string | null
+      input_key: string | null
     }>(
-      `SELECT i.id, i.kind, i.state, i.agent_id, a.tool, a.decision, a.decided_at
+      `SELECT i.id, i.kind, i.state, i.agent_id, i.updated_at, a.tool, a.decision, a.decided_at,
+           a.via, a.tool_use_id, a.input_key
          FROM attention_items i LEFT JOIN approvals a ON a.item_id = i.id
          WHERE i.session_id = ? AND i.kind IN ('permission','question')
-           AND (i.state IN ('open','snoozed') OR (a.decision = 'ask' AND a.decided_at > ?))
+           AND (i.state IN ('open','snoozed') OR (a.decision = 'ask' AND a.decided_at > ?)
+             OR (i.state = 'dismissed' AND i.updated_at > ?))
          ORDER BY i.updated_at DESC`,
       sessionId,
       this.now() - 24 * 3600_000,
+      this.now() - DISMISSED_RECENT_MS,
     )
     return rows.map((r) => ({
+      agentId: r.agent_id,
+      via: r.via,
+      toolUseId: r.tool_use_id,
+      inputKey: r.input_key,
+      dismissedAt: r.state === "dismissed" ? r.updated_at : null,
       itemId: r.id,
       open: r.state === "open" || r.state === "snoozed",
       tool: r.tool ?? (r.kind === "question" ? "AskUserQuestion" : null),
@@ -1225,6 +1439,7 @@ export class Engine {
     let requestId: string | null = null
     if (hold) {
       requestId = newId("rq")
+      this.polls.set(requestId, { attached: 0, lastAt: this.now(), droppedAt: null })
       this.store.run(
         `INSERT OR REPLACE INTO approvals (item_id, hook_request_id, tool, input_json, tool_use_id, decision,
            reason, updated_input_json, live, decided_at, expires_at) VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, 1, NULL, ?)`,
@@ -1269,12 +1484,22 @@ export class Engine {
       this.lapseRequest(c, a)
       return
     }
-    let key: string | null = null
-    try {
-      key = inputKey(a.tool, JSON.parse(a.input_json))
-    } catch {
-      key = null
-    }
+    this.lapseIntoClaude(c, a)
+  }
+
+  /**
+   * Decision `ask`, non-live, the item stays open as Claude's own prompt with one Open-only
+   * "Still waiting in Claude" notification (D-073). A classic budget lapse, and any live
+   * request that lost its hook (D-080).
+   */
+  private lapseIntoClaude(c: Changes, a: ApprovalRow) {
+    let key: string | null = a.input_key ?? null
+    if (key === null)
+      try {
+        key = inputKey(a.tool, JSON.parse(a.input_json))
+      } catch {
+        key = null
+      }
     this.store.run(
       "UPDATE approvals SET decision = 'ask', live = 0, decided_at = ?, input_key = ? WHERE item_id = ?",
       this.now(),
@@ -1327,12 +1552,19 @@ export class Engine {
    * newest PreToolUse of the session in the last 60 s with the same tool and deep-equal input
    * that hasn't completed and isn't already claimed by another open request.
    */
-  private recoverToolUseId(sessionId: string, tool: string, input: unknown): string | null {
+  private recoverToolUseId(
+    sessionId: string,
+    agentId: string,
+    tool: string,
+    input: unknown,
+  ): string | null {
     const want = canonicalJson(input)
+    // Same agent only: two subagents running the same command must not swap ids (D-083).
     const rows = this.store.all<{ payload_json: string }>(
-      `SELECT payload_json FROM events WHERE session_id = ? AND hook = 'PreToolUse'
+      `SELECT payload_json FROM events WHERE session_id = ? AND agent_id IS ? AND hook = 'PreToolUse'
          AND decode_error IS NULL AND received_at >= ? ORDER BY seq DESC LIMIT 50`,
       sessionId,
+      agentId,
       this.now() - 60_000,
     )
     for (const r of rows) {
@@ -1352,9 +1584,10 @@ export class Engine {
       )
       const claimed = this.store.one(
         `SELECT 1 AS x FROM approvals a JOIN attention_items i ON i.id = a.item_id
-           WHERE i.session_id = ? AND a.via = 'permissionRequest' AND a.tool_use_id = ?
-             AND i.state IN ('open','snoozed') LIMIT 1`,
+           WHERE i.session_id = ? AND i.agent_id IS ? AND a.via = 'permissionRequest'
+             AND a.tool_use_id = ? AND i.state IN ('open','snoozed') LIMIT 1`,
         sessionId,
+        agentId,
         p.tool_use_id,
       )
       if (!done && !claimed) return p.tool_use_id
@@ -1381,7 +1614,7 @@ export class Engine {
     this.setSessionState(c, sid, "waiting")
     const toolUseId =
       (typeof p.tool_use_id === "string" ? p.tool_use_id : null) ??
-      this.recoverToolUseId(sid, tool, p.tool_input)
+      this.recoverToolUseId(sid, agentId, tool, p.tool_input)
     const key = inputKey(tool, p.tool_input)
     const isQuestion = tool === "AskUserQuestion"
     const decide = this.decidesViaRequest()
@@ -1414,7 +1647,16 @@ export class Engine {
       }
       if (!existing) {
         // Same prompt as an item we have (the Part 1 rule, D-067): our hold lapsed into it.
-        const match = matchPrompt(this.promptCandidates(sid), tool, this.now())
+        // Only this agent's items, and another PermissionRequest's item only when it is this
+        // very call: a second, concurrent prompt is a new item (D-084).
+        const mine = this.promptCandidates(sid).filter(
+          (x) =>
+            x.agentId === agentId &&
+            (x.via !== "permissionRequest" ||
+              (toolUseId !== null && x.toolUseId === toolUseId) ||
+              x.inputKey === key),
+        )
+        const match = matchPrompt(mine, tool, this.now())
         if (match) {
           const row = match.open ? this.store.item(match.itemId) : null
           if (row) this.apply(c, row, { _tag: "Refresh" })
@@ -1463,6 +1705,7 @@ export class Engine {
     }
     const budget = this.settings["holds.requestBudgetMs"]
     const requestId = decide ? newId("rq") : newId("ob")
+    if (decide) this.polls.set(requestId, { attached: 0, lastAt: this.now(), droppedAt: null })
     const suggestions =
       p.permission_suggestions === undefined ? null : JSON.stringify(p.permission_suggestions)
     this.store.run(
@@ -1518,19 +1761,21 @@ export class Engine {
   }
 
   /** The PostToolUse of the very call a PermissionRequest item is about; other calls don't count. */
-  private finishMatchedRequest(c: Changes, sessionId: string, p: Payload) {
+  private finishMatchedRequest(c: Changes, sessionId: string, agentId: string, p: Payload) {
     const tool = String(p.tool_name ?? "")
     const toolUseId = typeof p.tool_use_id === "string" ? p.tool_use_id : null
     const key = inputKey(tool, p.tool_input)
+    // By input only within the same agent: another agent's identical call isn't this one (D-083).
     for (const a of this.store.all<ApprovalRow>(
       `SELECT a.* FROM approvals a JOIN attention_items i ON i.id = a.item_id
          WHERE i.session_id = ? AND ${WAITING_IN_CLAUDE} AND i.state IN ('open','snoozed')
            AND ((a.tool_use_id IS NOT NULL AND a.tool_use_id = ?)
-             OR (a.tool_use_id IS NULL AND a.tool = ? AND a.input_key = ?))`,
+             OR (a.tool_use_id IS NULL AND a.tool = ? AND a.input_key = ? AND i.agent_id IS ?))`,
       sessionId,
       toolUseId,
       tool,
       key,
+      agentId,
     ))
       this.finishRequest(c, a, "PostToolUse")
   }
@@ -1576,9 +1821,12 @@ export class Engine {
     )
     const current = new Set(rows.map((r) => r.item_id))
     for (const id of this.contextTries.keys()) if (!current.has(id)) this.contextTries.delete(id)
-    if (rows.length === 0) return
+    for (const id of this.unfollowed) if (!current.has(id)) this.unfollowed.delete(id)
+    const followed = rows.filter((r) => !this.unfollowed.has(r.item_id))
+    if (followed.length === 0) return
     const bySession = new Map<string, typeof rows>()
-    for (const r of rows) bySession.set(r.session_id, [...(bySession.get(r.session_id) ?? []), r])
+    for (const r of followed)
+      bySession.set(r.session_id, [...(bySession.get(r.session_id) ?? []), r])
     for (const [, items] of bySession) {
       const first = items[0]
       if (!first?.transcript_path) continue
@@ -1603,6 +1851,8 @@ export class Engine {
   }
 
   private readonly contextTries = new Map<string, number>()
+  /** Items whose call's block scrolled out of the transcript tail: not read for again (D-089). */
+  private readonly unfollowed = new Set<string>()
 
   private followOne(
     a: ApprovalRow & { created_at: number; session_id: string },
@@ -1623,7 +1873,11 @@ export class Engine {
       (u) => u.at === null || u.at >= a.created_at - 5_000,
     )
     if (toolUseId) {
-      answered = uses.some((u) => u.id === toolUseId && u.hasResult)
+      // A result written before the item existed belongs to an earlier call (D-088).
+      answered = uses.some(
+        (u) =>
+          u.id === toolUseId && u.hasResult && (u.resultAt === null || u.resultAt >= a.created_at),
+      )
     } else {
       const claimed = new Set(
         this.store
@@ -1634,18 +1888,30 @@ export class Engine {
           )
           .map((r) => r.tool_use_id),
       )
-      const pending = uses.find((u) => !u.hasResult && !claimed.has(u.id))
-      const done = uses.find((u) => u.hasResult && !claimed.has(u.id))
-      const found = pending ?? done
+      // Only a call still waiting for its result can be the one Claude is asking about: an
+      // identical earlier call that already ran is not (D-088). Its PostToolUse, matched by
+      // input, still ends the item when the block was answered before we saw it.
+      const found = uses.find((u) => !u.hasResult && !claimed.has(u.id))
       if (found) {
         toolUseId = found.id
-        answered = found.hasResult
         this.store.run(
           "UPDATE approvals SET tool_use_id = ? WHERE item_id = ? AND tool_use_id IS NULL",
           found.id,
           a.item_id,
         )
       }
+    }
+    // The call's block can't be in the 64 KB tail any more: the tail now starts well after the
+    // item opened and the block isn't in it. Stop reading for it; other signals end it (D-089).
+    const startsAt = tailStartsAt(tail)
+    if (
+      !answered &&
+      !(toolUseId !== null && uses.some((u) => u.id === toolUseId)) &&
+      startsAt !== null &&
+      startsAt > a.created_at + TAIL_GONE_MS
+    ) {
+      this.unfollowed.add(a.item_id)
+      return
     }
     const waiting = a.via === "permissionRequest" || (a.decision === "ask" && a.live === 0)
     if (answered && waiting && now - a.created_at >= 2_000) {
@@ -1714,9 +1980,10 @@ export class Engine {
   }
 
   /**
-   * GET /v1/hooks/decision/:requestId?wait=s. `signal` is the request's: a PermissionRequest
-   * hook that goes away mid-wait was answered in Claude first (D-070). A PreToolUse hook that
-   * goes away keeps its hold until expiry, as before (it may re-poll).
+   * GET /v1/hooks/decision/:requestId?wait=s. `signal` is the request's. A poll that closes
+   * early is given POLL_DROP_GRACE_MS to come back (the hook retries, H-050); after that a
+   * PermissionRequest counts as answered in Claude (D-070) and a PreToolUse hold just waits
+   * for the no-poll lapse (D-080). While stopping, a closed poll means nothing.
    */
   async waitDecision(
     requestId: string,
@@ -1729,30 +1996,23 @@ export class Engine {
     const remaining = first.expires_at - this.now()
     const waitMs = Math.max(0, Math.min(waitSeconds * 1000, remaining))
     let abandoned = false
-    if (waitMs > 0 && !signal?.aborted) {
-      await new Promise<void>((resolve) => {
-        const done = () => {
-          clearTimeout(timer)
-          this.waiters.get(requestId)?.delete(done)
-          signal?.removeEventListener("abort", onAbort)
-          resolve()
-        }
-        const onAbort = () => {
+    const poll = this.pollEntry(requestId)
+    poll.attached++
+    poll.droppedAt = null
+    poll.lastAt = this.now()
+    try {
+      if (waitMs > 0 && !signal?.aborted)
+        await this.waitFor(requestId, waitMs, signal, () => {
           abandoned = true
-          done()
-        }
-        const timer = setTimeout(done, waitMs)
-        let set = this.waiters.get(requestId)
-        if (!set) {
-          set = new Set()
-          this.waiters.set(requestId, set)
-        }
-        set.add(done)
-        signal?.addEventListener("abort", onAbort)
-      })
+        })
+    } finally {
+      poll.attached = Math.max(0, poll.attached - 1)
+      poll.lastAt = this.now()
     }
     if (abandoned || signal?.aborted) {
-      this.requestAbandoned(requestId)
+      // A graceful stop closes every poll: the rows stay live for the hooks to find again.
+      // Otherwise the hook went away (or stalled): give it a moment to re-poll (D-080).
+      if (!this.stopping && poll.attached === 0) poll.droppedAt = this.now()
       return { decision: "ask" }
     }
     let a = this.store.approvalByRequest(requestId)
@@ -1769,6 +2029,98 @@ export class Engine {
       a = this.store.approvalByRequest(requestId) as ApprovalRow
     }
     return this.hookResponse(a)
+  }
+
+  /** The poll bookkeeping for a live request; a miss counts as polled now (D-080). */
+  private pollEntry(requestId: string) {
+    let e = this.polls.get(requestId)
+    if (!e) {
+      e = { attached: 0, lastAt: this.now(), droppedAt: null }
+      this.polls.set(requestId, e)
+    }
+    return e
+  }
+
+  /** Live in the DB, but no hook has polled it for over NO_POLL_LAPSE_MS: nobody would hear us. */
+  private orphaned(a: ApprovalRow, now: number): boolean {
+    if (a.live !== 1 || a.decision !== null) return false
+    const e = this.pollEntry(a.hook_request_id)
+    return e.attached === 0 && now - e.lastAt > NO_POLL_LAPSE_MS
+  }
+
+  /** Lapse an orphaned live request into Claude's own prompt (D-080). */
+  private lapseOrphan(a: ApprovalRow) {
+    this.tx((c) => {
+      const item = this.store.item(a.item_id)
+      this.appendEvent(c, {
+        sessionId: item?.session_id ?? null,
+        agentId: item?.agent_id ?? null,
+        hook: "daemon:hold-orphaned",
+        payload: { itemId: a.item_id, requestId: a.hook_request_id },
+      })
+      this.lapseIntoClaude(c, a)
+      if (item) this.setSessionState(c, item.session_id, "waiting")
+    })
+    this.polls.delete(a.hook_request_id)
+  }
+
+  /** Before an intent answers through the hook: a request nobody polls is lapsed first (D-080). */
+  private lapseIfOrphaned(itemId: string) {
+    const a = this.store.approval(itemId)
+    if (a && this.orphaned(a, this.now())) this.lapseOrphan(a)
+  }
+
+  /**
+   * On the tick (D-080): a poll that closed early and wasn't re-polled within the grace is a
+   * PermissionRequest answered in Claude (D-070; a classic hold keeps waiting for the lapse
+   * below); a live request with no poll for NO_POLL_LAPSE_MS lapses into Claude's prompt.
+   */
+  private checkPolls(now: number) {
+    const live = this.store.all<ApprovalRow>(
+      "SELECT * FROM approvals WHERE live = 1 AND decision IS NULL",
+    )
+    const ids = new Set(live.map((a) => a.hook_request_id))
+    for (const id of this.polls.keys()) if (!ids.has(id)) this.polls.delete(id)
+    for (const a of live) {
+      const e = this.pollEntry(a.hook_request_id)
+      if (e.attached > 0) continue
+      if (e.droppedAt !== null && now - e.droppedAt >= POLL_DROP_GRACE_MS) {
+        e.droppedAt = null
+        if (a.via === "permissionRequest") {
+          this.requestAbandoned(a.hook_request_id)
+          continue
+        }
+      }
+      if (this.orphaned(a, now)) this.lapseOrphan(a)
+    }
+  }
+
+  private waitFor(
+    requestId: string,
+    waitMs: number,
+    signal: AbortSignal | undefined,
+    onAbort: () => void,
+  ): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const done = () => {
+        clearTimeout(timer)
+        this.waiters.get(requestId)?.delete(done)
+        signal?.removeEventListener("abort", aborted)
+        resolve()
+      }
+      const aborted = () => {
+        onAbort()
+        done()
+      }
+      const timer = setTimeout(done, waitMs)
+      let set = this.waiters.get(requestId)
+      if (!set) {
+        set = new Set()
+        this.waiters.set(requestId, set)
+      }
+      set.add(done)
+      signal?.addEventListener("abort", aborted)
+    })
   }
 
   // -------------------------------------------------------------------------
@@ -1814,6 +2166,36 @@ export class Engine {
     return p?.root_path.startsWith("/") ? p.root_path : (s.cwd ?? null)
   }
 
+  /**
+   * What "Always allow" does for this approval, or null when it isn't offered (C-026, D-082):
+   * echo Claude's own usable `addRules` suggestions (PermissionRequest), else write a rule
+   * scoped to this very call to the project's settings.local.json. `words` is the card's text.
+   */
+  private alwaysAllowPlan(
+    a: ApprovalRow,
+    sessionId: string,
+  ): { echo: unknown[]; rule: string | null; dir: string | null; words: string } | null {
+    if (a.tool === "AskUserQuestion") return null
+    let echo: unknown[] = []
+    if (a.via === "permissionRequest" && a.suggestions_json)
+      try {
+        echo = allowAlwaysPermissions(JSON.parse(a.suggestions_json))
+      } catch {
+        echo = []
+      }
+    if (echo.length > 0) return { echo, rule: null, dir: null, words: describeSuggestions(echo) }
+    let input: unknown = null
+    try {
+      input = JSON.parse(a.input_json)
+    } catch {
+      return null
+    }
+    const rule = scopedAllowRule(a.tool, input)
+    const dir = this.projectDirFor(sessionId)
+    if (!rule || !dir) return null
+    return { echo: [], rule, dir, words: `${rule} ${DESTINATION_WORDS.localSettings}` }
+  }
+
   /** Decide a held approval. Shared by the UI, notifications and "open". */
   private decideIn(
     c: Changes,
@@ -1824,10 +2206,10 @@ export class Engine {
   ) {
     const a = this.store.approval(item.id)
     if (!a) throw conflict("item has no approval")
-    if (a.decision !== null) {
-      if (a.decision === decision) return
-      throw conflict(`already decided: ${a.decision}`)
-    }
+    if (a.decision !== null && a.decision === decision) return
+    // Claude's own prompt, lapsed or never ours to answer: only Claude's window can (D-073, D-080).
+    if (a.live === 0 && this.isWaitingInClaude(item)) throw conflict(ANSWER_IN_CLAUDE)
+    if (a.decision !== null) throw conflict(`already decided: ${a.decision}`)
     if (a.live === 0) throw conflict("hook is no longer held")
     this.appendEvent(c, {
       sessionId: item.session_id,
@@ -1835,26 +2217,22 @@ export class Engine {
       hook: "daemon:decision",
       payload: { itemId: item.id, decision, source },
     })
-    // Claude's own suggestions, echoed back, are the rule Claude would have saved (D-071).
-    const echoed =
-      decision === "allow-always" && a.via === "permissionRequest" && a.suggestions_json
-        ? allowAlwaysPermissions(JSON.parse(a.suggestions_json))
-        : []
-    if (echoed.length > 0)
+    // Exactly what the card said (C-026, D-082): Claude's own suggestions echoed back (D-071),
+    // else a rule scoped to this call in settings.local.json; not offered ⇒ 409, nothing sent.
+    const plan = decision === "allow-always" ? this.alwaysAllowPlan(a, item.session_id) : null
+    if (decision === "allow-always" && !plan)
+      throw conflict("Always allow isn't offered for this request. Allow or Deny it.")
+    if (plan?.echo.length)
       this.store.run(
         "UPDATE approvals SET updated_permissions_json = ? WHERE item_id = ?",
-        JSON.stringify(echoed),
+        JSON.stringify(plan.echo),
         item.id,
       )
-    if (decision === "allow-always" && echoed.length === 0) {
-      const dir = this.projectDirFor(item.session_id)
-      const rule = allowAlwaysRule(a.tool, JSON.parse(a.input_json))
-      if (dir) {
-        try {
-          appendAllowRule(dir, rule)
-        } catch (e) {
-          this.deps.log.error("allow-always: could not write settings.local.json", e)
-        }
+    if (plan?.rule && plan.dir) {
+      try {
+        appendAllowRule(plan.dir, plan.rule)
+      } catch (e) {
+        this.deps.log.error("allow-always: could not write settings.local.json", e)
       }
     }
     this.store.run(
@@ -1901,6 +2279,7 @@ export class Engine {
     idempotencyKey: string | null,
     source = "ui",
   ): ActionResponse {
+    this.lapseIfOrphaned(itemId)
     return this.tx((c) =>
       this.idempotent(idempotencyKey, "decision", itemId, () => {
         const item = this.requireItem(itemId)
@@ -1916,6 +2295,7 @@ export class Engine {
       idempotencyKey,
     )
     if (existing) return this.respond(existing.item_id ?? itemId)
+    this.lapseIfOrphaned(itemId)
     const result = this.tx((c) =>
       this.idempotent(idempotencyKey, "answers", itemId, () => {
         const item = this.requireItem(itemId)
@@ -1972,6 +2352,7 @@ export class Engine {
       idempotencyKey,
     )
     if (existing) return this.respond(existing.item_id ?? itemId)
+    this.lapseIfOrphaned(itemId)
     const result = this.tx((c) =>
       this.idempotent(idempotencyKey, "reply", itemId, () => {
         const item = this.requireItem(itemId)
@@ -2261,6 +2642,12 @@ export class Engine {
     }
   }
 
+  /** The approval as the card sees it, with what Always allow would do (C-026). */
+  private approvalView(a: ApprovalRow, sessionId: string) {
+    const plan = this.alwaysAllowPlan(a, sessionId)
+    return plan ? { ...toApproval(a), alwaysAllow: plan.words } : toApproval(a)
+  }
+
   itemDetail(itemId: string): ItemDetail {
     const r = this.requireItem(itemId)
     const s = this.store.session(r.session_id)
@@ -2287,7 +2674,7 @@ export class Engine {
       session,
       project: toProject(p),
       questions: this.store.questions(itemId).map(toQuestion),
-      approval: a ? toApproval(a) : null,
+      approval: a ? this.approvalView(a, r.session_id) : null,
       timeline: this.timeline(r.session_id, 50, r.source_seq),
       outbox: this.store
         .all<OutboxRow>("SELECT * FROM outbox WHERE item_id = ? ORDER BY created_at", itemId)
@@ -2814,6 +3201,7 @@ export class Engine {
         if (item) this.setSessionState(c, item.session_id, "waiting")
       })
     }
+    this.checkPolls(now)
     for (const r of this.store.all<ItemRow>(
       "SELECT * FROM attention_items WHERE state = 'snoozed' AND snooze_until <= ?",
       now,
@@ -2867,6 +3255,59 @@ export class Engine {
       this.onDoctorChange?.()
     }
     if (now >= this.nextPruneAt) this.prune(false)
+    if (now >= this.nextLivenessAt) {
+      this.nextLivenessAt = now + LIVENESS_EVERY_MS
+      this.endGoneSessions()
+    }
+  }
+
+  /**
+   * Claude died without a SessionEnd (killed, terminal closed, reboot), D-090: for sessions with
+   * an open item that is Claude's own prompt (or a live request), check the stored Claude pid
+   * with signal 0; when that process is gone, resolve those items (`daemon:session-gone`), end
+   * the session and its agents. Nothing else is ever signalled.
+   */
+  private endGoneSessions() {
+    const alive = this.deps.alive ?? processAlive
+    const rows = this.store.all<{ id: string; claude_pid: number }>(
+      `SELECT DISTINCT s.id, s.claude_pid FROM sessions s
+         JOIN attention_items i ON i.session_id = s.id JOIN approvals a ON a.item_id = i.id
+         WHERE s.state != 'ended' AND s.claude_pid IS NOT NULL AND s.claude_pid > 1
+           AND i.state IN ('open','snoozed') AND (${WAITING_IN_CLAUDE} OR a.live = 1)`,
+    )
+    for (const r of rows) {
+      let gone = false
+      try {
+        gone = r.claude_pid !== process.pid && !alive(r.claude_pid)
+      } catch (e) {
+        this.deps.log.warn("liveness check failed", e)
+      }
+      if (!gone) continue
+      this.tx((c) => {
+        this.appendEvent(c, {
+          sessionId: r.id,
+          hook: "daemon:session-gone",
+          payload: { pid: r.claude_pid },
+        })
+        for (const a of this.store.all<ApprovalRow>(
+          `SELECT a.* FROM approvals a JOIN attention_items i ON i.id = a.item_id
+             WHERE i.session_id = ? AND i.state IN ('open','snoozed') AND (${WAITING_IN_CLAUDE} OR a.live = 1)`,
+          r.id,
+        )) {
+          this.store.run("UPDATE approvals SET live = 0 WHERE item_id = ?", a.item_id)
+          const item = this.store.item(a.item_id)
+          if (item) this.apply(c, item, { _tag: "Supersede" })
+          this.clearNotifications(c, a.item_id)
+          c.after.push(() => this.wake(a.hook_request_id))
+        }
+        this.setSessionState(c, r.id, "ended")
+        for (const ag of this.store.all<AgentRow>(
+          "SELECT * FROM agents WHERE session_id = ? AND state IN ('running','waiting')",
+          r.id,
+        ))
+          this.setAgentState(c, ag.id, "done", true)
+      })
+    }
   }
 
   /**

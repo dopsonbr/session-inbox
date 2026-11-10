@@ -60,6 +60,8 @@ export interface DaemonServices {
   readonly updater?: UpdaterShape | null
   /** Preview reads (D-056); the live filesystem when omitted. */
   readonly files?: FilesShape
+  /** Claude process liveness (D-090); signal 0 when omitted. */
+  readonly alive?: (pid: number) => boolean
 }
 
 export interface DaemonHandle {
@@ -181,6 +183,9 @@ export const startDaemon = async (
     port,
     token,
     stop: async () => {
+      // Closing the socket aborts every long-poll; that must not read as "answered in Claude".
+      // The rows stay live and the retrying hooks find them after the restart (D-080, H-050).
+      engine.stopping = true
       sock.stop(true)
       http.stop(true)
       await engine.idle()

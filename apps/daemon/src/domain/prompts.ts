@@ -51,13 +51,30 @@ export interface PromptCandidate {
   readonly decidedAt: number | null
   /** The session had activity (a tool ran, a prompt, a stop) after `decidedAt`. */
   readonly activitySince: boolean
+  /** When the person dismissed it, if they did (D-085). */
+  readonly dismissedAt?: number | null
 }
+
+/** A prompt item dismissed this recently is still "the same prompt" (D-085). */
+export const DISMISSED_RECENT_MS = 60_000
+
+/**
+ * More than one open item a prompt for `tool` (null: any) could be about: a Notification, which
+ * names no agent or call, can't tell which (D-084).
+ */
+export const ambiguousPrompt = (
+  candidates: ReadonlyArray<PromptCandidate>,
+  tool: string | null,
+): boolean =>
+  candidates.filter((c) => c.open && (tool === null || (c.tool !== null && sameTool(tool, c.tool))))
+    .length > 1
 
 /**
  * The item a permission prompt for `tool` is about, or null when it's a new prompt:
  * - an open item for the same tool (a live hold, a hold waiting in Claude, an observed prompt);
  * - an item for the same tool whose hold lapsed or was released with `ask` within 30 s, or with
  *   no session activity since (Claude can't start another call while that prompt waits).
+ * - an item for the same tool the person dismissed within the last 60 s (D-085).
  * Items decided allow / deny / allow-always never match: that call ran or was refused.
  * With no tool named, only an open item matches.
  */
@@ -66,10 +83,14 @@ export const matchPrompt = (
   tool: string | null,
   now: number,
 ): PromptCandidate | null => {
-  if (tool === null) return candidates.find((c) => c.open) ?? null
+  const dismissed = (c: PromptCandidate) =>
+    c.dismissedAt != null && now - c.dismissedAt <= DISMISSED_RECENT_MS
+  if (tool === null) return candidates.find((c) => c.open) ?? candidates.find(dismissed) ?? null
   const same = candidates.filter((c) => c.tool !== null && sameTool(tool, c.tool))
   const open = same.find((c) => c.open)
   if (open) return open
+  const gone = same.find(dismissed)
+  if (gone) return gone
   return (
     same.find(
       (c) =>

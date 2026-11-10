@@ -407,6 +407,19 @@ export const makeLiveUpdater = (opts: {
   }
 }
 
+/**
+ * Is a process still there (D-090)? Signal 0 only: it checks, it never signals. EPERM means it
+ * exists but isn't ours, so it counts as alive.
+ */
+export const processAlive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (e) {
+    return (e as { code?: string }).code === "EPERM"
+  }
+}
+
 export const LiveFiles: FilesShape = {
   read: (path, maxBytes) => {
     try {

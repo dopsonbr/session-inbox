@@ -156,6 +156,8 @@ export interface Harness {
   opener: FakeOpener
   files: FakeFiles
   claudeDir: string
+  /** Claude pids the liveness probe reports gone (D-090); every other pid is alive. */
+  dead: Set<number>
 }
 
 export const makeHarness = (
@@ -168,6 +170,7 @@ export const makeHarness = (
   const notifier = new FakeNotifier()
   const opener = new FakeOpener()
   const claudeDir = mkdtempSync(join(tmpdir(), "inboxd-claude-"))
+  const dead = new Set<number>()
   const engine = new Engine({
     db: openDb(opts.dbFile ?? ":memory:"),
     clock,
@@ -177,10 +180,11 @@ export const makeHarness = (
     opener,
     log: silentLog,
     files,
+    alive: (pid) => !dead.has(pid),
     claudeConfigDir: claudeDir,
     settings: { ...DEFAULT_SETTINGS, "questions.answerModeByRuntime": {}, ...opts.settings },
   })
-  return { engine, clock, git, claude, notifier, opener, files, claudeDir }
+  return { engine, clock, git, claude, notifier, opener, files, claudeDir, dead }
 }
 
 /**
@@ -203,3 +207,13 @@ export const envelope = (event: string, payload: Record<string, unknown>, e = en
   env: e,
   sentAt: T0,
 })
+
+/**
+ * A hook's long-poll attached to a live request, as a real hook keeps one (D-080): without it a
+ * request that sees no poll for 20 s on the fake clock lapses. Returns the detach function.
+ */
+export const attachPoll = (engine: Engine, requestId: string | null): (() => void) => {
+  const ctrl = new AbortController()
+  void engine.waitDecision(requestId ?? "", 3600, ctrl.signal)
+  return () => ctrl.abort()
+}

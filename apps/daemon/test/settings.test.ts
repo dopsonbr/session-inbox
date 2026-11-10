@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { Routes, type SettingsResponse } from "@session-inbox/contracts"
 import { type DaemonHandle, type DaemonOptions, startDaemon } from "../src/daemon.ts"
 import {
+  attachPoll,
   envelope,
   FakeClaude,
   FakeClock,
@@ -70,6 +71,7 @@ describe("settings apply live", () => {
   test("a changed budget applies to the next hold; existing holds keep their expiry", async () => {
     const h = makeHarness()
     const first = await h.engine.ingest("PreToolUse", bash("rm a", "tu1"))
+    const detach = attachPoll(h.engine, first.requestId)
     h.engine.updateSettings({ "holds.budgetMs": 20_000 })
     const second = await h.engine.ingest("PreToolUse", bash("rm b", "tu2"))
     h.clock.advance(20_001)
@@ -79,6 +81,7 @@ describe("settings apply live", () => {
     h.clock.advance(100_000)
     h.engine.tick()
     expect((await h.engine.waitDecision(first.requestId ?? "", 0)).decision).toBe("ask")
+    detach()
   })
 
   test("safe Bash prefixes and title generation change live", async () => {

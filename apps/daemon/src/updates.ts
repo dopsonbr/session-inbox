@@ -120,6 +120,8 @@ export class UpdateManager {
   /** A failed version is never auto-applied again (only by hand). */
   private failedVersion: string | null = null
   private watch = { key: "", seenAt: 0, deadline: STALL_MS }
+  /** Set when our own version's install was still running at startup (D-091). */
+  private ownInstall: { from: string | null; since: number } | null = null
   private readonly inflight = new Set<Promise<unknown>>()
 
   constructor(private readonly deps: UpdateDeps) {
@@ -182,16 +184,26 @@ export class UpdateManager {
   private startup(now: number) {
     const memo = this.deps.memo.read()
     const v = this.deps.version
-    this.deps.memo.write({ ...memo, lastRun: v })
     const st = this.updater.readState()
+    const from = memo.lastRun && memo.lastRun !== v ? memo.lastRun : null
+    // Started by the installer while it is still on a later step (the app): watch the file and
+    // announce on `done` (D-091). `lastRun` is kept until then, so another restart still knows
+    // which version we came from.
+    if (
+      st &&
+      st.version === v &&
+      st.state !== "done" &&
+      st.state !== "failed" &&
+      memo.announced !== v &&
+      now - st.at < STALL_MS
+    ) {
+      this.ownInstall = { from, since: now }
+      return
+    }
+    this.deps.memo.write({ ...memo, lastRun: v })
     if (!st) return
     if (st.state === "done" && st.version === v && memo.announced !== v) {
-      const from = memo.lastRun && memo.lastRun !== v ? memo.lastRun : null
-      this.deps.event("daemon:updated", { version: v, from })
-      this.s.justUpdatedFrom = from
-      this.s.updatedAt = now
-      this.deps.memo.write({ ...memo, lastRun: v, announced: v })
-      this.deps.log.info(`updated to ${v}${from ? ` from ${from}` : ""}`)
+      this.announceUpdated(now, from)
       return
     }
     if (st.version === v) return
@@ -216,10 +228,39 @@ export class UpdateManager {
     }
   }
 
+  private announceUpdated(now: number, from: string | null): number {
+    const v = this.deps.version
+    const seq = this.deps.event("daemon:updated", { version: v, from })
+    this.s.justUpdatedFrom = from
+    this.s.updatedAt = now
+    this.deps.memo.write({ ...this.deps.memo.read(), lastRun: v, announced: v })
+    this.deps.log.info(`updated to ${v}${from ? ` from ${from}` : ""}`)
+    return seq
+  }
+
+  /** Our own install was still finishing at startup (D-091): announce once it says `done`. */
+  private watchOwnInstall(now: number) {
+    const own = this.ownInstall
+    if (!own) return
+    const v = this.deps.version
+    const st = this.updater.readState()
+    if (st?.version === v && st.state === "done") {
+      this.ownInstall = null
+      if (this.deps.memo.read().announced !== v) this.publish(this.announceUpdated(now, own.from))
+      return
+    }
+    const over = !st || st.version !== v || st.state === "failed" || now - own.since > STALL_MS
+    if (over) {
+      this.ownInstall = null
+      this.deps.memo.write({ ...this.deps.memo.read(), lastRun: v })
+    }
+  }
+
   /** Called from the engine's 1 s tick. Never blocks: checks and spawns run async. */
   tick(): void {
     if (this.s.state === "unsupported") return
     const now = this.deps.clock.now()
+    this.watchOwnInstall(now)
     if (this.s.state === "updating") {
       this.watchState(now)
       return

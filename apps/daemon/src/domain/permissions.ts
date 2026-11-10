@@ -40,9 +40,12 @@ export const ruleSpecifier = (tool: string, input: unknown): string | null => {
 export const ruleMatches = (rule: string, tool: string, input: unknown): boolean => {
   const m = /^([A-Za-z0-9_\-.]+)(?:\((.*)\))?$/s.exec(rule.trim())
   if (!m) return false
-  const [, ruleTool, spec] = m
+  const [, ruleTool, rawSpec] = m
   if (ruleTool !== tool) return false
-  if (spec === undefined || spec === "" || spec === "*") return true
+  if (rawSpec === undefined || rawSpec === "" || rawSpec === "*") return true
+  // `//abs/path` is Claude's filesystem-absolute path form (D-082): compare as `/abs/path`.
+  const spec =
+    ruleTool && FILE_TOOLS.has(ruleTool) && rawSpec.startsWith("//") ? rawSpec.slice(1) : rawSpec
   const actual = ruleSpecifier(tool, input)
   if (actual === null) return false
   if (spec.endsWith(":*")) return actual.startsWith(spec.slice(0, -2))
@@ -99,13 +102,33 @@ export const ruleVerdict = (
   return "none"
 }
 
-/** The rule "Always allow" writes: Bash → `Bash(<exact command>)`, others → the tool name. */
-export const allowAlwaysRule = (tool: string, input: unknown): string => {
-  if (tool === "Bash") {
-    const cmd = ruleSpecifier(tool, input)
-    if (cmd) return `Bash(${cmd})`
+/** File tools whose rules take a path (`Tool(<path rule>)`). */
+const FILE_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit", "Read"])
+/** An MCP tool name with server and tool parts: on its own it is already one tool's rule. */
+export const MCP_TOOL = /^mcp__[^_].*__[^_].*$/
+/** Characters that would make a rule wider than the one call (globs, wildcards, new lines). */
+const WIDENS = /[*?[\]{}\\\n\r\0]/
+
+/**
+ * The rule "Always allow" writes when Claude offers none we can echo (D-082), always scoped to
+ * the call itself, or null when Always allow isn't offered:
+ * - file tools → `Tool(//abs/path)`: exactly that file, in Claude's syntax for a filesystem-
+ *   absolute path (as in its own suggestion `Read(//tmp/proj/**)`);
+ * - `WebFetch` → `WebFetch(domain:<host>)`; `Bash` → `Bash(<exact command>)`;
+ * - an MCP tool → its own name; anything else → null. Never a bare tool name that takes a
+ *   specifier, and never text that a glob or wildcard would widen.
+ */
+export const scopedAllowRule = (tool: string, input: unknown): string | null => {
+  const spec = ruleSpecifier(tool, input)
+  if (FILE_TOOLS.has(tool)) {
+    if (!spec?.startsWith("/") || WIDENS.test(spec)) return null
+    return `${tool}(/${spec})`
   }
-  return tool
+  if (tool === "WebFetch") return spec && !WIDENS.test(spec) ? `WebFetch(${spec})` : null
+  if (tool === "Bash") {
+    return spec?.trim() && !WIDENS.test(spec) ? `Bash(${spec})` : null
+  }
+  return MCP_TOOL.test(tool) ? tool : null
 }
 
 /**

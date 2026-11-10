@@ -7,6 +7,7 @@ import m001 from "./migrations/001_init.sql" with { type: "text" }
 import m002 from "./migrations/002_review_group.sql" with { type: "text" }
 import m003 from "./migrations/003_approval_preview.sql" with { type: "text" }
 import m004 from "./migrations/004_permission_request.sql" with { type: "text" }
+import m005 from "./migrations/005_session_pid.sql" with { type: "text" }
 
 /** Numbered migrations, embedded so `bun build --compile` carries them. Append only. */
 export const MIGRATIONS: ReadonlyArray<{ version: number; sql: string }> = [
@@ -14,6 +15,7 @@ export const MIGRATIONS: ReadonlyArray<{ version: number; sql: string }> = [
   { version: 2, sql: m002 },
   { version: 3, sql: m003 },
   { version: 4, sql: m004 },
+  { version: 5, sql: m005 },
 ]
 
 export const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0
