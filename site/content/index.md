@@ -13,10 +13,6 @@ toc: false
 
 [[include install-cmd]]
 
-<!-- REMOVE AFTER FIRST RELEASE -->
-The first release hasn't been published yet, so that command won't work until it is. See [Install](install.md) for what to do meanwhile.
-<!-- /REMOVE AFTER FIRST RELEASE -->
-
 [[include flow]]
 
 ## What it does

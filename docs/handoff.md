@@ -1,6 +1,6 @@
-# Handoff: publish the first release, then check what no person has seen
+# Handoff: v0.2.0 is published; check what no person has seen
 
-Status as of 2026-11-09. Read with [DECISIONS.md](../DECISIONS.md) (G-024 to G-031, C-012 to C-026, D-033 to D-095, H-014 to H-050, U-022 to U-051, S-010 to S-023 and P-012 to P-024 cover this round), [CLAUDE.md](../CLAUDE.md) and the docs site (<https://dopsonbr.github.io/session-inbox/>, source in `site/content/`).
+Status as of 2026-11-10. **[v0.2.0](https://github.com/dopsonbr/session-inbox/releases/tag/v0.2.0) is published** from `e842e67` (P-026). Read with [DECISIONS.md](../DECISIONS.md) (G-024 to G-031, C-012 to C-026, D-033 to D-095, H-014 to H-050, U-022 to U-051, S-010 to S-023 and P-012 to P-024 cover this round), [CLAUDE.md](../CLAUDE.md) and the docs site (<https://dopsonbr.github.io/session-inbox/>, source in `site/content/`).
 
 ## Where things stand
 
@@ -27,10 +27,10 @@ Status as of 2026-11-09. Read with [DECISIONS.md](../DECISIONS.md) (G-024 to G-0
 - **GA** is a release install of 0.2.0, build `60cbb74`, installed from the tarball this checkout built (`dist/release/session-inbox-0.2.0-macos-arm64.tar.gz`, unpacked and installed with its own `session-inbox install --yes --holds`, the same path the one-liner takes after its download). It answers approvals, in the default mode. The menu-bar app is `~/Applications/Session Inbox.app` and the login item points there (it pointed at the build folder before, S-022). `install.json` records `source: "release"`, so it will update itself once a newer release exists.
 - **Beta** is a source install of the same commit beside it, as the observer, with `~/Applications/Session Inbox Beta.app`.
 - **Both apps are "denied" for notifications in macOS**: GA carries the old legacy record and beta's one prompt was used up during testing (P-018). Until you turn them on in System Settings, Notifications, the daemon posts plain fallback notifications. This is this Mac only; a fresh Mac gets the prompt.
-- **GA's setup check shows one warning besides notifications**: "The last update check failed: no published release yet". It clears when the first release is published.
+- **GA's update check now passes**: "Version 0.2.0 is up to date (release install)". GA here is build `60cbb74` and the published release is `e842e67`; the two differ only in docs, and both are 0.2.0, so nothing is offered.
 - **The `claude` CLI isn't logged in** here, so replies to idle sessions and Haiku titles are off (shown as information in the setup check).
 - **One throwaway test session is waiting for you**: "Inbox live test 2: held Bash timing" sits on Claude's own Read prompt (the prompt the old dedupe rule missed, D-067). Any answer is fine. "Inbox live test: question and held Bash" is idle and can be archived. Scratch files are under `/tmp/si-live`.
-- **Not pushed anywhere public beyond `main` and the docs site**: no tag, no GitHub Release.
+- **Public**: `main`, the docs site, the tag `v0.2.0` and its GitHub Release (tarball, `.sha256`, `install.sh`).
 
 **Branches left over:** `worktree-agent-a48e48056eab3ce20`, `worktree-agent-ac2a6b8ed9a964db3` and `worktree-agent-af75d7b335e2a7373` (with their worktrees under `.claude/worktrees/`), and the remote branch `wip/beta-shell-channel`. Their content is on `main` (the first two were copied in rather than merged, so git calls them unmerged; the third has one local `biome.json` edit); force-deleting wasn't permitted in this session. Every worktree and branch this session made is merged and removed.
 
@@ -53,7 +53,7 @@ Status as of 2026-11-09. Read with [DECISIONS.md](../DECISIONS.md) (G-024 to G-0
 - **The 15-second hook retry against a real Claude session across a real update.** The smoke test and the e2e update test cover the daemon side; a live session with a pending request while the daemon is replaced hasn't been tried.
 - **Terminal `claude` sessions.** Everything live used the desktop app's Code tab. Whether `PermissionRequest` and the rest behave the same in a terminal session is unchecked.
 - **The app's own banners and their Allow / Deny / Answer / Open buttons, and a click through.** Nobody could click **Allow** while it was built, and the shell used for the checks has neither Screen Recording nor Accessibility permission (P-016). Everything native was checked through `/usr/bin/log` and the daemon's API. Also unseen: whether the Alerts style keeps the buttons on screen.
-- **A first install from a real GitHub Release.** None exists yet. The one-liner currently answers "no release has been published yet".
+- **A full install from the GitHub Release on a second Mac.** The one-liner was run against v0.2.0 only into a throwaway home with `--no-launchd --no-app` on this Mac (P-026). The launchd agent, the app copy and the notification prompt on a fresh Mac are unseen.
 - **Opening a CLI session** (`claude://resume?session=…`). Desktop sessions are verified; CLI ones aren't.
 - **A real `Notification` hook payload.** Notification hooks can't be triggered with `claude -p` (P-010), so no real fixture exists.
 - **Gatekeeper on a tarball copied between Macs.** The app is ad-hoc signed, not notarized (S-007). The installer clears the quarantine flag on what it copies (H-033).
@@ -61,7 +61,7 @@ Status as of 2026-11-09. Read with [DECISIONS.md](../DECISIONS.md) (G-024 to G-0
 
 ## Remaining work, in order
 
-1. **Publish the first release.** It's the owner's step. Either `bun scripts/release.ts --publish` from a clean checkout of `main` (builds in about a minute, creates the release with `gh`, publishes the version in `VERSION`, 0.2.0), or run the **Release** workflow from the Actions tab with bump **none** (the default, patch, bumps first and would publish 0.2.1). Then delete the `<!-- REMOVE AFTER FIRST RELEASE -->` blocks in `site/content/index.md`, `install.md`, `changelog.md` and in `README.md`, and update the changelog heading if the version differs.
+1. **Done: the first release is published** (v0.2.0, P-026). The next one: bump with `bun scripts/bump.ts patch`, write its notes in `site/content/changelog.md`, push, then `bun scripts/release.ts --publish` from a clean checkout of `main`, or run the **Release** workflow from the Actions tab (its default bump, patch, bumps first). Publish only when the owner asks. This Mac's GA will then offer or install it by itself, which is the first chance to watch a real update.
 2. **Install on the second Mac with the one-liner**, then click **Allow** on the notification prompt. Run `session-inbox doctor`. If the prompt is missed, the fix is System Settings, Notifications, Session Inbox, Allow; the Setup page links to it.
 3. **See the app's own banners once.** From the Setup page choose **Send test notification**, then trigger a held Bash and a question, and click **Allow**, **Deny**, **Answer** and **Open**. Check the Alerts style. Then move the lines this clears out of the "Not yet verified by a person" list in `site/content/troubleshooting.md` and `README.md`.
 4. **Answer a prompt in Claude while the inbox shows it**, in the default mode, and confirm the inbox item clears within a second or two. Also try letting one run out (10 min, or lower **Wait for an answer** in Settings) and check it stays as "Waiting in Claude".

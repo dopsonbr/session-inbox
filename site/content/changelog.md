@@ -11,11 +11,7 @@ What changed in each release, newest first. Versions are tagged on [GitHub Relea
 
 ## 0.2.0
 
-The first packaged release. Before this, Session Inbox was installed from a source checkout.
-
-<!-- REMOVE AFTER FIRST RELEASE -->
-This release hasn't been published yet. See [Install](install.md) for how to install it meanwhile.
-<!-- /REMOVE AFTER FIRST RELEASE -->
+Published 2026-11-10: [v0.2.0 on GitHub](https://github.com/dopsonbr/session-inbox/releases/tag/v0.2.0). The first packaged release. Before this, Session Inbox was installed from a source checkout.
 
 ### Install and update
 

@@ -168,7 +168,7 @@ Most of Session Inbox has been checked on a real install with real Claude sessio
 - **The token-gated page inside the real app windows.** The app now opens its windows with the token in the address. That is unit-tested and the screenshots are made through headless Chrome, and the reinstalled apps connect, but no person has looked at the windows themselves.
 - **The 15-second retry across a real update.** A waiting hook retries when the daemon restarts. That hasn't been tried against a real Claude session across a real update.
 - **Terminal `claude` sessions.** Everything checked live used the Claude desktop app's Code tab. Sessions started from the `claude` CLI in a terminal haven't been checked, including the approval flow.
-- **A published release.** No GitHub Release exists yet, so the one-line installer hasn't been run end to end, and no second Mac has installed from one.
+- **A full install on a second Mac.** The one-line installer has been run against the published release, but only into a throwaway home with `--no-launchd --no-app` on the Mac that built it. No second Mac has installed from it yet, with the launchd agent, the menu-bar app and the notification prompt.
 - **Opening a CLI session.** **Open in Claude** for sessions started from the `claude` CLI uses the `claude://resume` link, which hasn't been checked on a real session. Desktop sessions have.
 - **A real "needs your input" notification.** The idle-session prompt Claude sends as a `Notification` hook event hasn't been recorded from a real session yet.
 - **Gatekeeper on a copied tarball.** The app is signed ad hoc and not notarized. The installer clears the quarantine flag on what it copies, but running it from a tarball that you downloaded with a browser hasn't been tried.

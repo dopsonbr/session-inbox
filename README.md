@@ -17,10 +17,6 @@ Scope: sessions on **this Mac** only (the Claude desktop app's Code tab and the 
 
 You need an Apple silicon Mac and the Claude desktop app or the `claude` CLI. The release is prebuilt (about 125 MB), so no Bun or Rust is needed.
 
-<!-- REMOVE AFTER FIRST RELEASE -->
-> **The first release hasn't been published yet**, so the one-liner below currently answers "no release has been published yet". The repository owner publishes it with `bun scripts/release.ts --publish` from a clean checkout of `main` (about a minute, needs `gh`), or by running the **Release** workflow from the Actions tab. Until then, install from a tarball or from source (see the docs' [Install page](https://dopsonbr.github.io/session-inbox/install.html)).
-<!-- /REMOVE AFTER FIRST RELEASE -->
-
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dopsonbr/session-inbox/main/install.sh | sh
 ```
@@ -50,7 +46,7 @@ The first Rust build takes a few minutes. Without `--app` you get the daemon, th
 
 Built, covered by tests, a smoke test and a real-launchd update test, and run against real Claude desktop sessions.
 
-**Publishing a release is the one step still to do**, and it's the repository owner's. Until then a second Mac can install from a tarball made on the first one (`bun scripts/release.ts`).
+**[v0.2.0](https://github.com/dopsonbr/session-inbox/releases/tag/v0.2.0) is published.** The one-liner above was run against it into a throwaway home on the Mac that built it, and an installed copy's update check finds it. A full install on a second Mac is the next check.
 
 Two independent reviews of the whole product found 21 problems, all fixed: a request survives a daemon restart or update (the hook retries for up to 15 seconds), Always allow adds only a rule scoped to the call and says which, the inbox page loads only with the token, shortcuts no longer act behind a dialog, and uninstall can't touch the other channel's install. The suites and the smoke test pass.
 
@@ -62,7 +58,7 @@ Two independent reviews of the whole product found 21 problems, all fixed: a req
 - The approval preview shows a real diff.
 - The daemon-driven update works end to end under launchd against a local release server (`bun scripts/e2e-update.ts`): a held call blocks the automatic update, it applies after 30 seconds of quiet, hooks keep failing open during the swap, and a corrupted download is refused.
 
-**Not yet seen by a person:** the token-gated page inside the real menu-bar app windows (unit-tested and shown through headless Chrome; the reinstalled apps connect, but nobody has looked at the window), the 15-second hook retry against a real Claude session across a real update, the menu-bar app's own notification banners with their Allow, Deny, Answer and Open buttons, and a click through from one. Nobody could click **Allow** while it was being built. The plain fallback notifications that the daemon posts when the app isn't allowed are logged by macOS as displayed. Also unchecked: answering in Claude first while the inbox item is live (it should clear within a second or two), terminal `claude` sessions, **Open in Claude** for CLI sessions, and a first install from a published release. The full list is on the [Troubleshooting page](https://dopsonbr.github.io/session-inbox/troubleshooting.html#not-yet-verified-by-a-person).
+**Not yet seen by a person:** the token-gated page inside the real menu-bar app windows (unit-tested and shown through headless Chrome; the reinstalled apps connect, but nobody has looked at the window), the 15-second hook retry against a real Claude session across a real update, the menu-bar app's own notification banners with their Allow, Deny, Answer and Open buttons, and a click through from one. Nobody could click **Allow** while it was being built. The plain fallback notifications that the daemon posts when the app isn't allowed are logged by macOS as displayed. Also unchecked: answering in Claude first while the inbox item is live (it should clear within a second or two), terminal `claude` sessions, **Open in Claude** for CLI sessions, and a full install from the published release on a second Mac (launchd agent and menu-bar app included). The full list is on the [Troubleshooting page](https://dopsonbr.github.io/session-inbox/troubleshooting.html#not-yet-verified-by-a-person).
 
 **Known limits:** replies to idle sessions and Claude-generated titles need the `claude` CLI to be logged in (the desktop app's login isn't shared); everything else works without it. The app is ad-hoc signed, not notarized. Release downloads are Apple silicon only.
 

@@ -70,8 +70,6 @@ When a view changes, re-run it and re-check each slot's alt text.
 
 When behaviour changes, update the matching page in `content/` in the same change. Don't write a flag, default, label or behaviour on a page unless you can find it in the code, and quote UI labels exactly. Claims that no person has checked yet go in the "Not yet verified by a person" list at the bottom of `content/troubleshooting.md`; remove a line when someone has.
 
-Two notes are written to be deleted once the first release is published: the blocks between `<!-- REMOVE AFTER FIRST RELEASE -->` and `<!-- /REMOVE AFTER FIRST RELEASE -->` in `index.md`, `install.md` and `changelog.md`.
-
 ### The Decisions page
 
 `content/decisions.md` has a line that says `[[decisions]]`. At build time that line is replaced with the contents of the repository's `DECISIONS.md`, with an anchor for every decision id (`decisions.html#G-014`). Don't copy decisions into the site; add them to `DECISIONS.md`. Other pages can link straight to one: `[G-014](decisions.md#G-014)`.
