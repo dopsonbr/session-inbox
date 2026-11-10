@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 /**
  * inbox-hook <Event> — forwards a Claude Code hook payload to the daemon over
- * its Unix socket, and for a held PreToolUse (or, in the experimental mode, a
- * PermissionRequest the daemon answers) waits for the user's decision.
+ * its Unix socket, and for a PermissionRequest the daemon answers (or, in the classic
+ * mode, a held PreToolUse) waits for the user's decision.
  *
  * FAIL OPEN: every error path exits 0 with no stdout, so Claude behaves as if
  * no hook were installed. This process never exits 2 (which would block Claude).

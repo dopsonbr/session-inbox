@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { ApprovalRow, ItemRow, NotificationRow } from "../src/store.ts"
-import { FakeGit, type Harness, makeHarness } from "./fakes.ts"
+import { FakeGit, type Harness, makeClassicHarness as makeHarness } from "./fakes.ts"
 import { type Fixture, loadFixtures, replay } from "./replay.ts"
 
 const rows = (h: Harness) => ({

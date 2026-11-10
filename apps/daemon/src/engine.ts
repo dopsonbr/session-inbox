@@ -1298,7 +1298,7 @@ export class Engine {
   // PermissionRequest (D-068..D-071; documented, not yet verified live: P-021)
   // -------------------------------------------------------------------------
 
-  /** Experimental decide mode: answer Claude's own prompt instead of holding PreToolUse. */
+  /** Decide mode (the default, D-074): answer Claude's own prompt instead of holding PreToolUse. */
   private decidesViaRequest(): boolean {
     return this.settings["holds.enabled"] && this.settings["holds.via"] === "permissionRequest"
   }

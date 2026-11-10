@@ -143,6 +143,27 @@ const main = async () => {
   })()
   await waitFor(() => messages.find((m) => m._tag === "hello") ?? null, "hello")
 
+  // The default answers Claude's own prompt (D-074); scenarios 1–5 run the classic
+  // PreToolUse holds explicitly, scenarios 6–7 the default again.
+  const settingsAt = async (patch?: Record<string, unknown>) =>
+    (
+      (await (
+        await fetch(`http://127.0.0.1:${conn.httpPort}/v1/settings`, {
+          method: patch ? "PUT" : "GET",
+          headers: { authorization: `Bearer ${conn.token}`, "content-type": "application/json" },
+          ...(patch ? { body: JSON.stringify(patch) } : {}),
+        })
+      ).json()) as { settings: Record<string, unknown> }
+    ).settings
+  check(
+    (await settingsAt())["holds.via"] === "permissionRequest",
+    "a fresh daemon answers Claude's own prompt by default",
+  )
+  check(
+    (await settingsAt({ "holds.via": "preToolUse" }))["holds.via"] === "preToolUse",
+    "switched to classic PreToolUse holds for scenarios 1–5",
+  )
+
   await hook("SessionStart", { source: "startup" })
   await hook("UserPromptSubmit", { prompt: "Smoke test the inbox" })
 
@@ -325,14 +346,11 @@ const main = async () => {
     "its PostToolUse resolved the observed prompt",
   )
 
-  // Scenario 6: decide mode (experimental): the inbox answers Claude's own prompt.
-  const put = await fetch(`http://127.0.0.1:${conn.httpPort}/v1/settings`, {
-    method: "PUT",
-    headers: { authorization: `Bearer ${conn.token}`, "content-type": "application/json" },
-    body: JSON.stringify({ "holds.via": "permissionRequest" }),
-  })
-  const putBody = (await put.json()) as { settings: Record<string, unknown> }
-  check(putBody.settings["holds.via"] === "permissionRequest", "holds.via switched over HTTP")
+  // Scenario 6: the default again (reset): the inbox answers Claude's own prompt.
+  check(
+    (await settingsAt({ "holds.via": null }))["holds.via"] === "permissionRequest",
+    "holds.via reset to the default over HTTP",
+  )
   const deployInput = { command: "make deploy" }
   const pre6 = await hook("PreToolUse", {
     tool_name: "Bash",

@@ -2,7 +2,7 @@
 import { describe, expect, test } from "bun:test"
 import { ANSWER_IN_CLAUDE } from "../src/engine.ts"
 import type { NotificationRow } from "../src/store.ts"
-import { envelope, type Harness, makeHarness } from "./fakes.ts"
+import { envelope, type Harness, makeClassicHarness as makeHarness } from "./fakes.ts"
 
 const SID = "eeeeeeee-0000-4000-8000-0000000000e1"
 const base = { session_id: SID, cwd: "/work/x", permission_mode: "default" }

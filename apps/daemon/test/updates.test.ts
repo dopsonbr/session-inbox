@@ -22,7 +22,7 @@ import {
   FakeNotifier,
   FakeOpener,
   FakeUpdater,
-  makeHarness,
+  makeClassicHarness as makeHarness,
   silentLog,
 } from "./fakes.ts"
 

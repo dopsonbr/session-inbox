@@ -151,7 +151,7 @@ export type HoldsVia = typeof HoldsVia.Type
 
 export const UserSettings = Schema.Struct({
   "holds.enabled": Schema.Boolean,
-  /** Experimental "permissionRequest": answer Claude's own prompt; whichever answers first wins. */
+  /** "permissionRequest" (default): answer Claude's own prompt; whichever answers first wins. */
   "holds.via": HoldsVia,
   /** How long a PermissionRequest waits for the inbox before the hook steps aside. */
   "holds.requestBudgetMs": Schema.Finite,
@@ -174,7 +174,7 @@ export const USER_SETTING_KEYS = Object.keys(UserSettings.fields) as ReadonlyArr
 export const SETTING_LIMITS = {
   "holds.budgetMs": { min: 15_000, max: 120_000 },
   /** The PermissionRequest hook is registered with a 3600 s timeout, above this. */
-  "holds.requestBudgetMs": { min: 15_000, max: 3_300_000 },
+  "holds.requestBudgetMs": { min: 60_000, max: 3_300_000 },
   "notifications.reviewGroupMs": { min: 0, max: 600_000 },
   "storage.retentionDays": { min: 1, max: 365 },
 } as const satisfies Partial<Record<UserSettingKey, { min: number; max: number }>>

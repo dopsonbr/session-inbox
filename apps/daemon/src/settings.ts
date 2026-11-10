@@ -19,8 +19,8 @@ export interface Settings {
   /** How long a held hook waits for a decision before falling back to `ask`. */
   "holds.budgetMs": number
   /**
-   * Where decisions go back to Claude (D-068): hold PreToolUse (verified live), or answer
-   * Claude's own PermissionRequest prompt (experimental, unverified live, P-021).
+   * Where decisions go back to Claude: answer Claude's own PermissionRequest prompt (default,
+   * verified live P-022, D-074), or hold PreToolUse before Claude asks (classic, G-014).
    */
   "holds.via": HoldsVia
   /** How long a PermissionRequest waits for the inbox; then the hook exits and Claude's prompt stays. */
@@ -53,7 +53,7 @@ export const DEFAULT_SETTINGS: Settings = {
   "holds.enabled": true,
   "holds.tools": ["Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "WebFetch"],
   "holds.budgetMs": 120_000,
-  "holds.via": "preToolUse",
+  "holds.via": "permissionRequest",
   "holds.requestBudgetMs": 10 * 60_000,
   "holds.safeBashPrefixes": [
     "ls",

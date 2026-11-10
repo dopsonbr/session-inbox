@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { StreamMessage } from "@session-inbox/contracts"
 import { deliveryRoute, SHELL_REPORT_GRACE_MS } from "../src/delivery.ts"
-import { envelope, type Harness, makeHarness } from "./fakes.ts"
+import { envelope, type Harness, makeClassicHarness as makeHarness } from "./fakes.ts"
 
 const SID = "cccccccc-0000-4000-8000-000000000001"
 const base = { session_id: SID, cwd: "/work/x" }

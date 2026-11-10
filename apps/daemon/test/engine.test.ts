@@ -7,7 +7,7 @@ import { encodeLiveAnswers, parseQuestions } from "../src/domain/questions.ts"
 import { lastTurnErrored, provisionalTitle } from "../src/domain/text.ts"
 import { openUrlFor } from "../src/engine.ts"
 import type { OutboxRow } from "../src/store.ts"
-import { envelope, makeHarness } from "./fakes.ts"
+import { envelope, makeClassicHarness as makeHarness } from "./fakes.ts"
 
 const SID = "bbbbbbbb-0000-4000-8000-000000000001"
 const base = { session_id: SID, cwd: "/work/x" }

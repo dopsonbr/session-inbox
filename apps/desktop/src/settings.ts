@@ -7,6 +7,7 @@ import { Dialog } from "@foldkit/ui"
 import {
   HOLDABLE_TOOLS,
   type HoldableTool,
+  SETTING_LIMITS,
   SettingsResponse,
   type UserSettingKey,
   UserSettings,
@@ -25,7 +26,7 @@ import type { ExtraNumberSetting } from "./client/extraSettings.ts"
 // key in contracts' UserSettings); a new group is one entry in SETTINGS_GROUPS.
 
 export type SettingsGroupId = "approvals" | "notifications" | "sessions" | "storage" | "updates"
-export type FieldKind = "toggle" | "seconds" | "days" | "tools" | "list" | "choice"
+export type FieldKind = "toggle" | "seconds" | "minutes" | "days" | "tools" | "list" | "choice"
 
 /** A contracts key, or a number setting a newer daemon may report (U-036). */
 export type SettingKey = UserSettingKey | ExtraNumberSetting
@@ -40,7 +41,17 @@ export type SettingsField = Readonly<{
   needsHolds?: boolean
   /** `choice` fields: the values the daemon accepts, in order, with their labels. */
   options?: ReadonlyArray<Readonly<{ value: string; label: string }>>
+  /** Shown only when this holds for what the controls show (U-044). */
+  showWhen?: (shown: Readonly<Record<string, unknown>>) => boolean
+  /** Disabled, with `disabledNote` under it, when this holds (U-044). */
+  disabledWhen?: (shown: Readonly<Record<string, unknown>>) => boolean
+  disabledNote?: string
 }>
+
+/** The inbox answers Claude's own prompt: the PreToolUse hold settings don't apply (D-074). */
+const answersPrompt = (shown: Readonly<Record<string, unknown>>) =>
+  shown["holds.via"] === "permissionRequest"
+const NOT_USED_IN_PROMPT_MODE = "Not used while the inbox answers Claude's own prompt."
 
 export const SETTINGS_GROUPS: ReadonlyArray<Readonly<{ id: SettingsGroupId; title: string }>> = [
   { id: "approvals", title: "Approvals" },
@@ -63,12 +74,21 @@ export const SETTINGS_FIELDS: ReadonlyArray<SettingsField> = [
     group: "approvals",
     kind: "choice",
     label: "How approvals reach the inbox",
-    help: "Experimental: Claude's prompt stays visible in Claude and the inbox answers it; whichever is answered first wins. Applies to every tool Claude asks about.",
+    help: "Recommended: Claude's prompt stays visible in Claude and the inbox answers it; whichever is answered first wins, for every tool Claude asks about. Classic: the inbox holds Bash, edits and web fetches for up to two minutes before Claude shows its own prompt.",
     needsHolds: true,
     options: [
-      { value: "preToolUse", label: "Hold the tool call (default)" },
-      { value: "permissionRequest", label: "Answer Claude's own prompt (experimental)" },
+      { value: "permissionRequest", label: "Answer Claude's own prompt (recommended)" },
+      { value: "preToolUse", label: "Hold the tool call before Claude asks (classic)" },
     ],
+  },
+  {
+    key: "holds.requestBudgetMs",
+    group: "approvals",
+    kind: "minutes",
+    label: "Wait for an answer",
+    help: `Then the inbox stops answering and Claude's prompt stays open in Claude. ${SETTING_LIMITS["holds.requestBudgetMs"].min / 60_000} to ${SETTING_LIMITS["holds.requestBudgetMs"].max / 60_000} minutes.`,
+    needsHolds: true,
+    showWhen: answersPrompt,
   },
   {
     key: "holds.tools",
@@ -77,6 +97,8 @@ export const SETTINGS_FIELDS: ReadonlyArray<SettingsField> = [
     label: "Tools that can be held",
     help: "Only when Claude itself would ask. Questions (AskUserQuestion) always come to the inbox.",
     needsHolds: true,
+    disabledWhen: answersPrompt,
+    disabledNote: NOT_USED_IN_PROMPT_MODE,
   },
   {
     key: "holds.budgetMs",
@@ -85,6 +107,8 @@ export const SETTINGS_FIELDS: ReadonlyArray<SettingsField> = [
     label: "Wait for an answer",
     help: "Then Claude shows its own prompt. 15 to 120 seconds.",
     needsHolds: true,
+    disabledWhen: answersPrompt,
+    disabledNote: NOT_USED_IN_PROMPT_MODE,
   },
   {
     key: "holds.safeBashPrefixes",
@@ -93,6 +117,8 @@ export const SETTINGS_FIELDS: ReadonlyArray<SettingsField> = [
     label: "Bash commands never held",
     help: "A command matches when it is the prefix or starts with it plus a space.",
     needsHolds: true,
+    disabledWhen: answersPrompt,
+    disabledNote: NOT_USED_IN_PROMPT_MODE,
   },
   {
     key: "notifications.fallback",
@@ -298,6 +324,18 @@ export const parseSeconds = (text: string): number | null => {
   return Math.round(Number(t) * 1000)
 }
 
+/** 600000 → "10", 90000 → "1.5". */
+export const msToMinutes = (ms: number): string => String(Math.round(ms / 6_000) / 10)
+
+/** Minutes as typed ("10", "1.5") → ms; anything else → null. The daemon clamps the range. */
+export const parseMinutes = (text: string): number | null => {
+  const t = text.trim()
+  if (t === "" || !/^\d+(\.\d+)?$/.test(t)) {
+    return null
+  }
+  return Math.round(Number(t) * 60_000)
+}
+
 /** Whole days, as typed: "30" → 30; anything else → null. The daemon clamps the range. */
 export const parseDays = (text: string): number | null => {
   const t = text.trim()
@@ -370,13 +408,22 @@ const commitDraft = (model: SettingsModel, key: string): SettingsReturn => {
     return { model: cleared }
   }
   const shown = settingValue(loaded.shown, field.key)
-  if (field.kind === "seconds" || field.kind === "days") {
-    const value = field.kind === "seconds" ? parseSeconds(draft) : parseDays(draft)
+  if (field.kind === "seconds" || field.kind === "minutes" || field.kind === "days") {
+    const value =
+      field.kind === "seconds"
+        ? parseSeconds(draft)
+        : field.kind === "minutes"
+          ? parseMinutes(draft)
+          : parseDays(draft)
     if (value === null) {
       return fail(
         cleared,
         key,
-        field.kind === "seconds" ? "Enter a number of seconds." : "Enter a whole number of days.",
+        field.kind === "seconds"
+          ? "Enter a number of seconds."
+          : field.kind === "minutes"
+            ? "Enter a number of minutes."
+            : "Enter a whole number of days.",
       )
     }
     return value === shown ? { model: cleared } : save(cleared, field.key, value)

@@ -110,18 +110,40 @@ describe("settings: edit → save → saved / error", () => {
   test("choice: one of its options saves; anything else or the current value sends nothing", () => {
     const pick = (value: string) =>
       update(opened(), s(SettingsMessage.ChoseSetting({ key: "holds.via", value })))
-    expect(loaded(opened()).shown["holds.via"]).toBe("preToolUse")
-    expect(saveArgs(pick("permissionRequest"))).toEqual({
+    expect(loaded(opened()).shown["holds.via"]).toBe("permissionRequest")
+    expect(saveArgs(pick("preToolUse"))).toEqual({
       key: "holds.via",
-      patch: { "holds.via": "permissionRequest" },
+      patch: { "holds.via": "preToolUse" },
     })
-    expect(names(pick("preToolUse"))).toEqual([])
+    expect(names(pick("permissionRequest"))).toEqual([])
     expect(names(pick("sideways"))).toEqual([])
     expect(
       names(
         update(opened(), s(SettingsMessage.ChoseSetting({ key: "holds.enabled", value: "x" }))),
       ),
     ).toEqual([])
+  })
+
+  test("minutes save on commit in ms; bad input is an inline error", () => {
+    const ret = run(
+      opened(),
+      s(SettingsMessage.UpdatedDraft({ key: "holds.requestBudgetMs", value: "2.5" })),
+      s(SettingsMessage.CommittedDraft({ key: "holds.requestBudgetMs" })),
+    )
+    expect(saveArgs(ret)).toEqual({
+      key: "holds.requestBudgetMs",
+      patch: { "holds.requestBudgetMs": 150_000 },
+    })
+    const bad = run(
+      opened(),
+      s(SettingsMessage.UpdatedDraft({ key: "holds.requestBudgetMs", value: "soon" })),
+      s(SettingsMessage.CommittedDraft({ key: "holds.requestBudgetMs" })),
+    )
+    expect(names(bad)).toEqual([])
+    expect(bad.model.settings.status["holds.requestBudgetMs"]).toEqual({
+      _tag: "Failed",
+      error: "Enter a number of minutes.",
+    })
   })
 
   test("seconds save on commit (blur / Enter) in ms; bad input is an inline error, no request", () => {

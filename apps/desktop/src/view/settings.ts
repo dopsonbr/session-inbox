@@ -7,6 +7,7 @@ import type { Model } from "../model.ts"
 import {
   isDefault,
   type Loaded,
+  msToMinutes,
   msToSeconds,
   presentFields,
   RESET_ALL,
@@ -34,6 +35,9 @@ const formatValue = (field: SettingsField, value: unknown): string => {
   }
   if (field.kind === "seconds") {
     return `${msToSeconds(value as number)} s`
+  }
+  if (field.kind === "minutes") {
+    return `${msToMinutes(value as number)} min`
   }
   if (field.kind === "days") {
     return value === 1 ? "1 day" : `${String(value)} days`
@@ -153,10 +157,22 @@ const numberRow = (
   const id = idFor(field.key)
   const draft = settings.drafts[field.key]
   const current = settingValue(loaded.shown, field.key) as number
-  const value = draft ?? (field.kind === "seconds" ? msToSeconds(current) : String(current))
+  const value =
+    draft ??
+    (field.kind === "seconds"
+      ? msToSeconds(current)
+      : field.kind === "minutes"
+        ? msToMinutes(current)
+        : String(current))
   const failed = settings.status[field.key]?._tag === "Failed"
   const unit =
-    field.kind === "seconds" ? "seconds" : current === 1 && draft === undefined ? "day" : "days"
+    field.kind === "seconds"
+      ? "seconds"
+      : field.kind === "minutes"
+        ? "minutes"
+        : current === 1 && draft === undefined
+          ? "day"
+          : "days"
   return h.div(
     [h.Class("flex flex-col gap-1")],
     [
@@ -167,7 +183,7 @@ const numberRow = (
           h.input([
             h.Id(id),
             h.Type("text"),
-            h.InputMode(field.kind === "seconds" ? "decimal" : "numeric"),
+            h.InputMode(field.kind === "days" ? "numeric" : "decimal"),
             h.Class("input h-8 w-24 text-[13px]"),
             h.Value(value),
             h.Disabled(isDisabled),
@@ -364,12 +380,16 @@ const holdsCaveat = (loaded: Loaded, h: H): Html =>
       )
 
 const fieldRow = (settings: SettingsModel, loaded: Loaded, field: SettingsField, h: H): Html => {
-  const isDisabled = field.needsHolds === true && loaded.shown["holds.enabled"] !== true
+  const shown = loaded.shown as Readonly<Record<string, unknown>>
+  const isUnused = field.disabledWhen?.(shown) === true
+  const isDisabled =
+    isUnused || (field.needsHolds === true && loaded.shown["holds.enabled"] !== true)
   const control = (() => {
     switch (field.kind) {
       case "toggle":
         return toggleRow(loaded, field, isDisabled, h)
       case "seconds":
+      case "minutes":
       case "days":
         return numberRow(settings, loaded, field, isDisabled, h)
       case "tools":
@@ -388,6 +408,9 @@ const fieldRow = (settings: SettingsModel, loaded: Loaded, field: SettingsField,
         ? helpLineForToggle(loaded, field, h)
         : h.empty,
       field.key === "holds.enabled" ? holdsCaveat(loaded, h) : h.empty,
+      isUnused && field.disabledNote
+        ? h.p([h.Class("text-xs text-subtle-foreground")], [field.disabledNote])
+        : h.empty,
       statusLine(settings, field.key, h),
     ],
   )
@@ -473,7 +496,11 @@ const groupSection = (
   title: string,
   h: H,
 ): Html => {
-  const fields = presentFields(loaded.saved).filter((f) => f.group === group)
+  const fields = presentFields(loaded.saved).filter(
+    (f) =>
+      f.group === group &&
+      (f.showWhen === undefined || f.showWhen(loaded.shown as Readonly<Record<string, unknown>>)),
+  )
   // A group whose only settings this daemon doesn't have (Storage on an older one) is hidden.
   if (fields.length === 0 && group !== "sessions") {
     return h.empty

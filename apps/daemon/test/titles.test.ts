@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { cleanPromptText, transcriptTitle } from "../src/domain/text.ts"
 import { REPLY_CLI_LOGGED_OUT, REPLY_CLI_MISSING } from "../src/engine.ts"
 import { parseAuthStatus } from "../src/services.ts"
-import { envelope, type Harness, makeHarness } from "./fakes.ts"
+import { envelope, type Harness, makeClassicHarness as makeHarness } from "./fakes.ts"
 
 const SID = "dddddddd-0000-4000-8000-000000000001"
 const TRANSCRIPT = "/t/session.jsonl"

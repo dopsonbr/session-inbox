@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { matchPrompt, type PromptCandidate, promptTool, sameTool } from "../src/domain/prompts.ts"
-import { envelope, makeHarness } from "./fakes.ts"
+import { envelope, makeClassicHarness as makeHarness } from "./fakes.ts"
 
 const base = { session_id: "bbbbbbbb-0000-4000-8000-0000000000p1", cwd: "/work/x" }
 

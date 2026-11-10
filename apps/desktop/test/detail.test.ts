@@ -297,6 +297,35 @@ describe("settings: retention days", () => {
     }
   }
 
+  test("Approvals in the default mode: minutes field, hold settings disabled with a note (U-044)", () => {
+    const view = settingsBody(opened(fakeResponse()), h)
+    const text = textOf(view)
+    expect(text).toContain("Answer Claude's own prompt (recommended)")
+    expect(text).toContain("Hold the tool call before Claude asks (classic)")
+    expect(text).toContain("Then the inbox stops answering")
+    expect(text.split("Not used while the inbox answers Claude's own prompt.")).toHaveLength(4)
+    const tools = findAll(view, "input").filter((n) =>
+      String(attrOf(n, "id") ?? "").startsWith("setting-holds-tools-"),
+    )
+    expect(tools.length === 0 || tools.every((n) => attrOf(n, "disabled") === true)).toBe(true)
+    const budget = findAll(view, "input").find((n) => attrOf(n, "id") === "setting-holds-budgetMs")
+    expect(attrOf(budget as never, "disabled")).toBe(true)
+  })
+
+  test("Approvals in the classic mode: no minutes field, hold settings enabled", () => {
+    const r = fakeResponse()
+    const classic = {
+      ...r,
+      settings: { ...r.settings, "holds.via": "preToolUse" as const },
+    }
+    const view = settingsBody(opened(classic), h)
+    const text = textOf(view)
+    expect(text).not.toContain("Not used while the inbox answers Claude's own prompt.")
+    expect(text).not.toContain("Then the inbox stops answering")
+    const budget = findAll(view, "input").find((n) => attrOf(n, "id") === "setting-holds-budgetMs")
+    expect(attrOf(budget as never, "disabled")).not.toBe(true)
+  })
+
   test("shown under Storage", () => {
     const withDays = textOf(settingsBody(opened(fakeResponse()), h))
     expect(withDays).toContain("Storage")
