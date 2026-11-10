@@ -78,9 +78,11 @@ const itemCard = (model: Model, snapshot: Snapshot, item: Item, h: H): Html => {
   const age =
     item.queue === "snoozed" && item.snoozeUntil !== null
       ? `until ${formatClock(item.snoozeUntil)}`
-      : isNeedsYou && item.kind !== "failed"
-        ? `waiting ${formatAge(model.now, item.createdAt)}`
-        : formatAge(model.now, item.createdAt)
+      : isNeedsYou && item.kind === "permission" && !item.live
+        ? "Waiting in Claude"
+        : isNeedsYou && item.kind !== "failed"
+          ? `waiting ${formatAge(model.now, item.createdAt)}`
+          : formatAge(model.now, item.createdAt)
   // Only Needs you gets the heavy border (design rule); other selections get a neutral ring.
   const border = isNeedsYou
     ? isSelected
