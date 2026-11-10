@@ -193,7 +193,7 @@ const cliCheck = (f: DoctorFacts): DoctorCheck => {
       "claude-cli",
       title,
       // Optional: plenty of people only use the desktop app. A fact with a fix, not a warning
-      // that would badge the Setup entry for good (D-070).
+      // that would badge the Setup entry for good (D-072).
       "info",
       `claude is installed but not logged in. ${without}`,
       fix,

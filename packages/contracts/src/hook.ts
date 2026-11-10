@@ -15,6 +15,7 @@ export const HookEvent = Schema.Literals([
   "Notification",
   "PreToolUse",
   "PostToolUse",
+  "PermissionRequest",
   "SubagentStart",
   "SubagentStop",
   "Stop",
@@ -54,6 +55,21 @@ export const PostToolUsePayload = Schema.Struct({
   duration_ms: Schema.optional(Schema.Number),
 })
 export type PostToolUsePayload = typeof PostToolUsePayload.Type
+
+/**
+ * PermissionRequest (Claude Code 2.1.x, from the hooks reference; not yet seen live, P-021):
+ * fires only when Claude is about to ask. Like PreToolUse but without `tool_use_id`, plus
+ * `permission_suggestions` (permission update entries). Kept loose: stored raw either way.
+ */
+export const PermissionRequestPayload = Schema.Struct({
+  ...HookBase.fields,
+  tool_name: Schema.String,
+  tool_input: Schema.Unknown,
+  tool_use_id: Schema.optional(Schema.String),
+  permission_suggestions: Schema.optional(Schema.Unknown),
+  mcp_server: Schema.optional(Schema.Unknown),
+})
+export type PermissionRequestPayload = typeof PermissionRequestPayload.Type
 
 export const NotificationPayload = Schema.Struct({
   ...HookBase.fields,
@@ -143,15 +159,22 @@ export type HookEnvelope = typeof HookEnvelope.Type
 export const HookIngestResponse = Schema.Struct({
   seq: Schema.Number,
   requestId: Schema.NullOr(Schema.String),
+  /** How long the daemon holds this request (PermissionRequest), so the hook waits as long. */
+  holdMs: Schema.optional(Schema.Number),
 })
 export type HookIngestResponse = typeof HookIngestResponse.Type
 
-/** GET /v1/hooks/decision/:requestId?wait=<s> response. */
+/**
+ * GET /v1/hooks/decision/:requestId?wait=<s> response. Event-neutral: the hook turns it into
+ * PreToolUse or PermissionRequest output (`ask` = Claude's own prompt).
+ */
 export const HookDecision = Schema.Struct({
   decision: Schema.Literals(["allow", "deny", "ask", "pending"]),
   reason: Schema.optional(Schema.String),
   /** For AskUserQuestion answered from the inbox: the tool_input with `answers` filled. */
   updatedInput: Schema.optional(Schema.Unknown),
+  /** PermissionRequest "Always allow": permission update entries echoed from Claude's suggestions. */
+  updatedPermissions: Schema.optional(Schema.Array(Schema.Unknown)),
 })
 export type HookDecision = typeof HookDecision.Type
 

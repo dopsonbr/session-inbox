@@ -25,7 +25,7 @@ import type { ExtraNumberSetting } from "./client/extraSettings.ts"
 // key in contracts' UserSettings); a new group is one entry in SETTINGS_GROUPS.
 
 export type SettingsGroupId = "approvals" | "notifications" | "sessions" | "storage" | "updates"
-export type FieldKind = "toggle" | "seconds" | "days" | "tools" | "list"
+export type FieldKind = "toggle" | "seconds" | "days" | "tools" | "list" | "choice"
 
 /** A contracts key, or a number setting a newer daemon may report (U-036). */
 export type SettingKey = UserSettingKey | ExtraNumberSetting
@@ -38,6 +38,8 @@ export type SettingsField = Readonly<{
   help: string
   /** Disabled while `holds.enabled` is off. */
   needsHolds?: boolean
+  /** `choice` fields: the values the daemon accepts, in order, with their labels. */
+  options?: ReadonlyArray<Readonly<{ value: string; label: string }>>
 }>
 
 export const SETTINGS_GROUPS: ReadonlyArray<Readonly<{ id: SettingsGroupId; title: string }>> = [
@@ -55,6 +57,18 @@ export const SETTINGS_FIELDS: ReadonlyArray<SettingsField> = [
     kind: "toggle",
     label: "Hold tool calls for approval in the inbox",
     help: "When off, the inbox only observes and notifies; Claude asks in its own window.",
+  },
+  {
+    key: "holds.via",
+    group: "approvals",
+    kind: "choice",
+    label: "How approvals reach the inbox",
+    help: "Experimental: Claude's prompt stays visible in Claude and the inbox answers it; whichever is answered first wins. Applies to every tool Claude asks about.",
+    needsHolds: true,
+    options: [
+      { value: "preToolUse", label: "Hold the tool call (default)" },
+      { value: "permissionRequest", label: "Answer Claude's own prompt (experimental)" },
+    ],
   },
   {
     key: "holds.tools",
@@ -207,6 +221,7 @@ export const SettingsMessage = defineMessageUnion({
   SucceededFetchSettings: { response: OpenSettingsResponse },
   FailedFetchSettings: { error: Schema.String },
   ToggledSetting: { key: Schema.String, value: Schema.Boolean },
+  ChoseSetting: { key: Schema.String, value: Schema.String },
   ToggledTool: { tool: Schema.String, isChecked: Schema.Boolean },
   UpdatedDraft: { key: Schema.String, value: Schema.String },
   CommittedDraft: { key: Schema.String },
@@ -431,6 +446,20 @@ export const updateSettings = (model: SettingsModel, message: SettingsMessage): 
 
     ToggledSetting: ({ key, value }) =>
       fieldFor(key)?.kind === "toggle" ? save(model, key as SettingKey, value) : { model },
+
+    ChoseSetting: ({ key, value }) => {
+      const field = fieldFor(key)
+      const loaded = loadedOf(model)
+      if (
+        field?.kind !== "choice" ||
+        loaded === null ||
+        !field.options?.some((o) => o.value === value) ||
+        settingValue(loaded.shown, key) === value
+      ) {
+        return { model }
+      }
+      return save(model, field.key, value)
+    },
 
     ToggledTool: ({ tool, isChecked }) => {
       const loaded = loadedOf(model)

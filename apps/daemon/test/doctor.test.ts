@@ -109,7 +109,7 @@ describe("buildReport", () => {
       buildReport(facts({ auth: { ...facts().auth, found: false } })),
       "claude-cli",
     )
-    // Optional capability: a fact with a fix, never counted as needing attention (D-070).
+    // Optional capability: a fact with a fix, never counted as needing attention (D-072).
     expect(missing).toMatchObject({ status: "info", fix: { kind: "copy", value: "claude" } })
     expect(missing?.detail).toContain("replies to sessions")
     const out = byId(

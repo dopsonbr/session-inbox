@@ -186,6 +186,8 @@ export const Approval = Schema.Struct({
   preview: Schema.optional(ApprovalPreview),
   /** Claude's last text before this tool call (≤ ~600 chars), from the transcript tail. */
   context: Schema.optional(Schema.String),
+  /** Set when the request came from Claude's PermissionRequest hook, not a held PreToolUse. */
+  via: Schema.optional(Schema.Literals(["permissionRequest"])),
 })
 export type Approval = typeof Approval.Type
 

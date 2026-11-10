@@ -28,15 +28,47 @@ const existing: Settings = {
 }
 
 describe("settings merge", () => {
-  test("fresh file gets all nine events", () => {
+  test("fresh file gets all ten events", () => {
     const out = mergeHooks({}, HOME)
-    expect(Object.keys(out.hooks ?? {})).toHaveLength(9)
+    expect(Object.keys(out.hooks ?? {})).toHaveLength(10)
     expect(out.hooks?.PreToolUse?.[0]?.hooks[0]).toEqual({
       type: "command",
       command: `"${HOME}/bin/inbox-hook" PreToolUse`,
       timeout: 130,
     })
     expect(out.hooks?.PostToolUse?.[0]?.matcher).toBe("*")
+    expect(out.hooks?.PermissionRequest).toEqual([
+      {
+        matcher: "*",
+        hooks: [
+          {
+            type: "command",
+            command: `"${HOME}/bin/inbox-hook" PermissionRequest`,
+            timeout: 3600,
+          },
+        ],
+      },
+    ])
+  })
+
+  test("PermissionRequest beside a user's own hook: merged, unmerged, the user's kept", () => {
+    const mine: Settings = {
+      hooks: {
+        PermissionRequest: [
+          { matcher: "Bash", hooks: [{ type: "command", command: "/usr/bin/audit", timeout: 3 }] },
+        ],
+      },
+    }
+    const merged = mergeHooks(mine, HOME)
+    expect(merged.hooks?.PermissionRequest).toHaveLength(2)
+    expect(merged.hooks?.PermissionRequest?.[0]).toEqual(mine.hooks?.PermissionRequest?.[0])
+    expect(mergeHooks(merged, HOME)).toEqual(merged)
+    expect(unmergeHooks(merged)).toEqual(mine)
+    // An install from before PermissionRequest existed gains it on re-merge, and loses it again.
+    const old = mergeHooks({}, HOME)
+    delete old.hooks?.PermissionRequest
+    expect(mergeHooks(old, HOME).hooks?.PermissionRequest).toHaveLength(1)
+    expect(unmergeHooks(mergeHooks(old, HOME))).toEqual({})
   })
 
   test("preserves unrelated keys and hooks", () => {

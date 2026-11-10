@@ -285,6 +285,132 @@ const main = async () => {
     "deltas and badge streamed",
   )
 
+  // Scenario 5: PermissionRequest, observed (the default): the real hook prints nothing and
+  // exits at once; Claude's prompt is in the inbox (Open only) until its PostToolUse.
+  const notifyList = () => messages.filter((m) => m._tag === "notify")
+  const items = async () =>
+    (
+      (await (await api("/v1/snapshot")).json()) as {
+        items: { id: string; state: string; live: boolean; summary: string | null }[]
+      }
+    ).items
+  const n5 = notifyList().length
+  const t5 = performance.now()
+  const observed = await runHook("PermissionRequest", {
+    tool_name: "Read",
+    tool_input: { file_path: "/etc/hosts" },
+    permission_suggestions: [
+      { type: "addDirectories", directories: ["/etc"], destination: "session" },
+    ],
+  })
+  const ms5 = Math.round(performance.now() - t5)
+  check(
+    observed.code === 0 && observed.out === "" && ms5 < 1500,
+    `PermissionRequest observed: inbox-hook printed nothing and exited 0 (${ms5} ms)`,
+  )
+  const n5note = await waitFor(() => notifyList()[n5] ?? null, "observed prompt notify")
+  const readItem = n5note._tag === "notify" ? n5note.notification : null
+  check(
+    readItem?.actions.join(",") === "open" && readItem.critical,
+    "observed prompt notified with Open only",
+  )
+  await hook("PostToolUse", {
+    tool_name: "Read",
+    tool_use_id: "t5",
+    tool_input: { file_path: "/etc/hosts" },
+    tool_response: {},
+  })
+  check(
+    (await items()).find((i) => i.id === readItem?.itemId)?.state === "resolved",
+    "its PostToolUse resolved the observed prompt",
+  )
+
+  // Scenario 6: decide mode (experimental): the inbox answers Claude's own prompt.
+  const put = await fetch(`http://127.0.0.1:${conn.httpPort}/v1/settings`, {
+    method: "PUT",
+    headers: { authorization: `Bearer ${conn.token}`, "content-type": "application/json" },
+    body: JSON.stringify({ "holds.via": "permissionRequest" }),
+  })
+  const putBody = (await put.json()) as { settings: Record<string, unknown> }
+  check(putBody.settings["holds.via"] === "permissionRequest", "holds.via switched over HTTP")
+  const deployInput = { command: "make deploy" }
+  const pre6 = await hook("PreToolUse", {
+    tool_name: "Bash",
+    tool_use_id: "t6",
+    tool_input: deployInput,
+  })
+  check(pre6.requestId === null, "decide mode: PreToolUse is not held")
+  const rule = {
+    type: "addRules",
+    rules: [{ toolName: "Bash", ruleContent: "make deploy" }],
+    behavior: "allow",
+    destination: "localSettings",
+  }
+  const n6 = notifyList().length
+  const asked = runHook("PermissionRequest", {
+    tool_name: "Bash",
+    tool_input: deployInput,
+    permission_suggestions: [rule],
+  })
+  const n6note = await waitFor(() => notifyList()[n6] ?? null, "decide-mode notify")
+  const n6item = n6note._tag === "notify" ? n6note.notification : null
+  check(n6item?.actions.join(",") === "allow,deny,open", "decide mode: live item with Allow/Deny")
+  check(
+    (
+      await api(`/v1/items/${n6item?.itemId}/decision`, {
+        idempotencyKey: "smoke-6",
+        decision: "allow-always",
+      })
+    ).ok,
+    "allow-always accepted while inbox-hook waits on PermissionRequest",
+  )
+  const r6 = await asked
+  check(
+    r6.code === 0 &&
+      JSON.stringify(JSON.parse(r6.out || "{}")) ===
+        JSON.stringify({
+          hookSpecificOutput: {
+            hookEventName: "PermissionRequest",
+            decision: { behavior: "allow", updatedPermissions: [rule] },
+          },
+        }),
+    "inbox-hook printed PermissionRequest allow + updatedPermissions",
+  )
+
+  // Scenario 7: answered in Claude first: the hook process goes away mid-wait.
+  const n7 = notifyList().length
+  const killed = Bun.spawn(["bun", join(repo, "apps/hook/src/main.ts"), "PermissionRequest"], {
+    env: { ...process.env, SESSION_INBOX_HOME: home, SESSION_INBOX_INTERNAL: "" },
+    stdin: new Blob([
+      JSON.stringify({
+        session_id: sid,
+        cwd: project,
+        hook_event_name: "PermissionRequest",
+        permission_mode: "default",
+        tool_name: "Bash",
+        tool_input: { command: "make clean" },
+      }),
+    ]),
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  const n7note = await waitFor(() => notifyList()[n7] ?? null, "abort-case notify")
+  const n7item = n7note._tag === "notify" ? n7note.notification.itemId : ""
+  const n7id = n7note._tag === "notify" ? n7note.notification.id : ""
+  await Bun.sleep(200) // let the long-poll start
+  killed.kill("SIGTERM")
+  await killed.exited
+  await waitFor(
+    async () => ((await items()).find((i) => i.id === n7item)?.state === "resolved" ? true : null),
+    "abandoned request resolved",
+  )
+  check(true, "the hook going away mid-wait resolved the item (answered in Claude)")
+  await waitFor(
+    () => messages.find((m) => m._tag === "unnotify" && m.ids.includes(n7id)) ?? null,
+    "unnotify",
+  )
+  check(true, "unnotify sent to the shell for it")
+
   ctrl.abort()
   await reading
 }

@@ -144,8 +144,17 @@ export const HOLDABLE_TOOLS = [
 export const HoldableTool = Schema.Literals(HOLDABLE_TOOLS)
 export type HoldableTool = typeof HoldableTool.Type
 
+/** How approvals reach the inbox: hold PreToolUse (default) or answer Claude's PermissionRequest. */
+export const HOLDS_VIA = ["preToolUse", "permissionRequest"] as const
+export const HoldsVia = Schema.Literals(HOLDS_VIA)
+export type HoldsVia = typeof HoldsVia.Type
+
 export const UserSettings = Schema.Struct({
   "holds.enabled": Schema.Boolean,
+  /** Experimental "permissionRequest": answer Claude's own prompt; whichever answers first wins. */
+  "holds.via": HoldsVia,
+  /** How long a PermissionRequest waits for the inbox before the hook steps aside. */
+  "holds.requestBudgetMs": Schema.Finite,
   "holds.tools": Schema.Array(HoldableTool),
   "holds.budgetMs": Schema.Finite,
   "holds.safeBashPrefixes": Schema.Array(Schema.String),
@@ -164,6 +173,8 @@ export const USER_SETTING_KEYS = Object.keys(UserSettings.fields) as ReadonlyArr
 /** Ranges the daemon clamps to. A hold can't outlast the hook's own 120 s budget (H-003). */
 export const SETTING_LIMITS = {
   "holds.budgetMs": { min: 15_000, max: 120_000 },
+  /** The PermissionRequest hook is registered with a 3600 s timeout, above this. */
+  "holds.requestBudgetMs": { min: 15_000, max: 3_300_000 },
   "notifications.reviewGroupMs": { min: 0, max: 600_000 },
   "storage.retentionDays": { min: 1, max: 365 },
 } as const satisfies Partial<Record<UserSettingKey, { min: number; max: number }>>

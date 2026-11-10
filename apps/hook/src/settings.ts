@@ -19,6 +19,9 @@ export type Settings = { hooks?: Record<string, HookGroup[]>; [k: string]: unkno
 export const PRE_TOOL_USE_MATCHER =
   "Bash|Write|Edit|MultiEdit|NotebookEdit|WebFetch|AskUserQuestion"
 
+/** Above the daemon's largest `holds.requestBudgetMs` (55 min), so our own exit always comes first. */
+export const PERMISSION_REQUEST_TIMEOUT_S = 3600
+
 type Spec = { event: string; matcher?: string; timeout: number }
 
 export const HOOK_SPECS: Spec[] = [
@@ -27,6 +30,9 @@ export const HOOK_SPECS: Spec[] = [
   { event: "Notification", timeout: 5 },
   { event: "PreToolUse", matcher: PRE_TOOL_USE_MATCHER, timeout: 130 },
   { event: "PostToolUse", matcher: "*", timeout: 5 },
+  // Every tool Claude is about to ask about. Observed: the hook exits at once. Answered from
+  // the inbox (holds.via = permissionRequest): waits up to 55 min, so the timeout is above it.
+  { event: "PermissionRequest", matcher: "*", timeout: PERMISSION_REQUEST_TIMEOUT_S },
   { event: "SubagentStart", timeout: 5 },
   { event: "SubagentStop", timeout: 5 },
   { event: "Stop", timeout: 5 },

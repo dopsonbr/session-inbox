@@ -107,6 +107,23 @@ describe("settings: edit → save → saved / error", () => {
     ])
   })
 
+  test("choice: one of its options saves; anything else or the current value sends nothing", () => {
+    const pick = (value: string) =>
+      update(opened(), s(SettingsMessage.ChoseSetting({ key: "holds.via", value })))
+    expect(loaded(opened()).shown["holds.via"]).toBe("preToolUse")
+    expect(saveArgs(pick("permissionRequest"))).toEqual({
+      key: "holds.via",
+      patch: { "holds.via": "permissionRequest" },
+    })
+    expect(names(pick("preToolUse"))).toEqual([])
+    expect(names(pick("sideways"))).toEqual([])
+    expect(
+      names(
+        update(opened(), s(SettingsMessage.ChoseSetting({ key: "holds.enabled", value: "x" }))),
+      ),
+    ).toEqual([])
+  })
+
   test("seconds save on commit (blur / Enter) in ms; bad input is an inline error, no request", () => {
     const ok = run(
       opened(),

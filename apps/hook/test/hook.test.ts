@@ -85,6 +85,17 @@ describe("no daemon", () => {
     expect(r.stdout).toBe("")
     expect(performance.now() - t).toBeLessThan(500)
   })
+  test("PermissionRequest fails open with no daemon", async () => {
+    for (const cmd of [["bun", entry], [compiled]]) {
+      const r = await exec(
+        cmd,
+        ["PermissionRequest"],
+        {},
+        JSON.stringify({ session_id: "s1", tool_name: "Bash", tool_input: { command: "ls" } }),
+      )
+      expect(r).toEqual({ stdout: "", code: 0 })
+    }
+  })
   test("bad stdin JSON fails open", async () => {
     const r = await exec(["bun", entry], ["Stop"], {}, "not json{")
     expect(r.code).toBe(0)
@@ -199,6 +210,117 @@ describe("with fake daemon", () => {
         env: { hostSessionId: "local_x" },
       })
       expect(requests).toHaveLength(1)
+    }),
+  )
+
+  // PermissionRequest output must be exactly the documented shape (hooks reference).
+  const prPayload = JSON.stringify({
+    session_id: "s1",
+    hook_event_name: "PermissionRequest",
+    tool_name: "Bash",
+    tool_input: { command: "rm -rf node_modules" },
+  })
+  const decided = (body: Record<string, unknown>) => (req: Request) =>
+    new URL(req.url).pathname === "/v1/hooks/PermissionRequest"
+      ? Response.json({ seq: 1, requestId: "pr1", holdMs: 600_000 })
+      : Response.json(body)
+  const pr = (cmd: string[], extraEnv: Record<string, string> = {}) =>
+    exec(cmd, ["PermissionRequest"], extraEnv, prPayload)
+
+  test(
+    "PermissionRequest observed (no requestId): nothing printed, one request",
+    each(async (cmd) => {
+      handler = () => Response.json({ seq: 3, requestId: null })
+      expect(await pr(cmd)).toEqual({ stdout: "", code: 0 })
+      expect(requests.map((r) => r.path)).toEqual(["/v1/hooks/PermissionRequest"])
+    }),
+  )
+
+  test(
+    "PermissionRequest allow",
+    each(async (cmd) => {
+      handler = decided({ decision: "allow", reason: "ignored for PermissionRequest" })
+      const r = await pr(cmd)
+      expect(r.code).toBe(0)
+      expect(JSON.parse(r.stdout)).toEqual({
+        hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior: "allow" } },
+      })
+      expect(requests[1]?.path).toMatch(/^\/v1\/hooks\/decision\/pr1\?wait=\d+$/)
+    }),
+  )
+
+  test(
+    "PermissionRequest allow + updatedInput",
+    each(async (cmd) => {
+      const updatedInput = { questions: [], answers: { "Which?": "A" } }
+      handler = decided({ decision: "allow", updatedInput })
+      expect(JSON.parse((await pr(cmd)).stdout)).toEqual({
+        hookSpecificOutput: {
+          hookEventName: "PermissionRequest",
+          decision: { behavior: "allow", updatedInput },
+        },
+      })
+    }),
+  )
+
+  test(
+    "PermissionRequest allow + updatedPermissions",
+    each(async (cmd) => {
+      const updatedPermissions = [
+        {
+          type: "addRules",
+          rules: [{ toolName: "Bash", ruleContent: "rm -rf node_modules" }],
+          behavior: "allow",
+          destination: "localSettings",
+        },
+      ]
+      handler = decided({ decision: "allow", updatedPermissions })
+      expect(JSON.parse((await pr(cmd)).stdout)).toEqual({
+        hookSpecificOutput: {
+          hookEventName: "PermissionRequest",
+          decision: { behavior: "allow", updatedPermissions },
+        },
+      })
+    }),
+  )
+
+  test(
+    "PermissionRequest deny + message",
+    each(async (cmd) => {
+      handler = decided({ decision: "deny", reason: "The user replied: use rimraf" })
+      expect(JSON.parse((await pr(cmd)).stdout)).toEqual({
+        hookSpecificOutput: {
+          hookEventName: "PermissionRequest",
+          decision: { behavior: "deny", message: "The user replied: use rimraf", interrupt: false },
+        },
+      })
+    }),
+  )
+
+  test(
+    "PermissionRequest ask prints nothing (Claude's prompt stays)",
+    each(async (cmd) => {
+      handler = decided({ decision: "ask" })
+      expect(await pr(cmd)).toEqual({ stdout: "", code: 0 })
+    }),
+  )
+
+  test(
+    "PermissionRequest budget lapse prints nothing",
+    each(async (cmd) => {
+      handler = decided({ decision: "pending" })
+      expect(await pr(cmd, { SESSION_INBOX_HOLD_SECONDS: "1" })).toEqual({ stdout: "", code: 0 })
+    }),
+  )
+
+  test(
+    "PermissionRequest: a daemon error mid-wait prints nothing",
+    each(async (cmd) => {
+      handler = (req) =>
+        new URL(req.url).pathname === "/v1/hooks/PermissionRequest"
+          ? Response.json({ seq: 1, requestId: "pr2", holdMs: 600_000 })
+          : new Response("boom", { status: 500 })
+      expect(await pr(cmd)).toEqual({ stdout: "", code: 0 })
     }),
   )
 

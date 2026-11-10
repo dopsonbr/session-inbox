@@ -139,7 +139,9 @@ export const hookHandler =
     if (decision && req.method === "GET") {
       const wait = Math.max(0, Math.min(Number(url.searchParams.get("wait") ?? "0") || 0, 600))
       server?.timeout(req, 0)
-      return json(await ctx.engine.waitDecision(decodeURIComponent(decision[1] ?? ""), wait))
+      return json(
+        await ctx.engine.waitDecision(decodeURIComponent(decision[1] ?? ""), wait, req.signal),
+      )
     }
     const ingest = /^\/v1\/hooks\/([A-Za-z]+)$/.exec(path)
     if (ingest && req.method === "POST") {

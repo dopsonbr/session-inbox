@@ -38,6 +38,9 @@ const formatValue = (field: SettingsField, value: unknown): string => {
   if (field.kind === "days") {
     return value === 1 ? "1 day" : `${String(value)} days`
   }
+  if (field.kind === "choice") {
+    return field.options?.find((o) => o.value === value)?.label ?? String(value)
+  }
   const list = value as ReadonlyArray<string>
   return list.length === 0 ? "none" : list.join(", ")
 }
@@ -311,6 +314,43 @@ const listRow = (
   )
 }
 
+/** One of a few named values, as native radio buttons (keyboard and screen readers for free). */
+const choiceRow = (loaded: Loaded, field: SettingsField, isDisabled: boolean, h: H): Html => {
+  const id = idFor(field.key)
+  const current = settingValue(loaded.shown, field.key)
+  return h.fieldset(
+    [h.Class("m-0 flex flex-col gap-1.5 border-none p-0"), h.AriaDescribedBy(`${id}-help`)],
+    [
+      h.legend([h.Class("mb-1 text-[13px] font-medium")], [field.label]),
+      ...(field.options ?? []).map((option) =>
+        h.label(
+          [
+            h.For(`${id}-${option.value}`),
+            h.Class(
+              `flex items-center gap-2 text-[13px] ${isDisabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`,
+            ),
+          ],
+          [
+            h.input([
+              h.Id(`${id}-${option.value}`),
+              h.Type("radio"),
+              h.Name(id),
+              h.Value(option.value),
+              h.Checked(current === option.value),
+              h.Disabled(isDisabled),
+              h.OnChange(() =>
+                send(SettingsMessage.ChoseSetting({ key: field.key, value: option.value })),
+              ),
+            ]),
+            option.label,
+          ],
+        ),
+      ),
+      helpLine(loaded, field, h),
+    ],
+  )
+}
+
 /** H-016: a second install on this Mac may hold too. Shown only when one exists. */
 const holdsCaveat = (loaded: Loaded, h: H): Html =>
   loaded.saved.otherChannel === null
@@ -336,6 +376,8 @@ const fieldRow = (settings: SettingsModel, loaded: Loaded, field: SettingsField,
         return toolsRow(loaded, field, isDisabled, h)
       case "list":
         return listRow(settings, loaded, field, isDisabled, h)
+      case "choice":
+        return choiceRow(loaded, field, isDisabled, h)
     }
   })()
   return h.div(
