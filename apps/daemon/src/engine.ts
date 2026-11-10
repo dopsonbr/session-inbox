@@ -178,6 +178,9 @@ export const NO_POLL_LAPSE_MS = 20_000
 /** A poll that closed while the daemon runs gets this long to be re-polled (D-080). */
 export const POLL_DROP_GRACE_MS = 5_000
 
+/** How long an ingest waits for git before answering without it (D-081). */
+const GIT_WAIT_MS = 50
+
 const LAST_MESSAGE_MAX = 20_000
 const DOCTOR_RECHECK_MS = 60_000
 const PRUNE_EVERY_MS = 24 * 3600_000
@@ -307,6 +310,8 @@ export class Engine {
   readonly hub: StreamHub
   readonly startedAt: number
   private readonly gitCache = new Map<string, GitInfo>()
+  /** Sessions whose project was guessed while git was slow; a late answer may move them (D-081). */
+  private readonly guessedProject = new Set<string>()
   private readonly waiters = new Map<string, Set<() => void>>()
   private readonly inflight = new Set<Promise<unknown>>()
   private readonly sendingSessions = new Set<string>()
@@ -642,16 +647,46 @@ export class Engine {
       return store(event, envelope.payload, envelope.env, msg)
     }
 
+    // Git is looked up for at most GIT_WAIT_MS: the hook gives up on the ingest at 500 ms and a
+    // new cwd's lookup can take longer. A late answer is filled in afterwards (D-081).
     let git: GitInfo | null = null
-    if (payload.cwd) {
-      try {
-        git = await this.gitFor(payload.cwd, event === "SessionStart")
-      } catch (e) {
-        this.deps.log.warn("git resolve failed", e)
+    let late: Promise<GitInfo> | null = null
+    const cwd = payload.cwd
+    if (cwd) {
+      const cached = this.gitCache.get(cwd) ?? null
+      const refresh = event === "SessionStart"
+      if (cached && !refresh) git = cached
+      else {
+        const lookup = this.gitFor(cwd, refresh)
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const r = await Promise.race([
+          lookup.then(
+            (g) => ({ g }),
+            (e: unknown) => ({ e }),
+          ),
+          new Promise<null>((resolve) => {
+            timer = setTimeout(() => resolve(null), GIT_WAIT_MS)
+          }),
+        ])
+        clearTimeout(timer)
+        if (r === null) {
+          git = cached
+          late = lookup
+        } else if ("g" in r) git = r.g
+        else this.deps.log.warn("git resolve failed", r.e)
       }
     }
     try {
-      return this.tx((c) => this.applyHook(c, event, payload, envelope.env, git))
+      const out = this.tx((c) => this.applyHook(c, event, payload, envelope.env, git))
+      if (late && cwd) {
+        const sid = payload.session_id
+        this.track(
+          late
+            .then((info) => this.fillGit(sid, cwd, info))
+            .catch((e) => this.deps.log.warn("git resolve failed", e)),
+        )
+      }
+      return out
     } catch (e) {
       this.deps.log.error(`applying ${event} failed; stored raw`, e)
       return store(
@@ -663,12 +698,78 @@ export class Engine {
     }
   }
 
+  /** The longest known project root that contains `cwd`: the guess while git is slow (D-081). */
+  private guessRoot(cwd: string | undefined): string | null {
+    if (!cwd) return null
+    return (
+      this.store.one<{ root_path: string }>(
+        `SELECT root_path FROM projects WHERE root_path = ? OR substr(?, 1, length(root_path) + 1) = root_path || '/'
+           ORDER BY length(root_path) DESC LIMIT 1`,
+        cwd,
+        cwd,
+      )?.root_path ?? null
+    )
+  }
+
+  /**
+   * A git lookup that answered after the ingest did (D-081): correct the session's project
+   * (when it was a guess), branch and worktree in one transaction with a `daemon:git` event.
+   */
+  private fillGit(sessionId: string, cwd: string, info: GitInfo) {
+    const guessed = this.guessedProject.delete(sessionId)
+    this.tx((c) => {
+      const s = this.store.session(sessionId)
+      if (!s || s.cwd !== cwd) return
+      const projectId = guessed ? projectIdFor(info.root) : s.project_id
+      if (
+        projectId === s.project_id &&
+        s.branch === info.branch &&
+        (s.worktree ?? null) === info.worktree
+      )
+        return
+      this.appendEvent(c, {
+        sessionId,
+        hook: "daemon:git",
+        payload: { cwd, root: info.root, branch: info.branch, worktree: info.worktree },
+      })
+      if (projectId !== s.project_id) {
+        this.store.run(
+          "INSERT INTO projects (id, root_path, name, muted, created_at) VALUES (?, ?, ?, 0, ?) ON CONFLICT(id) DO NOTHING",
+          projectId,
+          info.root,
+          basename(info.root) || info.root,
+          this.now(),
+        )
+        c.projects.add(projectId)
+      }
+      this.store.run(
+        "UPDATE sessions SET project_id = ?, branch = ?, worktree = ? WHERE id = ?",
+        projectId,
+        info.branch,
+        info.worktree,
+        sessionId,
+      )
+      c.sessions.add(sessionId)
+      // The guessed project row, when this session alone made it and nothing else points at it.
+      if (projectId !== s.project_id)
+        this.store.run(
+          `DELETE FROM projects WHERE id = ? AND root_path = ? AND muted = 0
+             AND NOT EXISTS (SELECT 1 FROM sessions WHERE project_id = projects.id)`,
+          s.project_id,
+          cwd,
+        )
+    })
+  }
+
   private upsertSession(c: Changes, p: Payload, env: HookEnv, git: GitInfo | null): SessionRow {
     const now = this.now()
     const existing = this.store.session(p.session_id)
     let projectId = existing?.project_id
     if (!existing || (git && !existing.cwd)) {
-      const root = git?.root ?? p.cwd ?? "(unknown)"
+      const guess = git ? null : this.guessRoot(p.cwd)
+      const root = git?.root ?? guess ?? p.cwd ?? "(unknown)"
+      if (!git && p.cwd) this.guessedProject.add(p.session_id)
+      else this.guessedProject.delete(p.session_id)
       projectId = projectIdFor(root)
       this.store.run(
         "INSERT INTO projects (id, root_path, name, muted, created_at) VALUES (?, ?, ?, 0, ?) ON CONFLICT(id) DO NOTHING",
