@@ -17,8 +17,8 @@ import {
   writeFileSync,
 } from "node:fs"
 import { join } from "node:path"
+import { type FakeReleases, startFakeReleases } from "../../../scripts/fake-releases.ts"
 import { buildRelease, type ReleaseResult } from "../../../scripts/release.ts"
-import { sidecarName, tarballName } from "../src/releases.ts"
 
 const repo = join(import.meta.dir, "../../..")
 const root = mkdtempSync("/tmp/si-rel-")
@@ -32,20 +32,9 @@ const userSettings = {
 
 let r020: ReleaseResult
 let r030: ReleaseResult
-let server: ReturnType<typeof Bun.serve>
+let fake: FakeReleases
 let base = ""
-const latest = "0.3.0"
-let corrupt = false
-
-const releaseJson = (v: string) => ({
-  tag_name: `v${v}`,
-  html_url: `${base}/notes/v${v}`,
-  published_at: "2026-11-09T12:00:00Z",
-  assets: [tarballName(v), sidecarName(v)].map((name) => ({
-    name,
-    browser_download_url: `${base}/download/v${v}/${name}`,
-  })),
-})
+const setCorrupt = (on: boolean) => fake.setCorrupt("*", on)
 
 const run = async (cmd: string[], env: Record<string, string> = {}) => {
   const p = Bun.spawn(cmd, {
@@ -85,31 +74,14 @@ beforeAll(async () => {
     skipApp: true,
     verbose: false,
   })
-  const byVersion: Record<string, ReleaseResult> = { "0.2.0": r020, "0.3.0": r030 }
-  server = Bun.serve({
-    port: 0,
-    hostname: "127.0.0.1",
-    fetch(req) {
-      const path = new URL(req.url).pathname
-      if (path === "/releases/latest") return Response.json(releaseJson(latest))
-      const tag = /^\/releases\/tags\/v(.+)$/.exec(path)?.[1]
-      if (tag)
-        return byVersion[tag] ? Response.json(releaseJson(tag)) : new Response("", { status: 404 })
-      const dl = /^\/download\/v([^/]+)\/(.+)$/.exec(path)
-      const rel = dl ? byVersion[dl[1] as string] : undefined
-      if (dl && rel) {
-        const file = dl[2] === tarballName(rel.version) ? rel.tarball : rel.sidecar
-        if (corrupt && file === rel.tarball) return new Response("not a tarball")
-        return new Response(Bun.file(file))
-      }
-      return new Response("", { status: 404 })
-    },
-  })
-  base = `http://127.0.0.1:${server.port}`
+  fake = startFakeReleases()
+  fake.add(r020)
+  fake.add(r030, { latest: true })
+  base = fake.base
 }, 600_000)
 
 afterAll(() => {
-  server?.stop(true)
+  fake?.stop()
   rmSync(root, { recursive: true, force: true })
 })
 
@@ -159,6 +131,12 @@ describe("install, then update from the fake release server", () => {
       settings,
       "--no-launchd",
       "--no-app",
+      "--label",
+      "com.sessioninbox.inboxd.test",
+      "--asset-url",
+      fake.assetUrl,
+      "--daemon-env",
+      "CLAUDE_CONFIG_DIR=/nowhere",
     ])
     expect(r.stderr).toBe("")
     expect(r.code).toBe(0)
@@ -170,7 +148,16 @@ describe("install, then update from the fake release server", () => {
       launchd: false,
       hooks: true,
       app: false,
+      label: "com.sessioninbox.inboxd.test",
+      // From the environment the installer ran with: install from a mirror.
+      releasesUrl: `${base}/releases`,
+      assetUrl: fake.assetUrl,
+      repo: null,
+      daemonEnv: { CLAUDE_CONFIG_DIR: "/nowhere" },
     })
+    // What happens next, in plain words, and pointing at this home's own CLI.
+    expect(r.stdout).toContain("Restart any Claude Code sessions")
+    expect(r.stdout).toContain(`"${join(home, "bin", "session-inbox")}" doctor`)
     const s = json(settings)
     expect(s.model).toBe("opus")
     expect(JSON.stringify(s.hooks)).toContain(`${home}/bin/inbox-hook`)
@@ -196,6 +183,13 @@ describe("install, then update from the fake release server", () => {
     })
   })
 
+  test("without the environment, update --check uses the mirror recorded at install", async () => {
+    const r = await run([join(home, "bin", "session-inbox"), "update", "--check", "--json"], {
+      SESSION_INBOX_RELEASES_URL: "",
+    })
+    expect(JSON.parse(r.stdout)).toMatchObject({ latest: "0.3.0", available: true, error: null })
+  })
+
   test("update --check --json exits 0 with an error when the server is unreachable", async () => {
     const r = await run([join(home, "bin", "session-inbox"), "update", "--check", "--json"], {
       SESSION_INBOX_RELEASES_URL: "http://127.0.0.1:9/releases",
@@ -209,7 +203,8 @@ describe("install, then update from the fake release server", () => {
   test("beta never updates from releases", async () => {
     const c = JSON.parse((await cli("update", "--channel", "beta", "--check", "--json")).stdout)
     expect(c.available).toBe(false)
-    expect(c.error).toContain("G-029")
+    expect(c.error).toContain("never updates from releases")
+    expect(c.error).not.toMatch(/\([A-Z]-\d+\)/)
     expect((await cli("update", "--channel", "beta", "--yes")).code).toBe(2)
   })
 
@@ -228,7 +223,16 @@ describe("install, then update from the fake release server", () => {
       state: "done",
       error: null,
     })
-    expect(json(join(home, "install.json"))).toMatchObject({ version: "0.3.0", source: "release" })
+    expect(json(join(home, "install.json"))).toMatchObject({
+      version: "0.3.0",
+      source: "release",
+      label: "com.sessioninbox.inboxd.test",
+      releasesUrl: `${base}/releases`,
+      assetUrl: fake.assetUrl,
+      daemonEnv: { CLAUDE_CONFIG_DIR: "/nowhere" },
+    })
+    // The mirror's {tag} download base was used, not the release JSON's URLs.
+    expect(fake.requests).toContain("/download/v0.3.0/session-inbox-0.3.0-macos-arm64.tar.gz")
     expect((await cli("--version")).stdout).toContain("0.3.0")
     expect((await run([join(home, "bin", "inbox-hook"), "--version"])).stdout.trim()).toBe("0.3.0")
     expect(readFileSync(settings, "utf8")).toBe(hooksAfterInstall)
@@ -270,7 +274,7 @@ describe("install, then update from the fake release server", () => {
   }, 30_000)
 
   test("a corrupted tarball is refused and nothing changes", async () => {
-    corrupt = true
+    setCorrupt(true)
     try {
       const r = await cli("update", "--yes", "--to", "0.2.0")
       expect(r.code).toBe(1)
@@ -280,7 +284,7 @@ describe("install, then update from the fake release server", () => {
       expect((await cli("--version")).stdout).toContain("0.3.0")
       expect(json(join(home, "install.json")).version).toBe("0.3.0")
     } finally {
-      corrupt = false
+      setCorrupt(false)
     }
   }, 60_000)
 
@@ -309,7 +313,11 @@ describe("install.sh", () => {
       source: "release",
       settingsPath: join(shHome, ".claude/settings.json"),
       launchd: false,
+      label: null,
+      releasesUrl: `${base}/releases`,
+      assetUrl: `${base}/download/v0.3.0`,
     })
+    expect(r.stdout).toContain("session-inbox doctor")
     expect(JSON.stringify(json(join(shHome, ".claude/settings.json")))).toContain(
       `${ghome}/bin/inbox-hook`,
     )
@@ -336,7 +344,7 @@ describe("install.sh", () => {
   test("refuses a checksum mismatch before installing anything", async () => {
     const shHome = join(root, "shhome2")
     mkdirSync(shHome, { recursive: true })
-    corrupt = true
+    setCorrupt(true)
     try {
       const r = await run(["/bin/sh", join(repo, "install.sh"), "--no-launchd"], {
         HOME: shHome,
@@ -347,7 +355,7 @@ describe("install.sh", () => {
       expect(r.stderr).toContain("checksum mismatch")
       expect(readdirSync(shHome)).toEqual([])
     } finally {
-      corrupt = false
+      setCorrupt(false)
     }
   }, 60_000)
 })

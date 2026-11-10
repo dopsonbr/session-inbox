@@ -5,10 +5,11 @@
  */
 import { Database } from "bun:sqlite"
 import { existsSync, readFileSync } from "node:fs"
+import { homedir } from "node:os"
 import { CHANNELS, type Channel, paths } from "@session-inbox/contracts/paths"
 import { hookHome } from "../../hook/src/settings.ts"
-import { defaultSettingsPath, parseSettings, plistPath, type Say, uid } from "./common.ts"
-import { kickstart, plistDefault } from "./launchd.ts"
+import { defaultSettingsPath, parseSettings, plistPath, type Say } from "./common.ts"
+import { jobState, kickstart, plistDefault } from "./launchd.ts"
 import { readInstallRecord } from "./state.ts"
 
 const channels = Object.keys(CHANNELS) as Channel[]
@@ -57,56 +58,91 @@ export const settingRow = (home: string, key: string): unknown => {
 }
 
 /** Does this channel hold hooks? Settings row, else plist default, else yes (H-016). */
-export const holdsNow = (channel: Channel, home: string = CHANNELS[channel].home): boolean =>
+export const holdsNow = (
+  channel: Channel,
+  home: string = CHANNELS[channel].home,
+  label: string | null = null,
+): boolean =>
   (settingRow(home, "holds.enabled") ??
-    plistDefault(plistPath(CHANNELS[channel].label), "holds.enabled") ??
+    plistDefault(plistPath(label || CHANNELS[channel].label), "holds.enabled") ??
     true) === true
 
-export const status = async (say: Say): Promise<void> => {
-  const hooked = hookedHomes()
-  for (const c of channels) {
-    const { home, label, title } = CHANNELS[c]
-    const installed = existsSync(plistPath(label))
-    const rec = readInstallRecord(home)
-    say(`\n${title} (${c})`)
-    if (!installed && !hooked.has(home) && !rec) {
-      say("  not installed")
-      continue
+/** One install to describe: a channel's default, or `--home`/`--label` for a custom one. */
+export type StatusTarget = {
+  channel: Channel
+  home: string
+  label: string
+  settingsPath: string
+}
+
+export const defaultTargets = (): StatusTarget[] =>
+  channels.map((c) => {
+    const rec = readInstallRecord(CHANNELS[c].home)
+    return {
+      channel: c,
+      home: CHANNELS[c].home,
+      label: rec?.label || CHANNELS[c].label,
+      settingsPath: rec?.settingsPath || defaultSettingsPath(),
     }
-    const lc = Bun.spawnSync(["/bin/launchctl", "print", `gui/${uid()}/${label}`]).stdout.toString()
-    const pid = /\bpid = (\d+)/.exec(lc)?.[1]
-    say(`  version  ${rec ? `${rec.version} (${rec.build}, from ${rec.source})` : "unknown"}`)
+  })
+
+export const STATUS_FOOTER = "\nSomething off? `session-inbox doctor` checks the whole setup."
+
+export const status = async (
+  say: Say,
+  targets: StatusTarget[] = defaultTargets(),
+): Promise<void> => {
+  for (const t of targets) await describeInstall(t, say)
+  say(STATUS_FOOTER)
+}
+
+const describeInstall = async (t: StatusTarget, say: Say): Promise<void> => {
+  const { home, label, channel: c } = t
+  const { title } = CHANNELS[c]
+  const hooked = hookedHomes(t.settingsPath)
+  const installed = existsSync(plistPath(label))
+  const rec = readInstallRecord(home)
+  say(`\n${title} (${c}${label !== CHANNELS[c].label ? `, ${label}` : ""})`)
+  if (!installed && !hooked.has(home) && !rec) {
+    say("  not installed")
+    return
+  }
+  const { pid } = jobState(label)
+  say(`  version  ${rec ? `${rec.version} (${rec.build}, from ${rec.source})` : "unknown"}`)
+  say(
+    `  launchd  ${installed ? (pid ? `running (pid ${pid})` : "loaded, not running") : "no agent"}`,
+  )
+  say(`  hooks    ${hooked.has(home) ? `in ${tildify(t.settingsPath)}` : "not installed"}`)
+  say(`  holds    ${holdsNow(c, home, label) ? "yes" : "no (observer)"}`)
+  if (rec?.releasesUrl || rec?.assetUrl || rec?.repo)
+    say(`  updates  from ${rec.releasesUrl ?? rec.assetUrl ?? rec.repo}`)
+  const conn = connection(home)
+  if (!conn) return
+  try {
+    const h = (await (
+      await fetch("http://localhost/v1/health", {
+        unix: conn.socketPath,
+        signal: AbortSignal.timeout(1000),
+      })
+    ).json()) as { version?: string; build?: string; shellConnected: boolean }
+    const snap = (await (
+      await fetch(`http://127.0.0.1:${conn.httpPort}/v1/snapshot`, {
+        headers: { authorization: `Bearer ${conn.token}` },
+        signal: AbortSignal.timeout(1000),
+      })
+    ).json()) as { sessions: unknown[]; counts: Record<string, number> }
+    say(`  daemon   ${h.version ?? "?"} (${h.build ?? "?"})`)
+    say(`  app      ${h.shellConnected ? "connected" : "not connected"}`)
     say(
-      `  launchd  ${installed ? (pid ? `running (pid ${pid})` : "loaded, not running") : "no agent"}`,
+      `  inbox    ${snap.sessions.length} sessions · ${snap.counts.needsYou ?? 0} need you · ${snap.counts.review ?? 0} to review`,
     )
-    say(`  hooks    ${hooked.has(home) ? "in ~/.claude/settings.json" : "not installed"}`)
-    say(`  holds    ${holdsNow(c) ? "yes" : "no (observer)"}`)
-    const conn = connection(home)
-    if (!conn) continue
-    try {
-      const h = (await (
-        await fetch("http://localhost/v1/health", {
-          unix: conn.socketPath,
-          signal: AbortSignal.timeout(1000),
-        })
-      ).json()) as { version?: string; build?: string; shellConnected: boolean }
-      const snap = (await (
-        await fetch(`http://127.0.0.1:${conn.httpPort}/v1/snapshot`, {
-          headers: { authorization: `Bearer ${conn.token}` },
-          signal: AbortSignal.timeout(1000),
-        })
-      ).json()) as { sessions: unknown[]; counts: Record<string, number> }
-      say(`  daemon   ${h.version ?? "?"} (${h.build ?? "?"})`)
-      say(`  app      ${h.shellConnected ? "connected" : "not connected"}`)
-      say(
-        `  inbox    ${snap.sessions.length} sessions · ${snap.counts.needsYou ?? 0} need you · ${snap.counts.review ?? 0} to review`,
-      )
-      say(`  url      http://127.0.0.1:${conn.httpPort}/`)
-    } catch (e) {
-      say(`  daemon   unreachable (${(e as Error).message})`)
-    }
+    say(`  url      http://127.0.0.1:${conn.httpPort}/`)
+  } catch (e) {
+    say(`  daemon   unreachable (${(e as Error).message})`)
   }
 }
+
+const tildify = (p: string) => (p.startsWith(`${homedir()}/`) ? `~${p.slice(homedir().length)}` : p)
 
 export const setHolds = (holder: Channel, say: Say): void => {
   for (const c of channels) {

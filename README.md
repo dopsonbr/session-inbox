@@ -47,7 +47,9 @@ The script checks the download's SHA-256, then hands over to the release's own `
 4. Installs and opens `~/Applications/Session Inbox.app`.
 5. Links `~/.local/bin/session-inbox` (add `~/.local/bin` to your `PATH` if it isn't there).
 
-Nothing needs `sudo`. Options go after `sh -s --`, for example `curl -fsSL …/install.sh | sh -s -- --no-app`, and `SESSION_INBOX_VERSION=v0.2.0` picks a version. To see every change before making it, download a release tarball, unpack it, and run `bin/session-inbox install` without `--yes` (a dry run). New Claude sessions pick up the hooks. Restart any session that's already open.
+Nothing needs `sudo`. Options go after `sh -s --`, for example `curl -fsSL …/install.sh | sh -s -- --no-app`, and `SESSION_INBOX_VERSION=v0.2.0` picks a version. To see every change before making it, download a release tarball, unpack it, and run `bin/session-inbox install` without `--yes` (a dry run). A tarball downloaded with a browser works too: the installer clears macOS's quarantine flag on the files it copies. New Claude sessions pick up the hooks. Restart any session that's already open. When it's done, macOS asks whether Session Inbox may show notifications: click **Allow**. `session-inbox doctor` checks the whole setup.
+
+**Install from a mirror.** To install and update from somewhere other than GitHub, set `SESSION_INBOX_RELEASES_URL` (a GitHub-style releases API: `<url>/latest` and `<url>/tags/v<version>`) and, if the files live elsewhere, `SESSION_INBOX_ASSET_URL` (the download base; `{tag}` and `{version}` in it are filled in, so `https://mirror.example/session-inbox/{tag}` works, and a flat directory needs neither), or pass `--releases-url` / `--asset-url` to `session-inbox install`. The installer records them in `<home>/install.json` and in the launchd agent's environment, so the daemon's update checks and every later `session-inbox update` use the same mirror; an update keeps them. Without them, releases come from GitHub as usual.
 
 ### Update
 
@@ -56,7 +58,7 @@ session-inbox update --check   # is there a newer release?
 session-inbox update --yes     # download, verify, and install it over this one
 ```
 
-An update moves hook, daemon, UI and app together and keeps the choices you installed with (`<home>/install.json`). `session-inbox status` shows what's installed and running.
+An update moves hook, daemon, UI and app together and keeps the choices you installed with (`<home>/install.json`). `session-inbox status` shows what's installed and running. The daemon also checks by itself every 6 hours and installs an update once no session is waiting on you; it writes `<home>/update.log`.
 
 ### Install from source
 
@@ -167,6 +169,8 @@ Environment overrides, mostly for development:
 - `SESSION_INBOX_HOLD_SECONDS`: the hook's hold budget.
 
 ## Troubleshooting
+
+Start with `session-inbox doctor` (`--json` for the raw report). It asks the running daemon for its setup check and prints each item with what to do about it. If the daemon doesn't answer within 3 s, it checks what it can from the outside instead: the home, the binaries, the launchd agent, the hooks in your settings file and the last lines of `inboxd.log`. It exits 0 when everything is fine.
 
 - **The menu-bar app says "daemon offline":** run `launchctl print gui/$(id -u)/com.sessioninbox.inboxd` and check `inboxd.log`. To restart, run `launchctl kickstart -k gui/$(id -u)/com.sessioninbox.inboxd`.
 - **Nothing shows up for a session:** the hooks load when a session starts, so restart it. Check that `~/.claude/settings.json` lists `inbox-hook` under `hooks`.

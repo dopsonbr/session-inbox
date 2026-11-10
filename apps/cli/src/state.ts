@@ -23,7 +23,26 @@ export type InstallRecord = {
   app: boolean
   appPath: string | null
   installedAt: string
+  /** The launchd label when it isn't the channel's default (an isolated third install). */
+  label: string | null
+  /** Where releases come from when not GitHub ("install from a mirror"); null = default. */
+  releasesUrl: string | null
+  assetUrl: string | null
+  repo: string | null
+  /** Extra daemon environment written into the plist (tests: CLAUDE_CONFIG_DIR and friends). */
+  daemonEnv: Record<string, string>
 }
+
+/** The release-source part of an install record, as environment variables. */
+export const mirrorEnv = (rec: {
+  releasesUrl: string | null
+  assetUrl: string | null
+  repo: string | null
+}): Record<string, string> => ({
+  ...(rec.releasesUrl ? { SESSION_INBOX_RELEASES_URL: rec.releasesUrl } : {}),
+  ...(rec.assetUrl ? { SESSION_INBOX_ASSET_URL: rec.assetUrl } : {}),
+  ...(rec.repo ? { SESSION_INBOX_REPO: rec.repo } : {}),
+})
 
 export const installJsonPath = (home: string) => join(home, "install.json")
 export const updateStatePath = (home: string) => join(home, "update-state.json")
@@ -32,6 +51,16 @@ export const updatesDir = (home: string) => join(home, "updates")
 
 export const writeInstallRecord = (home: string, rec: InstallRecord): void =>
   atomicWriteFile(installJsonPath(home), `${JSON.stringify(rec, null, 2)}\n`)
+
+const str = (v: unknown): string | null => (typeof v === "string" && v !== "" ? v : null)
+const strings = (v: unknown): Record<string, string> =>
+  v !== null && typeof v === "object" && !Array.isArray(v)
+    ? Object.fromEntries(
+        Object.entries(v as Record<string, unknown>).filter(
+          (e): e is [string, string] => typeof e[1] === "string",
+        ),
+      )
+    : {}
 
 /** The record, or null when absent or unreadable (an older install.ts never wrote one). */
 export const readInstallRecord = (home: string): InstallRecord | null => {
@@ -52,6 +81,11 @@ export const readInstallRecord = (home: string): InstallRecord | null => {
       app: v.app === true,
       appPath: typeof v.appPath === "string" ? v.appPath : null,
       installedAt: typeof v.installedAt === "string" ? v.installedAt : "",
+      label: str(v.label),
+      releasesUrl: str(v.releasesUrl),
+      assetUrl: str(v.assetUrl),
+      repo: str(v.repo),
+      daemonEnv: strings(v.daemonEnv),
     }
   } catch {
     return null

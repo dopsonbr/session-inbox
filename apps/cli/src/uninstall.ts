@@ -39,12 +39,16 @@ export type UninstallOptions = {
   /** Remove the menu-bar app (also done when install.json says it was installed). */
   app: boolean
   purge: boolean
+  /** launchd label; default: install.json's, else the channel's. */
+  label?: string | null
 }
 
 export const uninstall = (o: UninstallOptions, say: Say): void => {
-  const { label, title } = CHANNELS[o.channel]
+  const { title } = CHANNELS[o.channel]
   const apply = o.apply
   const rec = readInstallRecord(o.home)
+  const label = o.label || rec?.label || CHANNELS[o.channel].label
+  const customLabel = label !== CHANNELS[o.channel].label
   say(apply ? "UNINSTALL (applying changes)" : "DRY RUN (nothing will change; pass --yes to apply)")
   // Keep the other channels' hooks, unless --home points this run at one of them.
   const keep = otherHomes(o.channel).filter((h) => h !== o.home)
@@ -74,10 +78,14 @@ export const uninstall = (o: UninstallOptions, say: Say): void => {
     }
   }
 
-  // The PATH link, only if it points into this home.
+  // The PATH link, only if it points into this home (a custom-label install never made one).
   const link = join(localBin(), pathLinkName(o.channel))
   try {
-    if (lstatSync(link).isSymbolicLink() && readlinkSync(link).startsWith(`${o.home}/`)) {
+    if (
+      !customLabel &&
+      lstatSync(link).isSymbolicLink() &&
+      readlinkSync(link).startsWith(`${o.home}/`)
+    ) {
       if (!apply) say(`would remove ${link}`)
       else {
         rmSync(link, { force: true })
@@ -86,7 +94,7 @@ export const uninstall = (o: UninstallOptions, say: Say): void => {
     }
   } catch {}
 
-  if (o.app || rec?.app) {
+  if (!customLabel && (o.app || rec?.app)) {
     const app = rec?.appPath ?? appPath(title)
     if (!apply) say(`would quit and remove ${app}`)
     else {

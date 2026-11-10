@@ -2,11 +2,14 @@
  * session-inbox — install, update and inspect Session Inbox (H-019).
  *   session-inbox install [--from <payload>] [--yes] [--channel ga|beta] [--home <dir>]
  *                         [--settings <path>] [--holds] [--no-app] [--no-launchd] [--no-hooks]
- *                         [--no-path]
+ *                         [--no-path] [--label <reverse.dns>] [--releases-url <url>]
+ *                         [--asset-url <url>] [--repo <owner/name>]
  *   session-inbox uninstall [--yes] [--channel] [--home] [--settings] [--app] [--purge]
- *                           [--no-launchd] [--no-hooks]
+ *                           [--no-launchd] [--no-hooks] [--label]
  *   session-inbox update [--check] [--json] [--yes] [--to <version>] [--channel ga|beta]
- *   session-inbox status | holds <ga|beta> | open [ga|beta] | --version
+ *   session-inbox doctor [--json] [--channel] [--home] [--label]
+ *   session-inbox status [--channel] [--home] [--label] | holds <ga|beta> | open [ga|beta]
+ *   session-inbox --version
  * Everything that changes the machine is a dry run unless --yes.
  */
 import { spawn } from "node:child_process"
@@ -16,10 +19,12 @@ import { type ParseArgsOptionsConfig, parseArgs } from "node:util"
 import { CHANNELS, type Channel, isChannel } from "@session-inbox/contracts/paths"
 import { BUILD, VERSION } from "@session-inbox/contracts/version"
 import { defaultSettingsPath, parseChannel, type Say, UsageError } from "./common.ts"
+import { doctor } from "./doctor.ts"
 import { install } from "./install.ts"
+import { isLabel } from "./launchd.ts"
 import { payloadOfExecutable } from "./manifest.ts"
 import { installJsonPath, readInstallRecord } from "./state.ts"
-import { openInbox, setHolds, status } from "./status.ts"
+import { defaultTargets, openInbox, setHolds, status } from "./status.ts"
 import { uninstall } from "./uninstall.ts"
 import { apply, check, describeCheck } from "./update.ts"
 
@@ -28,6 +33,7 @@ const USAGE = `usage: session-inbox <command>
   uninstall  remove hooks, launchd agent and PATH link (--purge: also the data)
   update     check for (--check) or install (--yes) a newer release
   status     both channels: version, daemon, hooks, holds
+  doctor     check the setup and say what to fix (--json for the raw report)
   holds <ga|beta>   make that channel hold; the other observes
   open [ga|beta]    open the inbox in the browser
   --version`
@@ -68,7 +74,25 @@ const resolveTarget = (homeFlag: string | undefined, channelFlag: string | undef
   const home0 = homeFlag ?? homeOfSelf()
   const rec = home0 ? readInstallRecord(home0) : null
   const channel: Channel = channelFlag ? parseChannel(channelFlag) : (rec?.channel ?? "ga")
-  return { home: home0 ?? CHANNELS[channel].home, channel }
+  const home = home0 ?? CHANNELS[channel].home
+  return { home, channel, rec: rec ?? readInstallRecord(home) }
+}
+
+const parseLabel = (v: string | undefined): string | null => {
+  if (v === undefined) return null
+  if (!isLabel(v)) throw new UsageError(`--label must look like com.example.name, not ${v}`)
+  return v
+}
+
+/** `--daemon-env KEY=VALUE` (repeatable, for tests): extra plist environment. */
+const parseEnvPairs = (pairs: string[] | undefined): Record<string, string> => {
+  const out: Record<string, string> = {}
+  for (const p of pairs ?? []) {
+    const i = p.indexOf("=")
+    if (i <= 0) throw new UsageError(`--daemon-env needs KEY=VALUE, not ${p}`)
+    out[p.slice(0, i)] = p.slice(i + 1)
+  }
+  return out
 }
 
 const flagsOf = <T extends ParseArgsOptionsConfig>(args: string[], options: T) =>
@@ -87,7 +111,13 @@ const cmdInstall = async (args: string[]) => {
     "no-hooks": { type: "boolean", default: false },
     "no-path": { type: "boolean", default: false },
     updating: { type: "boolean", default: false },
+    label: { type: "string" },
+    "releases-url": { type: "string" },
+    "asset-url": { type: "string" },
+    repo: { type: "string" },
+    "daemon-env": { type: "string", multiple: true },
   })
+  const env = process.env
   const payload = values.from ?? (compiled() ? payloadOfExecutable(self()) : null)
   if (!payload)
     throw new UsageError(
@@ -108,6 +138,12 @@ const cmdInstall = async (args: string[]) => {
       pathLink: !values["no-path"],
       source: "release",
       updating: values.updating === true,
+      label: parseLabel(values.label),
+      // Install from a mirror: flags win, else the environment install.sh was run with.
+      releasesUrl: values["releases-url"] ?? env.SESSION_INBOX_RELEASES_URL ?? null,
+      assetUrl: values["asset-url"] ?? env.SESSION_INBOX_ASSET_URL ?? null,
+      repo: values.repo ?? env.SESSION_INBOX_REPO ?? null,
+      daemonEnv: parseEnvPairs(values["daemon-env"]),
     },
     say,
   )
@@ -124,9 +160,9 @@ const cmdUninstall = async (args: string[]) => {
     purge: { type: "boolean", default: false },
     "no-launchd": { type: "boolean", default: false },
     "no-hooks": { type: "boolean", default: false },
+    label: { type: "string" },
   })
-  const { home, channel } = resolveTarget(values.home, values.channel)
-  const rec = readInstallRecord(home)
+  const { home, channel, rec } = resolveTarget(values.home, values.channel)
   uninstall(
     {
       apply: values.yes === true,
@@ -137,10 +173,45 @@ const cmdUninstall = async (args: string[]) => {
       hooks: !values["no-hooks"],
       app: values.app === true,
       purge: values.purge === true,
+      label: parseLabel(values.label),
     },
     say,
   )
   return 0
+}
+
+/** status/doctor: `--home`/`--label`/`--channel` narrow to one install; none = the defaults. */
+const singleTarget = (args: string[]) => {
+  const { values } = flagsOf(args, {
+    channel: { type: "string" },
+    home: { type: "string" },
+    label: { type: "string" },
+    settings: { type: "string" },
+    json: { type: "boolean", default: false },
+  })
+  const narrowed = values.home !== undefined || values.label !== undefined
+  const { home, channel, rec } = resolveTarget(values.home, values.channel)
+  return {
+    json: values.json === true,
+    narrowed: narrowed || values.channel !== undefined,
+    target: {
+      channel,
+      home,
+      label: parseLabel(values.label) ?? rec?.label ?? CHANNELS[channel].label,
+      settingsPath: values.settings ?? (rec?.settingsPath || defaultSettingsPath()),
+    },
+  }
+}
+
+const cmdStatus = async (args: string[]) => {
+  const { narrowed, target } = singleTarget(args)
+  await status(say, narrowed ? [target] : defaultTargets())
+  return 0
+}
+
+const cmdDoctor = async (args: string[]) => {
+  const { json, target } = singleTarget(args)
+  return doctor(target, { json }, say)
 }
 
 /** Re-run this update in its own session, so launchd stopping the daemon can't take it along. */
@@ -193,8 +264,9 @@ const main = async (argv: string[]): Promise<number> => {
     case "update":
       return cmdUpdate(rest)
     case "status":
-      await status(say)
-      return 0
+      return cmdStatus(rest)
+    case "doctor":
+      return cmdDoctor(rest)
     case "holds":
       if (!isChannel(rest[0])) throw new UsageError("usage: session-inbox holds <ga|beta>")
       setHolds(rest[0], say)

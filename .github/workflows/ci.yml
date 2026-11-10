@@ -30,3 +30,19 @@ jobs:
           workspaces: apps/desktop/src-tauri
       - run: cargo test
       - run: cargo clippy -- -D warnings
+
+  # The full release payload (menu-bar app included), built and installed the way a user
+  # gets it. The same two steps run in release.yml before anything is published. Uploads nothing.
+  package:
+    runs-on: macos-latest # arm64: release artifacts are Apple silicon only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+      - run: bun install --frozen-lockfile
+      - run: bun scripts/release.ts
+      - run: bun scripts/verify-release.ts --require-app

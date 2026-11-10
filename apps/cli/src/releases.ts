@@ -2,6 +2,9 @@
  * GitHub Releases: which release to install and where its assets are (G-024, G-028).
  * `SESSION_INBOX_RELEASES_URL` replaces `https://api.github.com/repos/<repo>/releases`
  * (tests point it at a local fake); `SESSION_INBOX_REPO` replaces the repo.
+ * `SESSION_INBOX_ASSET_URL` replaces the assets' download base: `<base>/<asset name>`, where
+ * `{tag}` and `{version}` in the base are filled in (a flat mirror needs neither, since every
+ * asset name carries its version). Recorded in install.json, so updates use the same mirror.
  */
 import { compareSemver, isSemver } from "./semver.ts"
 
@@ -38,6 +41,14 @@ export type ResolvedRelease = {
   sidecar: GhAsset
 }
 
+/** Where to download `name` from: the mirror's base when SESSION_INBOX_ASSET_URL is set. */
+export const assetUrl = (env: Env, tag: string, name: string, fallback: string): string => {
+  const base = env.SESSION_INBOX_ASSET_URL
+  if (!base) return fallback
+  const filled = base.replaceAll("{tag}", tag).replaceAll("{version}", tag.replace(/^v/, ""))
+  return `${filled.replace(/\/+$/, "")}/${name}`
+}
+
 /** Release JSON → the version and its arm64 tarball + checksum assets. Throws if any is missing. */
 export const selectAssets = (rel: GhRelease, env: Env = {}): ResolvedRelease => {
   if (typeof rel?.tag_name !== "string") throw new Error("release has no tag_name")
@@ -47,7 +58,7 @@ export const selectAssets = (rel: GhRelease, env: Env = {}): ResolvedRelease => 
   const find = (name: string) => {
     const a = assets.find((x) => x?.name === name && typeof x.browser_download_url === "string")
     if (!a) throw new Error(`release ${rel.tag_name} has no asset ${name}`)
-    return a
+    return { name, browser_download_url: assetUrl(env, rel.tag_name, name, a.browser_download_url) }
   }
   return {
     version,
