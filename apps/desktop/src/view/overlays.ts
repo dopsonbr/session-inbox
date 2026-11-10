@@ -148,6 +148,99 @@ export const jumpDialogView = (model: Model, h: H): Html =>
     toParentMessage: (message) => Message.GotJumpDialogMessage({ message }),
   })
 
+/** Every shortcut, as the `?` dialog lists them (U-073). */
+export const SHORTCUTS: ReadonlyArray<Readonly<{ keys: ReadonlyArray<string>; does: string }>> = [
+  { keys: ["⌘K"], does: "Jump to a session" },
+  { keys: ["⌘↵"], does: "Main action: Allow once, Send answers or Send reply" },
+  { keys: ["⌘⌫"], does: "Deny" },
+  { keys: ["j", "k"], does: "Next / previous item in the list" },
+  { keys: ["e"], does: "Done: clear a review or failed item" },
+  { keys: ["⌘,"], does: "Settings" },
+  { keys: ["↑", "↓"], does: "Move in the session tree" },
+  { keys: ["?"], does: "This list" },
+]
+
+const shortcutList = (h: H): Html =>
+  h.dl(
+    [h.Class("m-0 grid grid-cols-[max-content_1fr] items-center gap-x-4 gap-y-2.5")],
+    SHORTCUTS.flatMap(({ keys, does }) => [
+      h.dt(
+        [h.Class("flex items-center gap-1")],
+        keys.flatMap((key, i) => [
+          i === 0 ? h.empty : h.span([h.Class("text-xs text-subtle-foreground")], ["/"]),
+          h.kbd(
+            [
+              h.Class(
+                "inline-flex min-w-6 justify-center rounded border border-border bg-muted px-1.5 py-0.5 font-sans text-[12px] font-medium",
+              ),
+            ],
+            [key],
+          ),
+        ]),
+      ),
+      h.dd([h.Class("m-0 text-[13px]")], [does]),
+    ]),
+  )
+
+export const shortcutsDialogView = (model: Model, h: H): Html =>
+  h.submodel({
+    slotId: model.shortcutsDialog.id,
+    model: model.shortcutsDialog,
+    view: Dialog.view,
+    viewInputs: {
+      toView: ({ dialog, backdrop, panel, title, closeButton, isVisible }) =>
+        h.dialog(
+          [
+            ...dialog,
+            h.Class(
+              "m-0 h-full max-h-none w-full max-w-none bg-transparent p-0 open:flex items-start justify-center",
+            ),
+          ],
+          isVisible
+            ? [
+                h.div([...backdrop, h.Class("fixed inset-0 bg-black/40")]),
+                h.div(
+                  [
+                    ...panel,
+                    h.Class(
+                      "relative mt-[12vh] w-[min(460px,92vw)] rounded-xl border border-border bg-popover p-4 text-popover-foreground shadow-2xl",
+                    ),
+                  ],
+                  [
+                    h.div(
+                      [h.Class("mb-3 flex items-center gap-2")],
+                      [
+                        Icon.keyboard(h),
+                        h.h2(
+                          [...title, h.Class("flex-1 text-[14px] font-semibold")],
+                          ["Keyboard shortcuts"],
+                        ),
+                        h.button(
+                          [
+                            ...closeButton,
+                            h.Type("button"),
+                            h.Class("btn"),
+                            h.DataAttribute("variant", "ghost"),
+                            h.DataAttribute("size", "sm"),
+                          ],
+                          ["Close", kbd(h, "esc")],
+                        ),
+                      ],
+                    ),
+                    shortcutList(h),
+                    h.p(
+                      [h.Class("mt-3 text-xs text-subtle-foreground")],
+                      ["Letter keys do nothing while you type in a field."],
+                    ),
+                  ],
+                ),
+              ]
+            : [],
+        ),
+    },
+    toParentMessage: (message) => Message.GotShortcutsDialogMessage({ message }),
+  })
+
 const toastVariantClass: Record<string, string> = {
   Success: "border-ready/40",
   Error: "border-failed/50",

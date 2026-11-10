@@ -6,7 +6,7 @@ type H = HtmlBuilder<Message>
 
 // ICONS (lucide-style strokes; always aria-hidden — the word next to them carries meaning)
 
-const icon = (h: H, paths: ReadonlyArray<string>, className = "size-3.5"): Html =>
+const icon = (h: H, paths: ReadonlyArray<string>, className = "size-[14px]"): Html =>
   h.svg(
     [
       h.ViewBox("0 0 24 24"),
@@ -76,6 +76,15 @@ export const Icon = {
     ),
   history: (h: H, c?: string) =>
     icon(h, ["M3 12a9 9 0 1 0 2.6-6.4L3 8", "M3 3v5h5", "M12 7v5l3 2"], c),
+  keyboard: (h: H, c?: string) =>
+    icon(
+      h,
+      [
+        "M3 7a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z",
+        "M7 10h.01M11 10h.01M15 10h.01M8 14h8",
+      ],
+      c,
+    ),
   inbox: (h: H, c?: string) =>
     icon(h, ["M4 13l2.5-7h11L20 13v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z", "M4 13h4l1 2h6l1-2h4"], c),
 }
@@ -150,7 +159,7 @@ const kindIcon = (h: H, item: Item, className?: string): Html => {
 export const itemBadge = (h: H, item: Item): Html =>
   h.span(
     [h.Class(`inline-flex items-center gap-1 text-xs font-semibold ${toneText[itemTone(item)]}`)],
-    [kindIcon(h, item, "size-3.5"), itemKindLabel(item)],
+    [kindIcon(h, item, "size-[12px]"), itemKindLabel(item)],
   )
 
 // HISTORY OUTCOMES (C-027): the daemon decides the outcome; these only word it (U-056).
@@ -208,7 +217,7 @@ export const outcomeBadge = (h: H, outcome: HistoryOutcome): Html =>
         `inline-flex items-center gap-1 text-xs font-semibold ${toneText[OUTCOME_TONE[outcome]]}`,
       ),
     ],
-    [outcomeIcon(h, outcome, "size-3.5"), OUTCOME_LABEL[outcome]],
+    [outcomeIcon(h, outcome, "size-[12px]"), OUTCOME_LABEL[outcome]],
   )
 
 /** What kind of item it was, without its state: History rows and the kind filter. */
@@ -230,7 +239,7 @@ const KIND_ICON: Record<AttentionKind, (h: H, c?: string) => Html> = {
 export const kindBadge = (h: H, kind: AttentionKind): Html =>
   h.span(
     [h.Class("inline-flex items-center gap-1 text-xs font-semibold text-subtle-foreground")],
-    [KIND_ICON[kind](h, "size-3.5"), KIND_WORD[kind]],
+    [KIND_ICON[kind](h, "size-[12px]"), KIND_WORD[kind]],
   )
 
 export const sessionStateLabel = (session: Session): string =>

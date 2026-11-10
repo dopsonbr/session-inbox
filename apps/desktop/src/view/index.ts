@@ -5,7 +5,7 @@ import { compactView } from "./compact.ts"
 import { detailView } from "./detail.ts"
 import { historyView } from "./history.ts"
 import { headerView, navView } from "./nav.ts"
-import { jumpDialogView, toastsView } from "./overlays.ts"
+import { jumpDialogView, shortcutsDialogView, toastsView } from "./overlays.ts"
 import { queueView } from "./queue.ts"
 import { settingsDialogView } from "./settings.ts"
 import { setupView } from "./setup.ts"
@@ -37,6 +37,7 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
                   : [navView(model, h), queueView(model, h), detailView(model, h)],
             ),
             jumpDialogView(model, h),
+            shortcutsDialogView(model, h),
             settingsDialogView(model, h),
             toastsView(model, h),
           ],

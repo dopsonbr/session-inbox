@@ -25,7 +25,7 @@ import {
   selectedHistoryEntry,
 } from "../selectors.ts"
 import { DETAIL_FORM } from "../shortcuts.ts"
-import { QuestionRadioGroup, SnoozeMenu } from "../update.ts"
+import { canMarkDone, QuestionRadioGroup, SnoozeMenu } from "../update.ts"
 import { markdownView } from "./markdown.ts"
 import {
   Icon,
@@ -64,26 +64,44 @@ const agentName = (snapshot: Option.Option<Snapshot>, detail: ItemDetail): Optio
     ),
   )
 
-const titleFor = (detail: ItemDetail): string => {
+const WANTS_TO = "Wants to "
+
+/**
+ * The detail's h1 (U-066). A permission says what is asked, from the daemon's summary ("Claude
+ * wants to edit src/window.ts +2 −1"); a finished item is in the past tense.
+ */
+export const titleFor = (detail: ItemDetail): string => {
   const { item, questions, approval } = detail
+  const isDone = item.queue === "done"
   if (item.kind === "question") {
-    return questions.length === 0
-      ? "Claude is waiting for your input"
-      : `Claude has ${questions.length} question${questions.length === 1 ? "" : "s"} for you`
+    const count = `${questions.length} question${questions.length === 1 ? "" : "s"}`
+    if (questions.length === 0) {
+      return isDone ? "Claude asked for your input" : "Claude is waiting for your input"
+    }
+    return isDone ? `Claude asked ${count}` : `Claude has ${count} for you`
   }
   if (item.kind === "permission") {
+    const lead = isDone ? "Claude asked to " : "Claude wants to "
+    if (item.summary?.startsWith(WANTS_TO) === true) {
+      const asked = item.summary.slice(WANTS_TO.length)
+      return `${lead}${asked.charAt(0).toLowerCase()}${asked.slice(1)}`
+    }
     return approval === null || approval.tool === "Bash"
-      ? "Claude wants to run a command"
-      : `Claude wants to use ${approval.tool}`
+      ? `${lead}run a command`
+      : `${lead}use ${approval.tool}`
   }
-  return item.kind === "failed" ? "Session stopped with errors" : "Ready for your review"
+  if (item.kind === "failed") {
+    return "Session stopped with errors"
+  }
+  return isDone ? "Session finished its work" : "Ready for your review"
 }
 
-const SNOOZE_ITEMS: ReadonlyArray<SnoozeAction> = [
+/** Review and failed items have Done in the header, so Dismiss leaves this menu (U-061). */
+export const snoozeItems = (detail: ItemDetail): ReadonlyArray<SnoozeAction> => [
   "snooze-15m",
   "snooze-1h",
   "snooze-tomorrow",
-  "dismiss",
+  ...(canMarkDone(detail) ? [] : (["dismiss"] as const)),
   "mute",
 ]
 
@@ -105,18 +123,18 @@ const snoozeMenuView = (model: Model, detail: ItemDetail, h: H): Html =>
         model: model.snoozeMenu,
         view: SnoozeMenu.view,
         viewInputs: {
-          items: SNOOZE_ITEMS,
+          items: snoozeItems(detail),
           anchor: { placement: "bottom-end", gap: 4, padding: 8 },
           ariaLabel: "Snooze or dismiss",
           itemToConfig: (action) => ({
             className:
-              "flex min-h-8 cursor-pointer items-center px-3 text-[13px] text-popover-foreground data-[active]:bg-accent",
+              "flex min-h-8 cursor-pointer items-center px-3 text-[13px] whitespace-nowrap text-popover-foreground data-[active]:bg-accent",
             content: h.span([], [snoozeLabel(action, detail)]),
           }),
           itemGroupKey: (action) => (action.startsWith("snooze") ? "snooze" : "other"),
           buttonContent: h.span(
             [h.Class("inline-flex items-center gap-1.5")],
-            [Icon.clock(h), "Snooze", Icon.chevronDown(h, "size-3")],
+            [Icon.clock(h), "Snooze", Icon.chevronDown(h, "size-[12px]")],
           ),
           buttonAttributes: childAttributes([
             h.Class("btn"),
@@ -125,7 +143,7 @@ const snoozeMenuView = (model: Model, detail: ItemDetail, h: H): Html =>
           ]),
           itemsAttributes: childAttributes([
             h.Class(
-              "z-20 w-56 overflow-hidden rounded-lg border border-border bg-popover py-1 shadow-lg outline-none",
+              "z-20 w-max min-w-56 overflow-hidden rounded-lg border border-border bg-popover py-1 shadow-lg outline-none",
             ),
           ]),
           separatorAttributes: childAttributes([h.Class("my-1 border-t border-border")]),
@@ -169,7 +187,8 @@ const detailHeader = (model: Model, detail: ItemDetail, h: H): Html => {
       h.div(
         [h.Class("flex gap-2")],
         [
-          // A finished item can't be snoozed or dismissed: the daemon answers 409 (U-057).
+          canMarkDone(detail) ? doneButton(model, h) : h.empty,
+          // A finished item can't be snoozed or dismissed: the daemon answers 409 (U-057, U-065).
           detail.item.queue === "done" ? h.empty : snoozeMenuView(model, detail, h),
           h.button(
             [
@@ -184,6 +203,23 @@ const detailHeader = (model: Model, detail: ItemDetail, h: H): Html => {
         ],
       ),
     ],
+  )
+}
+
+/** "I've read it, clear it" for a review or failed item: the dismiss intent, key `e` (U-061). */
+const doneButton = (model: Model, h: H): Html => {
+  const isSending = model.submission._tag === "Sending" && model.submission.action === "dismiss"
+  return h.button(
+    [
+      h.Type("button"),
+      h.Class("btn"),
+      h.DataAttribute("variant", "outline"),
+      h.DataAttribute("size", "lg"),
+      h.Disabled(isSending),
+      h.AriaKeyshortcuts("E"),
+      h.OnClick(Message.ClickedDone()),
+    ],
+    [Icon.check(h), "Done", kbd(h, "e")],
   )
 }
 
@@ -205,45 +241,49 @@ const endedLine = (model: Model, detail: ItemDetail, h: H): Html =>
     },
   )
 
-// CONTEXT STRIP
+// CONTEXT LINE
 
-export const contextStrip = (model: Model, detail: ItemDetail, h: H): Html => {
+/**
+ * The session's facts in one quiet line under the title (U-071): where it runs, the branch or
+ * worktree when there is one, its state (a word in its tone colour) and when it was last active.
+ * A labelled list, so a screen reader hears each fact.
+ */
+export const contextFacts = (model: Model, detail: ItemDetail, h: H): Html => {
   const { session } = detail
-  const cell = (label: string, value: Html | string, title: string, mono = false) =>
-    h.div(
-      [h.Class("min-w-0 bg-sidebar px-3 py-2.5")],
-      [
-        h.dt(
-          [h.Class("text-[11px] font-semibold uppercase tracking-[0.06em] text-subtle-foreground")],
-          [label],
-        ),
-        h.dd(
-          [
-            h.Class(
-              `m-0 mt-0.5 truncate text-[14px] font-medium ${mono ? "font-mono text-[13px]" : ""}`,
-            ),
-            h.Title(title),
-          ],
-          [value],
-        ),
-      ],
+  const branch = session.worktree ?? session.branch
+  const fact = (label: string, value: Html | string, title: string, className = "") =>
+    h.li(
+      [h.Class(`min-w-0 ${className}`), h.Title(title)],
+      [h.span([h.Class("sr-only")], [`${label}: `]), value],
     )
-  const branch = session.worktree ?? session.branch ?? "—"
-  // Always four cells: 4 across, or 2×2 when the pane is narrow (`.context-strip`, U-040).
-  return h.dl(
-    [h.Class("context-strip m-0 gap-px overflow-hidden rounded-xl border border-border bg-border")],
+  return h.ul(
     [
-      cell("Runs on", runtimeLabel(session), runtimeLabel(session)),
-      cell(session.worktree !== null ? "Worktree" : "Branch", branch, branch, true),
-      cell(
+      h.AriaLabel("Session"),
+      h.Class(
+        "context-facts m-0 -mt-2 flex list-none flex-wrap items-center p-0 text-[13px] text-muted-foreground",
+      ),
+    ],
+    [
+      fact("Runs on", runtimeLabel(session), runtimeLabel(session)),
+      branch === null
+        ? h.empty
+        : fact(
+            session.worktree !== null ? "Worktree" : "Branch",
+            h.span([h.Class("font-mono text-[12px] text-foreground")], [branch]),
+            `${session.worktree !== null ? "Worktree" : "Branch"}: ${branch}`,
+          ),
+      fact(
         "Session",
-        h.span([h.Class(toneText[sessionTone(session)])], [sessionStateLabel(session)]),
+        h.span(
+          [h.Class(`font-medium ${toneText[sessionTone(session)]}`)],
+          [sessionStateLabel(session)],
+        ),
         sessionStateLabel(session),
       ),
-      cell(
+      fact(
         "Last activity",
-        formatAgo(model.now, session.lastEventAt),
-        formatClock(session.lastEventAt),
+        `active ${formatAgo(model.now, session.lastEventAt)}`,
+        `Last activity at ${formatClock(session.lastEventAt)}`,
       ),
     ],
   )
@@ -376,10 +416,10 @@ const multiChoice = (form: Form, question: Question, h: H): Html => {
                   [
                     h.AriaHidden(true),
                     h.Class(
-                      "inline-flex size-4 items-center justify-center rounded border border-current",
+                      "inline-flex size-[16px] items-center justify-center rounded border border-current",
                     ),
                   ],
-                  [answer.selected.includes(option.label) ? Icon.check(h, "size-3") : h.empty],
+                  [answer.selected.includes(option.label) ? Icon.check(h, "size-[12px]") : h.empty],
                 ),
                 h.span([...label], [option.label]),
                 option.description === undefined
@@ -412,12 +452,11 @@ const questionFieldset = (form: Form, question: Question, position: number, h: H
             : h.empty,
         ],
       ),
+      question.multi ? multiChoice(form, question, h) : singleChoice(form, question, position, h),
+      // Always its own full-width row under the options (U-072).
       h.div(
-        [h.Class("flex flex-wrap items-center gap-2")],
+        [h.Class("flex")],
         [
-          question.multi
-            ? multiChoice(form, question, h)
-            : singleChoice(form, question, position, h),
           h.label(
             [h.For(otherId), h.Class("sr-only")],
             [`Other answer to question ${position + 1}`],
@@ -426,7 +465,7 @@ const questionFieldset = (form: Form, question: Question, position: number, h: H
             h.Id(otherId),
             h.Type("text"),
             h.Class(
-              `input min-h-8 min-w-52 flex-1 ${answer.other.trim() !== "" ? "border-2 border-primary" : ""}`,
+              `input min-h-8 w-full ${answer.other.trim() !== "" ? "border-2 border-primary" : ""}`,
             ),
             h.Placeholder("Other…"),
             h.Value(answer.other),
@@ -438,7 +477,7 @@ const questionFieldset = (form: Form, question: Question, position: number, h: H
   )
 }
 
-const deliveryNote = (model: Model, detail: ItemDetail, h: H): Html => {
+export const deliveryNote = (model: Model, detail: ItemDetail, h: H): Html => {
   const target = Option.getOrElse(
     agentName(model.maybeSnapshot, detail),
     () => detail.session.title ?? "the session",
@@ -455,7 +494,10 @@ const deliveryNote = (model: Model, detail: ItemDetail, h: H): Html => {
         ? [
             "Your answers go straight to ",
             h.strong([h.Class("font-semibold text-foreground")], [target]),
-            ". It's paused waiting for them.",
+            // Through Claude's own prompt nothing is paused: say what the approval card says.
+            detail.approval?.via === "permissionRequest"
+              ? `. ${ASKING_TOO_TEXT}`
+              : ". It's paused waiting for them.",
           ]
         : [
             "Your answers go to ",
@@ -635,11 +677,14 @@ const waitingInClaudeFooter = (
   ]
 }
 
+/** Claude's own prompt is open too (U-045); the question card says the same (U-067). */
+export const ASKING_TOO_TEXT =
+  "Claude is asking in its own window too; whichever is answered first wins."
+
 const decisionFooter = (
   model: Model,
   detail: ItemDetail,
   approval: Approval,
-  isDecided: boolean,
   disabled: boolean,
   h: H,
 ): ReadonlyArray<Html> => {
@@ -650,17 +695,15 @@ const decisionFooter = (
   // Offered only when the daemon says exactly which rule it would write (C-026).
   const alwaysAllow = approval.alwaysAllow
   const liveLine = viaRequest
-    ? `Claude is asking in its own window too; whichever is answered first wins.${within === null ? "" : ` The inbox can answer for ${within}.`}`
+    ? `${ASKING_TOO_TEXT}${within === null ? "" : ` The inbox can answer for ${within}.`}`
     : `Claude is paused on this. If you don't answer${within === null ? " soon" : ` within ${within}`}, Claude's own prompt takes over.`
   return [
     h.p(
       [h.Class("text-[13px] text-muted-foreground")],
       [
-        isDecided
-          ? `Decided: ${approval.decision ?? "answered"}${approval.decidedAt === null ? "" : ` at ${formatClock(approval.decidedAt)}`}.`
-          : detail.item.live
-            ? liveLine
-            : "Claude's own prompt has taken over — deciding here may not reach it. Open it in Claude.",
+        detail.item.live
+          ? liveLine
+          : "Claude's own prompt has taken over — deciding here may not reach it. Open it in Claude.",
       ],
     ),
     h.div(
@@ -691,10 +734,11 @@ const decisionFooter = (
               ],
               ["Always allow"],
             ),
+        denyNoteField(model, detail, disabled, h),
         h.button(
           [
             h.Type("button"),
-            h.Class("btn ml-auto"),
+            h.Class("btn"),
             h.DataAttribute("variant", "danger-outline"),
             h.DataAttribute("size", "lg"),
             h.Disabled(disabled),
@@ -707,6 +751,37 @@ const decisionFooter = (
     ),
     alwaysAllow === undefined ? h.empty : alwaysAllowHint(alwaysAllow, h),
   ]
+}
+
+export const DENY_NOTE_PLACEHOLDER = "Tell Claude why (optional)"
+
+/**
+ * One optional line beside Deny (U-063). With text, Deny (the button, ⌘⌫ outside the field, or
+ * Enter in it) sends it as the reason. Not part of the detail form: ⌘↵ in it allows nothing.
+ */
+const denyNoteField = (model: Model, detail: ItemDetail, disabled: boolean, h: H): Html => {
+  const id = `deny-note-${detail.item.id}`
+  return h.div(
+    [h.Class("ml-auto flex min-w-48 flex-1 justify-end")],
+    [
+      h.label([h.For(id), h.Class("sr-only")], ["Reason for denying (optional)"]),
+      h.input([
+        h.Id(id),
+        h.Type("text"),
+        h.Class("input h-9 w-full max-w-72 text-[13px]"),
+        h.Placeholder(DENY_NOTE_PLACEHOLDER),
+        h.Autocomplete("off"),
+        h.Value(model.denyNote),
+        h.Disabled(disabled),
+        h.OnInput((value) => Message.UpdatedDenyNote({ value })),
+        h.OnKeyDownPreventDefault((key, modifiers) =>
+          key === "Enter" && !modifiers.metaKey && !modifiers.ctrlKey
+            ? Option.some(Message.SubmittedDenyNote())
+            : Option.none(),
+        ),
+      ]),
+    ],
+  )
 }
 
 /**
@@ -746,11 +821,12 @@ const alwaysAllowHint = (alwaysAllow: string, h: H): Html => {
 export const approvalCard = (model: Model, detail: ItemDetail, approval: Approval, h: H): Html => {
   const { command, description } = commandPreview(approval)
   const isSending = model.submission._tag === "Sending" && model.submission.action === "decision"
+  // Decided here a moment ago (the item may still be on its way to done) reads like a finished
+  // one: the decision in words, no buttons, no Needs-you border (U-064).
   const isDecided = approval.decision !== null || detail.item.queue === "done"
   // Not held and not finished: Claude's own prompt is what's waiting (observed prompt, lapsed
   // hold, observer channel). Buttons here couldn't reach it (U-043).
-  const isWaitingInClaude = !detail.item.live && detail.item.queue !== "done"
-  const disabled = isSending || isDecided
+  const isWaitingInClaude = !detail.item.live && !isDecided
   // Daemon-computed preview (U-031); older approvals without one keep the plain block.
   const preview = previewView(h, approval, model.isPreviewExpanded)
   return h.section(
@@ -758,18 +834,21 @@ export const approvalCard = (model: Model, detail: ItemDetail, approval: Approva
       h.AriaLabel("Permission request"),
       h.Class(
         `flex min-w-0 flex-col gap-3 rounded-[14px] p-4 ${
-          detail.item.queue === "done" ? "border border-border" : "border-2 border-needs-strong"
+          isDecided ? "border border-border" : "border-2 border-needs-strong"
         }`,
       ),
     ],
     [
-      h.div(
-        [h.Class("flex items-center gap-2 text-[13px] text-muted-foreground")],
-        [
-          h.span([h.Class("font-semibold text-foreground")], [approval.tool]),
-          description === null || preview !== null ? h.empty : `· ${description}`,
-        ],
-      ),
+      // The title already says what is asked; with a preview the tool name adds nothing (U-066).
+      preview !== null
+        ? h.empty
+        : h.div(
+            [h.Class("flex items-center gap-2 text-[13px] text-muted-foreground")],
+            [
+              h.span([h.Class("font-semibold text-foreground")], [approval.tool]),
+              description === null ? h.empty : `· ${description}`,
+            ],
+          ),
       contextLine(h, approval),
       preview ??
         h.pre(
@@ -780,11 +859,11 @@ export const approvalCard = (model: Model, detail: ItemDetail, approval: Approva
           ],
           [h.code([], [command])],
         ),
-      ...(detail.item.queue === "done"
+      ...(isDecided
         ? [h.p([h.Class("text-[13px] text-muted-foreground")], [decisionLine(approval)])]
         : isWaitingInClaude
           ? waitingInClaudeFooter(model, h)
-          : decisionFooter(model, detail, approval, isDecided, disabled, h)),
+          : decisionFooter(model, detail, approval, isSending, h)),
     ],
   )
 }
@@ -912,7 +991,11 @@ const outboxIcon = (h: H, state: OutboxEntry["state"]): Html =>
         : Icon.clock(h)
 
 const deliveryView = (model: Model, detail: ItemDetail, h: H): Html => {
-  if (detail.outbox.length === 0 && !detail.item.unconfirmed && detail.item.state !== "answered") {
+  if (
+    detail.outbox.length === 0 &&
+    !detail.item.unconfirmed &&
+    (detail.item.state !== "answered" || detail.approval !== null)
+  ) {
     return h.empty
   }
   return h.section(
@@ -946,7 +1029,10 @@ const deliveryView = (model: Model, detail: ItemDetail, h: H): Html => {
               ],
             ),
           ),
-          ...(detail.outbox.length === 0 && detail.item.state === "answered"
+          // An approval's answer is its decision, said on the card (U-064).
+          ...(detail.outbox.length === 0 &&
+          detail.item.state === "answered" &&
+          detail.approval === null
             ? [
                 h.li(
                   [h.Class("flex items-center gap-2 text-[13px] text-ready")],
@@ -1002,7 +1088,7 @@ const activityView = (model: Model, detail: ItemDetail, h: H): Html => {
             [
               h.Type("button"),
               h.Class(
-                "ml-auto cursor-pointer text-[13px] text-working underline-offset-2 hover:underline",
+                "ml-auto inline-flex min-h-[24px] cursor-pointer items-center text-[13px] text-working underline-offset-2 hover:underline",
               ),
               h.OnClick(Message.ClickedOpenInClaude()),
             ],
@@ -1058,7 +1144,7 @@ const loadedView = (model: Model, detail: ItemDetail, h: H): ReadonlyArray<Html>
           : replyForm(model, detail, form, h)
   return [
     detailHeader(model, detail, h),
-    contextStrip(model, detail, h),
+    contextFacts(model, detail, h),
     lastMessageView(model, detail, h),
     action,
     deliveryView(model, detail, h),

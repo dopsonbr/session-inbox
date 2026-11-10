@@ -89,6 +89,48 @@ export const itemsInQueue = (
 export const workingSessions = (snapshot: Snapshot): ReadonlyArray<Session> =>
   snapshot.sessions.filter((s) => s.state === "running")
 
+/** `data-row` values: the same id can't name an item and a session (U-060). */
+export const itemRowId = (itemId: string) => `item:${itemId}`
+export const sessionRowId = (sessionId: string) => `session:${sessionId}`
+
+/**
+ * After `itemId` left `tab`, the item to select: the first one after it in display order that
+ * is still in the tab, else the last one before it (U-059). Working lists sessions: none.
+ */
+export const nextInTab = (
+  snapshot: Snapshot,
+  order: ReadonlyArray<string>,
+  tab: QueueTab,
+  itemId: string,
+): Option.Option<string> => {
+  if (tab === "working") {
+    return Option.none()
+  }
+  const at = order.indexOf(itemId)
+  const rest = itemsInQueue(snapshot, order, tab).filter((i) => i.id !== itemId)
+  const position = (id: string) => order.indexOf(id)
+  return Option.map(
+    Option.orElse(
+      Arr.findFirst(rest, (i) => position(i.id) > at),
+      () => Arr.findLast(rest, (i) => position(i.id) < at),
+    ),
+    (i) => i.id,
+  )
+}
+
+/** One step through a list from `current` (j / k): first or last when nothing is current. */
+export const stepThrough = (
+  ids: ReadonlyArray<string>,
+  current: Option.Option<string>,
+  direction: "next" | "previous",
+): Option.Option<string> => {
+  const at = Option.match(current, { onNone: () => -1, onSome: (id) => ids.indexOf(id) })
+  if (at === -1) {
+    return Arr.get(ids, direction === "next" ? 0 : ids.length - 1)
+  }
+  return Arr.get(ids, direction === "next" ? Math.min(ids.length - 1, at + 1) : Math.max(0, at - 1))
+}
+
 /** First open item of a session, preferring Needs you, in display order. */
 export const firstOpenItemForSession = (
   snapshot: Snapshot,

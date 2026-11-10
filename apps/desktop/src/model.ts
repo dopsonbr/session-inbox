@@ -158,6 +158,8 @@ export const Model = Schema.Struct({
   jumpDialog: Dialog.Model,
   jumpCombobox: Combobox.Model,
   snoozeMenu: Menu.Model,
+  /** The `?` list of keyboard shortcuts (U-073). */
+  shortcutsDialog: Dialog.Model,
   toasts: Toast.Model,
   settings: SettingsModel,
   /** Daemon update status as last streamed or returned (C-013); None = unsupported/unknown. */
@@ -177,6 +179,13 @@ export const Model = Schema.Struct({
   isLastMessageExpanded: Schema.Boolean,
   /** The daemon's 409 answer to a reply, shown under the reply box (U-035). */
   maybeReplyError: Schema.Option(Schema.String),
+  /** The optional "Tell Claude why" beside Deny (U-063); reset on selection change. */
+  denyNote: Schema.String,
+  /**
+   * The item an answer, decision, dismiss or snooze was sent for, when it was in the queue tab
+   * on screen: once it leaves that tab the next one is selected (U-059).
+   */
+  maybeAdvanceFrom: Schema.Option(Schema.String),
   history: HistoryModel,
 })
 export type Model = typeof Model.Type

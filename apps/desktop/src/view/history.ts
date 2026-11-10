@@ -7,7 +7,7 @@ import { Option } from "effect"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { Message } from "../message.ts"
 import type { Model } from "../model.ts"
-import { dayKey, dayLabel, formatAgo, formatClock } from "../selectors.ts"
+import { dayKey, dayLabel, formatAgo, formatClock, itemRowId } from "../selectors.ts"
 import { SettingsMessage } from "../settings.ts"
 import { inlineLineView } from "./markdown.ts"
 import { Icon, KIND_WORD, outcomeBadge } from "./parts.ts"
@@ -88,7 +88,7 @@ const searchForm = (model: Model, h: H): Html =>
 
 const kindFilter = (model: Model, h: H): Html =>
   h.div(
-    [h.Role("group"), h.AriaLabel("Kind"), h.Class("flex flex-wrap gap-1.5")],
+    [h.Role("group"), h.AriaLabel("Kind"), h.Class("flex flex-nowrap gap-1 overflow-x-auto")],
     KIND_FILTERS.map(({ kind, label }) => {
       const isSelected = model.history.kind === kind
       return h.button(
@@ -96,7 +96,7 @@ const kindFilter = (model: Model, h: H): Html =>
           h.Type("button"),
           h.AriaPressed(isSelected ? "true" : "false"),
           h.Class(
-            `h-7 cursor-pointer rounded-full px-2.5 text-xs ${
+            `h-7 shrink-0 cursor-pointer rounded-full px-2 text-xs whitespace-nowrap ${
               isSelected
                 ? "bg-primary font-semibold text-primary-foreground"
                 : "border border-input bg-card font-medium text-muted-foreground hover:bg-accent"
@@ -120,6 +120,7 @@ const entryRow = (model: Model, entry: HistoryEntry, h: H): Html => {
         [
           h.Type("button"),
           h.AriaCurrent(isSelected ? "true" : "false"),
+          h.DataAttribute("row", itemRowId(item.id)),
           h.Class(
             `flex w-full cursor-pointer flex-col gap-1 rounded-[14px] border bg-card px-3.5 py-2.5 text-left hover:bg-accent/60 ${
               isSelected ? "border-foreground/40 ring-1 ring-foreground/20" : "border-border"
@@ -143,7 +144,8 @@ const entryRow = (model: Model, entry: HistoryEntry, h: H): Html => {
             ],
           ),
           h.div(
-            [h.Class("truncate text-[15px] font-medium text-foreground")],
+            // Two lines before it truncates (U-075).
+            [h.Class("line-clamp-2 text-[15px] font-medium break-words text-foreground")],
             item.summary === null ? [KIND_WORD[item.kind]] : inlineLineView(h, item.summary),
           ),
           h.div(
@@ -289,13 +291,23 @@ export const historyView = (model: Model, h: H): Html =>
       h.Class("history flex min-h-0 flex-col gap-2 overflow-y-auto border-r border-border p-4"),
     ],
     [
-      h.h1(
-        [h.Id("history-title"), h.Class("mx-1 text-base font-bold tracking-tight")],
-        ["History"],
+      // The title, search and kind filter stay at the top while the list scrolls (U-075).
+      h.div(
+        [
+          h.Class(
+            "sticky -top-4 z-10 -mx-4 -mt-4 flex flex-col gap-2 border-b border-border bg-background px-4 pt-4 pb-1",
+          ),
+        ],
+        [
+          h.h1(
+            [h.Id("history-title"), h.Class("mx-1 text-base font-bold tracking-tight")],
+            ["History"],
+          ),
+          searchForm(model, h),
+          kindFilter(model, h),
+          statusLine(model, h),
+        ],
       ),
-      searchForm(model, h),
-      kindFilter(model, h),
-      statusLine(model, h),
       ...results(model, h),
     ],
   )

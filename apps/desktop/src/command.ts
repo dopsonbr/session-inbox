@@ -94,6 +94,22 @@ export const SendReply = Command.define("SendReply", {
     }).pipe(Effect.catch(actionFailed("reply"))),
 })
 
+/**
+ * Deny with a note (U-063): the reply intent, which the daemon turns into a denial with the
+ * text as its reason for a live hold. It reads as a decision here (toast, auto-advance).
+ */
+export const SendDenyNote = Command.define("SendDenyNote", {
+  args: { itemId: Schema.String, body: Schema.String },
+  messages: [Message.SucceededAction, Message.FailedAction],
+  execute: ({ itemId, body }) =>
+    Effect.gen(function* () {
+      const client = yield* DaemonClient
+      const idempotencyKey = yield* newIdempotencyKey
+      const response = yield* client.reply(itemId, { idempotencyKey, body })
+      return Message.SucceededAction({ action: "decision", itemId, response })
+    }).pipe(Effect.catch(actionFailed("decision"))),
+})
+
 export const SnoozeItem = Command.define("SnoozeItem", {
   args: { itemId: Schema.String, preset: SnoozePreset },
   messages: [Message.SucceededAction, Message.FailedAction],
@@ -337,6 +353,20 @@ export const WaitBeforeHistorySearch = Command.define("WaitBeforeHistorySearch",
   execute: ({ version }) =>
     Effect.sleep("250 millis").pipe(
       Effect.as(Message.CompletedWaitBeforeHistorySearch({ version })),
+    ),
+})
+
+/** `data-row` on a queue card, session card or History row (U-060). */
+export const rowSelector = (rowId: string) => `[data-row="${CSS.escape(rowId)}"]`
+
+/** Bring the row j / k (or auto-advance) just selected into view, if it isn't. */
+export const ScrollToRow = Command.define("ScrollToRow", {
+  args: { rowId: Schema.String },
+  messages: [Message.CompletedScrollToRow],
+  execute: ({ rowId }) =>
+    Dom.scrollIntoViewIfNotVisible(rowSelector(rowId), { block: "nearest" }).pipe(
+      Effect.catch(() => Effect.void),
+      Effect.as(Message.CompletedScrollToRow()),
     ),
 })
 

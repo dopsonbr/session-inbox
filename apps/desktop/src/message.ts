@@ -32,6 +32,10 @@ export type ShortcutTyping = typeof ShortcutTyping.Type
 export const SnoozePreset = Schema.Literals(["15m", "1h", "tomorrow"])
 export type SnoozePreset = typeof SnoozePreset.Type
 
+/** `j` / `k`: the next or previous row of the list on screen (U-060). */
+export const ListDirection = Schema.Literals(["next", "previous"])
+export type ListDirection = typeof ListDirection.Type
+
 export const TreeKey = Schema.Literals([
   "ArrowUp",
   "ArrowDown",
@@ -84,6 +88,18 @@ export const Message = defineMessageUnion({
   PressedSubmitShortcut: { typing: ShortcutTyping },
   PressedDenyShortcut: {},
   ClickedJumpField: {},
+  PressedListKey: { direction: ListDirection },
+  /** Done on a review or failed item: the dismiss intent (U-061). */
+  ClickedDone: {},
+  PressedDoneShortcut: {},
+  UpdatedDenyNote: { value: Schema.String },
+  SubmittedDenyNote: {},
+  /** Allow or Deny on a popover row, for an item that isn't selected (U-062). */
+  ClickedRowDecision: { itemId: Schema.String, decision: Decision },
+  PressedShortcutsKey: {},
+  ClickedShortcuts: {},
+  GotShortcutsDialogMessage: { message: Dialog.Message },
+  CompletedScrollToRow: {},
 
   GotSnoozeMenuMessage: { message: Menu.Message },
   GotJumpDialogMessage: { message: Dialog.Message },

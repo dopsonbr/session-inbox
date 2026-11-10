@@ -89,6 +89,28 @@ export const subscriptions = Subscription.aggregate(
                 isEnabled: isFull,
                 mapEvent: () => Message.PressedDenyShortcut(),
               },
+              // Plain letters: never while typing in a field (the default), and update
+              // ignores them while a dialog or menu is open (U-060, U-061, U-073).
+              {
+                keys: "J",
+                isEnabled: isFull,
+                mapEvent: () => Message.PressedListKey({ direction: "next" }),
+              },
+              {
+                keys: "K",
+                isEnabled: isFull,
+                mapEvent: () => Message.PressedListKey({ direction: "previous" }),
+              },
+              {
+                keys: "E",
+                isEnabled: isFull,
+                mapEvent: () => Message.PressedDoneShortcut(),
+              },
+              {
+                keys: "Shift+?",
+                isEnabled: isFull,
+                mapEvent: () => Message.PressedShortcutsKey(),
+              },
               {
                 keys: "Mod+,",
                 isEnabled: isFull,

@@ -18,7 +18,7 @@ import { presentFields, SettingsMessage } from "../src/settings.ts"
 import { initialModel, type UpdateReturn, update } from "../src/update.ts"
 import {
   approvalCard,
-  contextStrip,
+  contextFacts,
   lastMessageView,
   questionForm,
   replyForm,
@@ -58,7 +58,7 @@ const loadedDetail = (model: Model): ItemDetail => {
 const detailParts = (model: Model) => {
   const detail = loadedDetail(model)
   return [
-    contextStrip(model, detail, h),
+    contextFacts(model, detail, h),
     lastMessageView(model, detail, h),
     replyForm(model, detail, Option.getOrThrow(model.maybeForm), h),
   ]
@@ -75,10 +75,10 @@ describe("relative time", () => {
     expect(formatAgo(NOW, NOW + 5 * MIN)).toBe("just now")
   })
 
-  test("the context strip never reads 'now ago'", () => {
+  test("the context line never reads 'now ago'", () => {
     const text = textOf(detailParts(showing("i-pv-edit")))
     expect(text).not.toContain("now ago")
-    expect(text).toMatch(/Last activity(just now|\d+ (min|h|d) ago)/)
+    expect(text).toMatch(/Last activity: active (just now|\d+ (min|h|d) ago)/)
   })
 })
 
@@ -326,11 +326,25 @@ describe("reply box honesty", () => {
   })
 })
 
-describe("context strip and tree", () => {
-  test("always four cells", () => {
-    const view = detailParts(showing("i-ravelo-migrate"))
-    const strip = findAll(view, "dl")[0]
-    expect(strip?.children).toHaveLength(4)
+describe("context line and tree", () => {
+  test("one labelled list of facts; no boxes; the branch only when there is one (U-071)", () => {
+    const model = showing("i-ravelo-migrate")
+    const detail = loadedDetail(model)
+    const line = contextFacts(model, detail, h)
+    expect(findAll(line, "dl")).toHaveLength(0)
+    expect(attrOf(line as never, "aria-label")).toBe("Session")
+    const facts = findAll(line, "li")
+    expect(facts).toHaveLength(4)
+    expect(textOf(line)).toContain("Waiting on you")
+    expect(textOf(line)).toContain("Branch: ")
+    const noBranch = contextFacts(
+      model,
+      { ...detail, session: { ...detail.session, branch: null, worktree: null } },
+      h,
+    )
+    expect(findAll(noBranch, "li")).toHaveLength(3)
+    expect(textOf(noBranch)).not.toContain("Branch")
+    expect(textOf(noBranch)).not.toContain("—")
   })
 
   test("an unnamed subagent reads 'agent'", () => {
@@ -388,19 +402,19 @@ describe("settings: retention days", () => {
     }
   }
 
-  test("Approvals in the default mode: minutes field, hold settings disabled with a note (U-044)", () => {
+  test("Approvals in the default mode: minutes field; the classic hold's settings hidden (U-074)", () => {
     const view = settingsBody(opened(fakeResponse()), h)
     const text = textOf(view)
     expect(text).toContain("Answer Claude's own prompt (recommended)")
     expect(text).toContain("Hold the tool call before Claude asks (classic)")
     expect(text).toContain("Then the inbox stops answering")
-    expect(text.split("Not used while the inbox answers Claude's own prompt.")).toHaveLength(4)
-    const tools = findAll(view, "input").filter((n) =>
-      String(attrOf(n, "id") ?? "").startsWith("setting-holds-tools-"),
-    )
-    expect(tools.length === 0 || tools.every((n) => attrOf(n, "disabled") === true)).toBe(true)
+    expect(text).not.toContain("Not used while the inbox answers Claude's own prompt.")
+    expect(text).not.toContain("Tools that can be held")
+    expect(text).not.toContain("Bash commands never held")
+    // One "Wait for an answer" on screen, never both.
+    expect(text.split("Wait for an answer")).toHaveLength(2)
     const budget = findAll(view, "input").find((n) => attrOf(n, "id") === "setting-holds-budgetMs")
-    expect(attrOf(budget as never, "disabled")).toBe(true)
+    expect(budget).toBeUndefined()
   })
 
   test("Approvals in the classic mode: no minutes field, hold settings enabled", () => {
@@ -413,6 +427,9 @@ describe("settings: retention days", () => {
     const text = textOf(view)
     expect(text).not.toContain("Not used while the inbox answers Claude's own prompt.")
     expect(text).not.toContain("Then the inbox stops answering")
+    expect(text).toContain("Tools that can be held")
+    expect(text).toContain("Bash commands never held")
+    expect(text.split("Wait for an answer")).toHaveLength(2)
     const budget = findAll(view, "input").find((n) => attrOf(n, "id") === "setting-holds-budgetMs")
     expect(attrOf(budget as never, "disabled")).not.toBe(true)
   })

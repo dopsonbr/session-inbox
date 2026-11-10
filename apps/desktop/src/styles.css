@@ -113,6 +113,17 @@
   --color-rail: var(--rail);
 }
 
+/*
+ * Type scale in pixels (U-068): the root is 13px, so the rem defaults made text-xs 9.75px.
+ * Nothing in the app is set below 11px.
+ */
+@theme {
+  --text-xs: 11px;
+  --text-xs--line-height: 16px;
+  --text-sm: 12px;
+  --text-sm--line-height: 16px;
+}
+
 @layer base {
   html {
     font-size: 13px;
@@ -180,19 +191,11 @@
   flex-shrink: 0;
 }
 
-/* Context strip: 4 across, 2×2 when the detail pane is narrow (cells under ~160 px would
-   truncate "This Mac · desktop app"); never an empty filler cell. */
-.detail {
-  container-type: inline-size;
-}
-.context-strip {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-@container (min-width: 640px) {
-  .context-strip {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
+/* Context line (U-071): the session's facts in one line, a middle dot between them. */
+.context-facts > li + li::before {
+  content: "·";
+  margin: 0 0.4rem;
+  color: var(--subtle-foreground);
 }
 
 .setup-check {
