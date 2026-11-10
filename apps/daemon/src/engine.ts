@@ -173,6 +173,11 @@ export const TEST_NOTIFICATION = {
   body: "If you can read this, notifications work. Click to open the inbox.",
 }
 
+/** A live request with no long-poll attached for longer than this has no hook left (D-080). */
+export const NO_POLL_LAPSE_MS = 20_000
+/** A poll that closed while the daemon runs gets this long to be re-polled (D-080). */
+export const POLL_DROP_GRACE_MS = 5_000
+
 const LAST_MESSAGE_MAX = 20_000
 const DOCTOR_RECHECK_MS = 60_000
 const PRUNE_EVERY_MS = 24 * 3600_000
@@ -306,6 +311,17 @@ export class Engine {
   private readonly inflight = new Set<Promise<unknown>>()
   private readonly sendingSessions = new Set<string>()
   private lastBadge = -1
+  /**
+   * Per live request (D-080), in memory: long-polls attached now, when one last was, and when
+   * the last one closed early while we were running. At startup every live request counts as
+   * polled now, so the hooks that are retrying (H-050) have a window to come back.
+   */
+  private readonly polls = new Map<
+    string,
+    { attached: number; lastAt: number; droppedAt: number | null }
+  >()
+  /** Set before the sockets close on a graceful stop: aborted polls then mean nothing (D-080). */
+  stopping = false
 
   /** What the connected menu-bar app last said about itself (C-022); reset when none is connected. */
   private shell: { status: ShellStatus | null; connectedAt: number | null } = {
@@ -333,6 +349,10 @@ export class Engine {
     this.startedAt = deps.clock.now()
     this.hub.onShellChange = (connected) => this.onShellChange(connected)
     this.lastBadge = this.store.counts().needsYou
+    for (const r of this.store.all<{ hook_request_id: string }>(
+      "SELECT hook_request_id FROM approvals WHERE live = 1",
+    ))
+      this.pollEntry(r.hook_request_id)
     const last = this.store.one<{ payload_json: string }>(
       "SELECT payload_json FROM events WHERE hook = 'daemon:shell-status' ORDER BY seq DESC LIMIT 1",
     )
@@ -1225,6 +1245,7 @@ export class Engine {
     let requestId: string | null = null
     if (hold) {
       requestId = newId("rq")
+      this.polls.set(requestId, { attached: 0, lastAt: this.now(), droppedAt: null })
       this.store.run(
         `INSERT OR REPLACE INTO approvals (item_id, hook_request_id, tool, input_json, tool_use_id, decision,
            reason, updated_input_json, live, decided_at, expires_at) VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, 1, NULL, ?)`,
@@ -1269,12 +1290,22 @@ export class Engine {
       this.lapseRequest(c, a)
       return
     }
-    let key: string | null = null
-    try {
-      key = inputKey(a.tool, JSON.parse(a.input_json))
-    } catch {
-      key = null
-    }
+    this.lapseIntoClaude(c, a)
+  }
+
+  /**
+   * Decision `ask`, non-live, the item stays open as Claude's own prompt with one Open-only
+   * "Still waiting in Claude" notification (D-073). A classic budget lapse, and any live
+   * request that lost its hook (D-080).
+   */
+  private lapseIntoClaude(c: Changes, a: ApprovalRow) {
+    let key: string | null = a.input_key ?? null
+    if (key === null)
+      try {
+        key = inputKey(a.tool, JSON.parse(a.input_json))
+      } catch {
+        key = null
+      }
     this.store.run(
       "UPDATE approvals SET decision = 'ask', live = 0, decided_at = ?, input_key = ? WHERE item_id = ?",
       this.now(),
@@ -1463,6 +1494,7 @@ export class Engine {
     }
     const budget = this.settings["holds.requestBudgetMs"]
     const requestId = decide ? newId("rq") : newId("ob")
+    if (decide) this.polls.set(requestId, { attached: 0, lastAt: this.now(), droppedAt: null })
     const suggestions =
       p.permission_suggestions === undefined ? null : JSON.stringify(p.permission_suggestions)
     this.store.run(
@@ -1729,30 +1761,23 @@ export class Engine {
     const remaining = first.expires_at - this.now()
     const waitMs = Math.max(0, Math.min(waitSeconds * 1000, remaining))
     let abandoned = false
-    if (waitMs > 0 && !signal?.aborted) {
-      await new Promise<void>((resolve) => {
-        const done = () => {
-          clearTimeout(timer)
-          this.waiters.get(requestId)?.delete(done)
-          signal?.removeEventListener("abort", onAbort)
-          resolve()
-        }
-        const onAbort = () => {
+    const poll = this.pollEntry(requestId)
+    poll.attached++
+    poll.droppedAt = null
+    poll.lastAt = this.now()
+    try {
+      if (waitMs > 0 && !signal?.aborted)
+        await this.waitFor(requestId, waitMs, signal, () => {
           abandoned = true
-          done()
-        }
-        const timer = setTimeout(done, waitMs)
-        let set = this.waiters.get(requestId)
-        if (!set) {
-          set = new Set()
-          this.waiters.set(requestId, set)
-        }
-        set.add(done)
-        signal?.addEventListener("abort", onAbort)
-      })
+        })
+    } finally {
+      poll.attached = Math.max(0, poll.attached - 1)
+      poll.lastAt = this.now()
     }
     if (abandoned || signal?.aborted) {
-      this.requestAbandoned(requestId)
+      // A graceful stop closes every poll: the rows stay live for the hooks to find again.
+      // Otherwise the hook went away (or stalled): give it a moment to re-poll (D-080).
+      if (!this.stopping && poll.attached === 0) poll.droppedAt = this.now()
       return { decision: "ask" }
     }
     let a = this.store.approvalByRequest(requestId)
@@ -1769,6 +1794,98 @@ export class Engine {
       a = this.store.approvalByRequest(requestId) as ApprovalRow
     }
     return this.hookResponse(a)
+  }
+
+  /** The poll bookkeeping for a live request; a miss counts as polled now (D-080). */
+  private pollEntry(requestId: string) {
+    let e = this.polls.get(requestId)
+    if (!e) {
+      e = { attached: 0, lastAt: this.now(), droppedAt: null }
+      this.polls.set(requestId, e)
+    }
+    return e
+  }
+
+  /** Live in the DB, but no hook has polled it for over NO_POLL_LAPSE_MS: nobody would hear us. */
+  private orphaned(a: ApprovalRow, now: number): boolean {
+    if (a.live !== 1 || a.decision !== null) return false
+    const e = this.pollEntry(a.hook_request_id)
+    return e.attached === 0 && now - e.lastAt > NO_POLL_LAPSE_MS
+  }
+
+  /** Lapse an orphaned live request into Claude's own prompt (D-080). */
+  private lapseOrphan(a: ApprovalRow) {
+    this.tx((c) => {
+      const item = this.store.item(a.item_id)
+      this.appendEvent(c, {
+        sessionId: item?.session_id ?? null,
+        agentId: item?.agent_id ?? null,
+        hook: "daemon:hold-orphaned",
+        payload: { itemId: a.item_id, requestId: a.hook_request_id },
+      })
+      this.lapseIntoClaude(c, a)
+      if (item) this.setSessionState(c, item.session_id, "waiting")
+    })
+    this.polls.delete(a.hook_request_id)
+  }
+
+  /** Before an intent answers through the hook: a request nobody polls is lapsed first (D-080). */
+  private lapseIfOrphaned(itemId: string) {
+    const a = this.store.approval(itemId)
+    if (a && this.orphaned(a, this.now())) this.lapseOrphan(a)
+  }
+
+  /**
+   * On the tick (D-080): a poll that closed early and wasn't re-polled within the grace is a
+   * PermissionRequest answered in Claude (D-070; a classic hold keeps waiting for the lapse
+   * below); a live request with no poll for NO_POLL_LAPSE_MS lapses into Claude's prompt.
+   */
+  private checkPolls(now: number) {
+    const live = this.store.all<ApprovalRow>(
+      "SELECT * FROM approvals WHERE live = 1 AND decision IS NULL",
+    )
+    const ids = new Set(live.map((a) => a.hook_request_id))
+    for (const id of this.polls.keys()) if (!ids.has(id)) this.polls.delete(id)
+    for (const a of live) {
+      const e = this.pollEntry(a.hook_request_id)
+      if (e.attached > 0) continue
+      if (e.droppedAt !== null && now - e.droppedAt >= POLL_DROP_GRACE_MS) {
+        e.droppedAt = null
+        if (a.via === "permissionRequest") {
+          this.requestAbandoned(a.hook_request_id)
+          continue
+        }
+      }
+      if (this.orphaned(a, now)) this.lapseOrphan(a)
+    }
+  }
+
+  private waitFor(
+    requestId: string,
+    waitMs: number,
+    signal: AbortSignal | undefined,
+    onAbort: () => void,
+  ): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const done = () => {
+        clearTimeout(timer)
+        this.waiters.get(requestId)?.delete(done)
+        signal?.removeEventListener("abort", aborted)
+        resolve()
+      }
+      const aborted = () => {
+        onAbort()
+        done()
+      }
+      const timer = setTimeout(done, waitMs)
+      let set = this.waiters.get(requestId)
+      if (!set) {
+        set = new Set()
+        this.waiters.set(requestId, set)
+      }
+      set.add(done)
+      signal?.addEventListener("abort", aborted)
+    })
   }
 
   // -------------------------------------------------------------------------
@@ -1824,10 +1941,10 @@ export class Engine {
   ) {
     const a = this.store.approval(item.id)
     if (!a) throw conflict("item has no approval")
-    if (a.decision !== null) {
-      if (a.decision === decision) return
-      throw conflict(`already decided: ${a.decision}`)
-    }
+    if (a.decision !== null && a.decision === decision) return
+    // Claude's own prompt, lapsed or never ours to answer: only Claude's window can (D-073, D-080).
+    if (a.live === 0 && this.isWaitingInClaude(item)) throw conflict(ANSWER_IN_CLAUDE)
+    if (a.decision !== null) throw conflict(`already decided: ${a.decision}`)
     if (a.live === 0) throw conflict("hook is no longer held")
     this.appendEvent(c, {
       sessionId: item.session_id,
@@ -1901,6 +2018,7 @@ export class Engine {
     idempotencyKey: string | null,
     source = "ui",
   ): ActionResponse {
+    this.lapseIfOrphaned(itemId)
     return this.tx((c) =>
       this.idempotent(idempotencyKey, "decision", itemId, () => {
         const item = this.requireItem(itemId)
@@ -1916,6 +2034,7 @@ export class Engine {
       idempotencyKey,
     )
     if (existing) return this.respond(existing.item_id ?? itemId)
+    this.lapseIfOrphaned(itemId)
     const result = this.tx((c) =>
       this.idempotent(idempotencyKey, "answers", itemId, () => {
         const item = this.requireItem(itemId)
@@ -1972,6 +2091,7 @@ export class Engine {
       idempotencyKey,
     )
     if (existing) return this.respond(existing.item_id ?? itemId)
+    this.lapseIfOrphaned(itemId)
     const result = this.tx((c) =>
       this.idempotent(idempotencyKey, "reply", itemId, () => {
         const item = this.requireItem(itemId)
@@ -2814,6 +2934,7 @@ export class Engine {
         if (item) this.setSessionState(c, item.session_id, "waiting")
       })
     }
+    this.checkPolls(now)
     for (const r of this.store.all<ItemRow>(
       "SELECT * FROM attention_items WHERE state = 'snoozed' AND snooze_until <= ?",
       now,

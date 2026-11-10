@@ -15,6 +15,7 @@ import {
   type UpdateMemo,
 } from "../src/updates.ts"
 import {
+  attachPoll,
   envelope,
   FakeClaude,
   FakeClock,
@@ -141,12 +142,14 @@ describe("auto-apply only when quiet", () => {
       envelope("PreToolUse", { ...base, tool_name: "Bash", tool_input: { command: "rm x" } }),
     )
     expect(r.requestId).not.toBeNull()
+    const detach = attachPoll(t.h.engine, r.requestId)
     await t.step(STARTUP_CHECK_DELAY_MS)
     expect(t.m.status()).toMatchObject({ state: "available", auto: true })
     expect(t.updater.applied).toEqual([])
     const item = t.h.engine.snapshot().items[0]
     expect(t.h.engine.busyReason(QUIET_MS)).toBe("a held tool call is waiting")
     t.h.engine.decide(item?.id ?? "", "allow", "k1")
+    detach()
     expect(t.h.engine.busyReason(QUIET_MS)).toBeNull()
     await t.step(1000)
     expect(t.updater.applied).toEqual(["0.3.0"])

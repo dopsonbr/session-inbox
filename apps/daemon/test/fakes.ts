@@ -203,3 +203,13 @@ export const envelope = (event: string, payload: Record<string, unknown>, e = en
   env: e,
   sentAt: T0,
 })
+
+/**
+ * A hook's long-poll attached to a live request, as a real hook keeps one (D-080): without it a
+ * request that sees no poll for 20 s on the fake clock lapses. Returns the detach function.
+ */
+export const attachPoll = (engine: Engine, requestId: string | null): (() => void) => {
+  const ctrl = new AbortController()
+  void engine.waitDecision(requestId ?? "", 3600, ctrl.signal)
+  return () => ctrl.abort()
+}

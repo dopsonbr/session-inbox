@@ -347,6 +347,13 @@ describe("decide mode (holds.via = permissionRequest, the default since D-074)",
     await Bun.sleep(10)
     ctrl.abort()
     await waiting
+    // Not at once: the hook gets 5 s to re-poll after a stall (D-080).
+    expect(shape(h)).toEqual([["permission", "open"]])
+    h.clock.advance(4_000)
+    h.engine.tick()
+    expect(shape(h)).toEqual([["permission", "open"]])
+    h.clock.advance(1_000)
+    h.engine.tick()
     expect(shape(h)).toEqual([["permission", "resolved"]])
     expect(rows(h).approvals[0]?.live).toBe(0)
     expect(rows(h).notifications[0]?.state).toBe("cleared")
@@ -357,6 +364,37 @@ describe("decide mode (holds.via = permissionRequest, the default since D-074)",
       ),
     ).toBe(true)
     expect(published).toContain("delta")
+  })
+
+  test("a poll that closes and is re-polled within 5 s stays live; a decision still lands", async () => {
+    const h = makeHarness({ settings: DECIDE })
+    const r = await decideReq(h, "t1", "rm -rf build")
+    const ctrl = new AbortController()
+    const first = h.engine.waitDecision(r.requestId ?? "", 30, ctrl.signal)
+    await Bun.sleep(5)
+    ctrl.abort()
+    await first
+    h.clock.advance(1_000)
+    const again = h.engine.waitDecision(r.requestId ?? "", 30)
+    h.clock.advance(10_000)
+    h.engine.tick()
+    expect(shape(h)).toEqual([["permission", "open"]])
+    h.engine.decide(rows(h).items[0]?.id ?? "", "allow", null)
+    expect((await again).decision).toBe("allow")
+  })
+
+  test("a graceful stop's closed polls change nothing", async () => {
+    const h = makeHarness({ settings: DECIDE })
+    const r = await decideReq(h, "t1", "rm -rf build")
+    const ctrl = new AbortController()
+    const waiting = h.engine.waitDecision(r.requestId ?? "", 30, ctrl.signal)
+    await Bun.sleep(5)
+    h.engine.stopping = true
+    ctrl.abort()
+    await waiting
+    h.clock.advance(6_000)
+    h.engine.tick()
+    expect(h.engine.snapshot().items.map((i) => [i.state, i.live])).toEqual([["open", true]])
   })
 
   test("a PreToolUse hook's poll closing changes nothing (it may re-poll)", async () => {
