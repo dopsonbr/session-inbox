@@ -60,6 +60,8 @@ export interface DaemonServices {
   readonly updater?: UpdaterShape | null
   /** Preview reads (D-056); the live filesystem when omitted. */
   readonly files?: FilesShape
+  /** Claude process liveness (D-090); signal 0 when omitted. */
+  readonly alive?: (pid: number) => boolean
 }
 
 export interface DaemonHandle {

@@ -46,6 +46,8 @@ export interface SessionRow {
   state: string
   created_at: number
   last_event_at: number
+  /** Migration 005 (D-090): the Claude process its hooks came from. */
+  claude_pid?: number | null
 }
 export interface AgentRow {
   id: string

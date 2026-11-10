@@ -102,6 +102,7 @@ import {
   type LoggerShape,
   type NotifierShape,
   type OpenerShape,
+  processAlive,
   UNKNOWN_AUTH,
 } from "./services.ts"
 import { DEFAULT_SETTINGS, type Settings } from "./settings.ts"
@@ -136,6 +137,8 @@ export interface EngineDeps {
   readonly log: LoggerShape
   /** Preview reads (D-056); the live filesystem when omitted. */
   readonly files?: FilesShape
+  /** Is a Claude process still running (D-090)? `processAlive` (signal 0) when omitted. */
+  readonly alive?: (pid: number) => boolean
   /** Usually ~/.claude; injectable so tests never read the real one. */
   readonly claudeConfigDir: string
   readonly settings: Settings
@@ -194,6 +197,9 @@ export const POLL_DROP_GRACE_MS = 5_000
 /** A tail that starts this long after an item opened can no longer hold its call (D-089). */
 const TAIL_GONE_MS = 60_000
 
+/** How often the tick checks that Claude is still running for its waiting prompts (D-090). */
+const LIVENESS_EVERY_MS = 10_000
+
 /** How long an ingest waits for git before answering without it (D-081). */
 const GIT_WAIT_MS = 50
 
@@ -235,6 +241,15 @@ export const STILL_WAITING_PREFIX = "Still waiting in Claude: "
 
 const PERMISSION_NOTIFICATIONS = new Set(["permission_prompt", "worker_permission_prompt"])
 const INPUT_NOTIFICATIONS = new Set(["idle_prompt", "agent_needs_input"])
+
+/** The hook envelope's Claude pid, when it is a plausible one (D-090). */
+const pidOf = (env: HookEnv): number | null =>
+  typeof env.claudePid === "number" &&
+  Number.isInteger(env.claudePid) &&
+  env.claudePid > 1 &&
+  env.claudePid !== process.pid
+    ? env.claudePid
+    : null
 
 const mainAgentId = (sessionId: string) => `${sessionId}:main`
 const subAgentId = (sessionId: string, agentId: string) => `${sessionId}:${agentId}`
@@ -384,6 +399,7 @@ export class Engine {
   lastHookAt: number | null = null
   private nextDoctorAt = 0
   private nextPruneAt = 0
+  private nextLivenessAt = 0
   /** Set by the setup check: re-evaluate and tell pages when its attention count changed. */
   onDoctorChange: (() => void) | null = null
 
@@ -823,8 +839,8 @@ export class Engine {
     if (!existing) {
       this.store.run(
         `INSERT INTO sessions (id, project_id, title, runtime, host_session_id, cwd, branch, worktree,
-           transcript_path, permission_mode, state, created_at, last_event_at)
-         VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'idle', ?, ?)`,
+           transcript_path, permission_mode, state, created_at, last_event_at, claude_pid)
+         VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'idle', ?, ?, ?)`,
         p.session_id,
         projectId,
         runtime ?? "unknown",
@@ -836,6 +852,7 @@ export class Engine {
         p.permission_mode ?? null,
         now,
         now,
+        pidOf(env),
       )
     } else {
       this.store.run(
@@ -844,7 +861,7 @@ export class Engine {
            host_session_id = COALESCE(?, host_session_id), cwd = COALESCE(?, cwd),
            branch = COALESCE(?, branch), worktree = CASE WHEN ? THEN ? ELSE worktree END,
            transcript_path = COALESCE(?, transcript_path), permission_mode = COALESCE(?, permission_mode),
-           last_event_at = ? WHERE id = ?`,
+           claude_pid = COALESCE(?, claude_pid), last_event_at = ? WHERE id = ?`,
         projectId,
         runtime,
         runtime,
@@ -855,6 +872,7 @@ export class Engine {
         git?.worktree ?? null,
         p.transcript_path ?? null,
         p.permission_mode ?? null,
+        pidOf(env),
         now,
         p.session_id,
       )
@@ -3236,6 +3254,59 @@ export class Engine {
       this.onDoctorChange?.()
     }
     if (now >= this.nextPruneAt) this.prune(false)
+    if (now >= this.nextLivenessAt) {
+      this.nextLivenessAt = now + LIVENESS_EVERY_MS
+      this.endGoneSessions()
+    }
+  }
+
+  /**
+   * Claude died without a SessionEnd (killed, terminal closed, reboot), D-090: for sessions with
+   * an open item that is Claude's own prompt (or a live request), check the stored Claude pid
+   * with signal 0; when that process is gone, resolve those items (`daemon:session-gone`), end
+   * the session and its agents. Nothing else is ever signalled.
+   */
+  private endGoneSessions() {
+    const alive = this.deps.alive ?? processAlive
+    const rows = this.store.all<{ id: string; claude_pid: number }>(
+      `SELECT DISTINCT s.id, s.claude_pid FROM sessions s
+         JOIN attention_items i ON i.session_id = s.id JOIN approvals a ON a.item_id = i.id
+         WHERE s.state != 'ended' AND s.claude_pid IS NOT NULL AND s.claude_pid > 1
+           AND i.state IN ('open','snoozed') AND (${WAITING_IN_CLAUDE} OR a.live = 1)`,
+    )
+    for (const r of rows) {
+      let gone = false
+      try {
+        gone = r.claude_pid !== process.pid && !alive(r.claude_pid)
+      } catch (e) {
+        this.deps.log.warn("liveness check failed", e)
+      }
+      if (!gone) continue
+      this.tx((c) => {
+        this.appendEvent(c, {
+          sessionId: r.id,
+          hook: "daemon:session-gone",
+          payload: { pid: r.claude_pid },
+        })
+        for (const a of this.store.all<ApprovalRow>(
+          `SELECT a.* FROM approvals a JOIN attention_items i ON i.id = a.item_id
+             WHERE i.session_id = ? AND i.state IN ('open','snoozed') AND (${WAITING_IN_CLAUDE} OR a.live = 1)`,
+          r.id,
+        )) {
+          this.store.run("UPDATE approvals SET live = 0 WHERE item_id = ?", a.item_id)
+          const item = this.store.item(a.item_id)
+          if (item) this.apply(c, item, { _tag: "Supersede" })
+          this.clearNotifications(c, a.item_id)
+          c.after.push(() => this.wake(a.hook_request_id))
+        }
+        this.setSessionState(c, r.id, "ended")
+        for (const ag of this.store.all<AgentRow>(
+          "SELECT * FROM agents WHERE session_id = ? AND state IN ('running','waiting')",
+          r.id,
+        ))
+          this.setAgentState(c, ag.id, "done", true)
+      })
+    }
   }
 
   /**

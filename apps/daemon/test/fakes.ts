@@ -156,6 +156,8 @@ export interface Harness {
   opener: FakeOpener
   files: FakeFiles
   claudeDir: string
+  /** Claude pids the liveness probe reports gone (D-090); every other pid is alive. */
+  dead: Set<number>
 }
 
 export const makeHarness = (
@@ -168,6 +170,7 @@ export const makeHarness = (
   const notifier = new FakeNotifier()
   const opener = new FakeOpener()
   const claudeDir = mkdtempSync(join(tmpdir(), "inboxd-claude-"))
+  const dead = new Set<number>()
   const engine = new Engine({
     db: openDb(opts.dbFile ?? ":memory:"),
     clock,
@@ -177,10 +180,11 @@ export const makeHarness = (
     opener,
     log: silentLog,
     files,
+    alive: (pid) => !dead.has(pid),
     claudeConfigDir: claudeDir,
     settings: { ...DEFAULT_SETTINGS, "questions.answerModeByRuntime": {}, ...opts.settings },
   })
-  return { engine, clock, git, claude, notifier, opener, files, claudeDir }
+  return { engine, clock, git, claude, notifier, opener, files, claudeDir, dead }
 }
 
 /**
