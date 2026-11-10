@@ -211,6 +211,7 @@ entries with your section's prefix (G, C, D, H, U, S, P) and the next free numbe
 - U-038 — Popover: when nothing needs you, up to 5 Ready to review rows (title + summary) under a quiet label; a one-line Setup row only when `attention > 0`.
 - U-039 — Times: `formatAgo` ("just now", "2 min ago", "3 h ago", "2 d ago") wherever a phrase reads; `formatAge` stays terse ("<1m", "2m") for "waiting 2m" and popover ages.
 - U-040 — Layout fixes: the detail and Setup columns' children don't flex-shrink (that clipped the context strip); the strip is 4 across above a 640 px pane, 2×2 below. Unnamed subagents read "agent" (`Agent` has no type field). The header version never wraps and drops the build hash under 900 px; "What's new" links `notesUrl` while `justUpdatedFrom` is set.
+- U-041 — Settings field kind `choice` (`options: [{value, label}]`), rendered as native radio buttons in a fieldset and saved by `ChoseSetting` only for a listed value that differs from the shown one. First use: `holds.via` under Approvals, disabled while holds are off. `holds.requestBudgetMs` has no row yet (API only).
 
 ## Shell
 
