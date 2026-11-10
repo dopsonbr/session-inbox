@@ -26,10 +26,10 @@ session-inbox doctor --json
 The checks, in order:
 
 - **Session Inbox is running**: the daemon's version and build, and how long it has been up.
-- **Claude Code hooks**: whether `~/.claude/settings.json` registers every hook event and points at this install's `inbox-hook`.
+- **Claude Code hooks**: whether `~/.claude/settings.json` registers all 10 hook events and points at this install's `inbox-hook`. If some are missing, it names them.
 - **Hook events**: whether any session has reported yet. If not, restart the sessions that were already open.
-- **Approvals**: whether this install holds tool calls, or only observes. If a [second channel](channels.md) is installed, it says so.
-- **claude command-line tool**: whether `claude` is on the path the daemon uses, and logged in.
+- **Approvals**: how this install handles permission prompts (answering Claude's own prompt, with how long it waits, or the classic hold), or that it only observes. It warns if the mode needs the `PermissionRequest` hook and this install has none. If a [second channel](channels.md) is installed, it says so.
+- **claude command-line tool**: whether `claude` is on the path the daemon uses, and logged in. A missing or logged-out `claude` is shown as information, not a problem: it only affects replies to idle sessions and generated titles, so it doesn't add to the badge.
 - **Menu-bar app**: whether the app is connected, and whether its version matches the daemon's.
 - **Notifications**: whether macOS lets the app show them, which style, and whether the plain fallback is covering for it.
 - **Updates**: the version, when it last checked and whether auto-update is on.
@@ -89,11 +89,19 @@ curl -fsSL https://raw.githubusercontent.com/dopsonbr/session-inbox/main/install
 
 If you installed from a tarball or from source, run that installer again instead (`bin/session-inbox install --yes` from the unpacked tarball, or `bun scripts/install.ts --yes`).
 
-## Claude pauses before running a command
+## An item says "Waiting in Claude"
 
-That's a held approval waiting for you: Session Inbox is holding the call so you can allow it from a notification. It falls back to Claude's own prompt after 120 seconds, or at once when you click **Open in Claude**. See [When it holds a tool call](holds.md).
+The item is Claude's own permission prompt, and the inbox isn't answering it any more. Most likely you've just answered it in Claude, and the item clears by itself within a second or two (that hasn't been seen with a live item yet). Otherwise **Wait for an answer** ran out (10 minutes by default), or this install only observes. The card says "Claude is asking in its own window. Answer there." and offers **Open in Claude**; the notification is replaced by "Still waiting in Claude: …". The prompt is still open in Claude, so answer it there. The item ends once Claude moves on. See [How approvals work](holds.md).
 
-If you'd rather it never paused Claude, turn off **Hold tool calls for approval in the inbox** in [Settings](settings.md).
+## Claude seems to pause before running a command
+
+In the default mode this doesn't happen: Claude asks in its own window and the inbox mirrors the request without pausing anything. If a session does sit silent, you're probably in the **classic** mode (Settings, Approvals, **How approvals reach the inbox**), where Session Inbox holds the call so you can allow it from a notification. It falls back to Claude's own prompt after 120 seconds, or at once when you click **Open in Claude**.
+
+If you'd rather it never held anything, choose **Answer Claude's own prompt (recommended)**, or turn off **Hold tool calls for approval in the inbox**, in [Settings](settings.md).
+
+## The Setup check says the PermissionRequest hook is missing
+
+Hooks are written into `~/.claude/settings.json` when you install. An install made before Session Inbox used the `PermissionRequest` hook doesn't have it, so Claude's own prompts reach the inbox only about 6 seconds late, from a notification, and can't be answered from it. The Claude Code hooks check says the hooks "were installed before the PermissionRequest hook was added", and the Approvals check warns. Run the installer again (the one-line installer, or the tarball's `bin/session-inbox install --yes`, or `bun scripts/install.ts --yes` from source), then restart sessions that were open.
 
 ## Notifications
 
@@ -136,10 +144,12 @@ If you think you've found a bug, [open an issue](https://github.com/dopsonbr/ses
 
 ## Not yet verified by a person
 
-Most of Session Inbox has been checked on a real install with real Claude sessions: answers sent from the inbox reach a waiting question, Allow and Deny from the inbox release a held call, **Open in Claude** lands on the exact desktop session, and the daemon-driven update works end to end. A few things haven't been seen by a person yet:
+Most of Session Inbox has been checked on a real install with real Claude sessions: in the default mode a Read outside the project, a question, an Edit (with its diff and Claude's sentence before it) and a Bash `rm` were each answered from the inbox while Claude's own prompt was on screen, taking effect about 30 ms later, and the denied command didn't run. Allow and Deny also release a held call in the classic mode, **Open in Claude** lands on the exact desktop session, and the daemon-driven update works end to end. A few things haven't been seen by a person yet:
 
 - **The app's own notification banners.** Nobody has yet seen the menu-bar app's banners with their **Allow**, **Deny**, **Answer** and **Open** buttons, or clicked through from one. While it was being built, nobody was at the screen to see them or click **Allow**. macOS's own log shows the plain fallback notifications being displayed, but that isn't the same as someone seeing them.
 - **Alerts versus Banners.** The setup check says the Alerts style keeps Allow and Deny on screen until you answer. A person hasn't looked at that yet.
+- **Answering in Claude first.** The inbox item for a live request is meant to disappear within a second or two when you answer in Claude instead, detected from the transcript or the tool's result. That hasn't been seen with a live item.
+- **Terminal `claude` sessions.** Everything checked live used the Claude desktop app's Code tab. Sessions started from the `claude` CLI in a terminal haven't been checked, including the approval flow.
 - **A published release.** No GitHub Release exists yet, so the one-line installer hasn't been run end to end, and no second Mac has installed from one.
 - **Opening a CLI session.** **Open in Claude** for sessions started from the `claude` CLI uses the `claude://resume` link, which hasn't been checked on a real session. Desktop sessions have.
 - **A real "needs your input" notification.** The idle-session prompt Claude sends as a `Notification` hook event hasn't been recorded from a real session yet.

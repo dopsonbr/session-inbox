@@ -22,7 +22,7 @@ Session Inbox is a Bun workspace. The daemon, the hook, the UI build and every s
 | `fixtures/` | Recorded (real) and synthetic hook payloads that the tests replay. |
 | `ops/` | The launchd plist template and the Claude settings snippet. |
 | `install.sh` | The `curl \| sh` bootstrap: download, verify, hand over to `session-inbox install`. The only shell script. |
-| `scripts/` | Bun scripts: install, uninstall, build, build-shell, channels, release, bump, verify-release, e2e-update, smoke, demo, and this site's builder. |
+| `scripts/` | Bun scripts: install, uninstall, build, build-shell, channels, release, bump, verify-release, e2e-update, smoke, demo, the docs screenshots, and this site's builder. |
 | `site/` | This documentation site. |
 | `docs/` | The spec snapshot, mockups and the Phase 0 spike report. |
 
@@ -90,6 +90,12 @@ Prove the update path under the real launchd with no GitHub. It builds two relea
 
 ```bash
 bun scripts/e2e-update.ts
+```
+
+Regenerate the docs screenshots in `site/assets/screenshots/`. It runs the seeded demo daemon and renders each view in headless Chrome, so it needs Chrome, Chromium or Edge in `/Applications` and the UI built first, but no screen-recording permission:
+
+```bash
+bun scripts/screenshots.ts
 ```
 
 Before committing, run the tests, the typecheck and the lint. If you touched the daemon, the hook or the contracts, run the smoke test too.
