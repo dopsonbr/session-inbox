@@ -8,6 +8,7 @@ macOS menu-bar inbox for local Claude Code sessions: hooks → Bun daemon → Ta
 - `docs/spike.md`: what's proven about Claude Code's hooks, and what isn't.
 - `docs/mockups/InboxDesktop.dc.html`, `MenuBar.dc.html`: the target UI.
 - `docs/handoff.md`: where things stand and what's next.
+- **UX.md**: the running UX log: a score per feature, how many steps each task takes, findings (`UX-NNN`) and what changed. When a UI change moves a step count or closes a finding, update it in the same change.
 - **Docs site** (`site/content/*.md`, published at https://dopsonbr.github.io/session-inbox/): **when behaviour changes, update the matching page in `site/content/` in the same change.** Quote UI labels and defaults from the code; don't document what you can't find there. Claims no person has checked yet go in the "Not yet verified by a person" list on the Troubleshooting page. `site/README.md` says how pages are built.
 
 ## Architecture rules (don't break these)

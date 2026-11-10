@@ -114,14 +114,20 @@ try {
   // Ask the demo daemon which items it seeded, so the shots open the right ones.
   const snap = (await (
     await fetch(`${base}/v1/snapshot`, { headers: { Authorization: `Bearer ${token}` } })
-  ).json()) as { items: { id: string; kind: string; summary: string | null }[] }
+  ).json()) as { items: { id: string; kind: string; state: string; summary: string | null }[] }
+  // The demo also seeds finished items for History; the inbox shots want ones still open.
   const find = (pred: (i: { kind: string; summary: string | null }) => boolean) => {
-    const item = snap.items.find(pred)
+    const item = snap.items.find((i) => i.state === "open" && pred(i))
     if (!item) throw new Error("the demo seed has no item for a screenshot")
     return encodeURIComponent(item.id)
   }
   const question = find((i) => i.kind === "question")
   const edit = find((i) => i.kind === "permission" && (i.summary ?? "").startsWith("Wants to edit"))
+  const past = (await (
+    await fetch(`${base}/v1/history?q=push`, { headers: { Authorization: `Bearer ${token}` } })
+  ).json()) as { entries: { item: { id: string } }[] }
+  const denied = past.entries[0]?.item.id
+  if (!denied) throw new Error("the demo seed has no finished item for the History screenshot")
 
   mkdirSync(out, { recursive: true })
   const wide: [number, number] = [1440, 900]
@@ -129,6 +135,12 @@ try {
     { name: "inbox-light", path: `/#/item/${question}`, size: wide, scheme: "light" },
     { name: "inbox-dark", path: `/#/item/${question}`, size: wide, scheme: "dark" },
     { name: "approval-diff", path: `/#/item/${edit}`, size: wide, scheme: "light" },
+    {
+      name: "history",
+      path: `/#/history/${encodeURIComponent(denied)}`,
+      size: wide,
+      scheme: "light",
+    },
     { name: "settings", path: "/#/settings", size: wide, scheme: "light" },
     // The fake client has a curated report; a real one would print this Mac's paths.
     { name: "setup", path: "/?client=fake&setup=attention#/setup", size: wide, scheme: "light" },
