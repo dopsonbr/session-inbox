@@ -290,6 +290,26 @@ export const shellQuote = (s: string): string => `'${s.replaceAll("'", "'\\''")}
 export const resumeCommandFor = (session: Session): string =>
   `${session.cwd ? `cd ${shellQuote(session.cwd)} && ` : ""}claude --resume ${shellQuote(session.id)}`
 
+/**
+ * Did an answer we sent land as Claude recorded it (D-087)? Trimmed, and a comma-separated
+ * multi-select compared as a set, so "A, B" and "B,A" agree.
+ */
+export const sameAnswer = (sent: unknown, got: unknown): boolean => {
+  if (typeof sent !== "string" || typeof got !== "string") return sent === got
+  const set = (s: string) =>
+    [
+      ...new Set(
+        s
+          .split(",")
+          .map((x) => x.trim())
+          .filter((x) => x !== ""),
+      ),
+    ]
+      .sort()
+      .join("\n")
+  return sent.trim() === got.trim() || set(sent) === set(got)
+}
+
 /** One timeline line for a stored event (activity hooks, plus the source events of items). */
 const timelineText = (hook: string, p: Record<string, unknown>, show: ShowPath): string => {
   switch (hook) {
@@ -1116,21 +1136,34 @@ export class Engine {
    */
   private checkAnswersLanded(c: Changes, session: SessionRow, p: Payload): string | null {
     const toolUseId = typeof p.tool_use_id === "string" ? p.tool_use_id : null
-    const a = this.store.one<ApprovalRow>(
-      `SELECT a.* FROM approvals a JOIN attention_items i ON i.id = a.item_id
-         WHERE i.session_id = ? AND a.tool = 'AskUserQuestion' AND a.updated_input_json IS NOT NULL
-           AND (? IS NULL OR a.tool_use_id IS NULL OR a.tool_use_id = ?)
-         ORDER BY a.decided_at DESC LIMIT 1`,
-      session.id,
-      toolUseId,
-      toolUseId,
-    )
+    // Only a call we answered (allow + updatedInput), and only this very call (D-087): its id,
+    // or, when either side has none, the same questions.
+    const questionsOf = (input: unknown) =>
+      canonicalJson((input as { questions?: unknown } | null)?.questions ?? null)
+    const want = questionsOf(p.tool_input)
+    const a = this.store
+      .all<ApprovalRow>(
+        `SELECT a.* FROM approvals a JOIN attention_items i ON i.id = a.item_id
+           WHERE i.session_id = ? AND a.tool = 'AskUserQuestion' AND a.decision = 'allow'
+             AND a.updated_input_json IS NOT NULL AND (i.state = 'answered' OR a.decided_at > ?)
+           ORDER BY a.decided_at DESC LIMIT 20`,
+        session.id,
+        this.now() - 60_000,
+      )
+      .find((r) => {
+        if (toolUseId !== null && r.tool_use_id !== null) return r.tool_use_id === toolUseId
+        try {
+          return questionsOf(JSON.parse(r.input_json)) === want
+        } catch {
+          return false
+        }
+      })
     if (!a?.updated_input_json) return null
     const sent =
-      (JSON.parse(a.updated_input_json) as { answers?: Record<string, string> }).answers ?? {}
+      (JSON.parse(a.updated_input_json) as { answers?: Record<string, unknown> }).answers ?? {}
     const resp = p.tool_response as { answers?: Record<string, unknown> } | null | undefined
     const got = resp && typeof resp === "object" ? (resp.answers ?? {}) : {}
-    const landed = Object.entries(sent).every(([q, ans]) => got[q] === ans)
+    const landed = Object.entries(sent).every(([q, ans]) => sameAnswer(ans, got[q]))
     if (landed) return null
     const runtime = session.runtime
     this.deps.log.warn(

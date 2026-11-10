@@ -152,6 +152,7 @@ entries with your section's prefix (G, C, D, H, U, S, P) and the next free numbe
 - D-084 — Review finding: in observe mode a second subagent's concurrent PermissionRequest only refreshed the first item. The PermissionRequest path now matches only its own agent's items (D-067), and another PermissionRequest's item only when it is the same call (same recovered `tool_use_id` or input key). The `permission_prompt` Notification names no agent: with more than one open prompt for its tool (or any, when it names none) it refreshes nothing and opens nothing.
 - D-085 — Review finding: an item dismissed in observe mode came back with the Notification ~6 s later. A prompt item dismissed within the last 60 s now counts as the same prompt (D-067) and is not reopened or refreshed.
 - D-086 — Review finding: the "Open in Claude" clipboard command quoted `cwd` with `JSON.stringify` (double quotes still expand `$(…)`) and left the session id bare. Both are now POSIX single-quoted with `'\''` escaping.
+- D-087 — Review finding: the P-004 check (`checkAnswersLanded`) flipped a runtime to `denyWithReason` for good on any string difference, and could compare against an unrelated approval. It now checks only an AskUserQuestion we answered (decision `allow` with `updatedInput`, item still answered or decided in the last minute) that is this very call (same `tool_use_id`, or the same questions when either has none), and compares answers trimmed, a comma-separated multi-select as a set.
 
 
 ## Hook & Ops
