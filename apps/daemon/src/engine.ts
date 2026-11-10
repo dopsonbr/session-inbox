@@ -88,6 +88,7 @@ import {
   toSession,
 } from "./store.ts"
 import { StreamHub } from "./stream.ts"
+import type { UpdateManager } from "./updates.ts"
 import { normalizeSetting, pickUserSettings } from "./userSettings.ts"
 
 export interface EngineDeps {
@@ -1894,6 +1895,7 @@ export class Engine {
     }
     this.flushReviewGroup()
     this.kickOutbox()
+    this.updates?.tick()
   }
 
   /** After a restart: rows that were mid-send go back to the queue. Holds/snoozes recover via tick(). */
@@ -1901,5 +1903,32 @@ export class Engine {
     this.store.run("UPDATE outbox SET state = 'queued' WHERE state = 'sending'")
     // A review group whose window closed while we were down goes out now (D-031).
     this.flushReviewGroup()
+  }
+
+  // -------------------------------------------------------------------------
+  // Updates (D-035): policy lives in updates.ts; the engine supplies events and quietness.
+  // -------------------------------------------------------------------------
+
+  /** Set by startDaemon (or tests); ticked from tick(). */
+  updates: UpdateManager | null = null
+
+  /** Append a session-less `daemon:*` event (no rows change, so no delta). */
+  daemonEvent(hook: string, payload: unknown): number {
+    return this.tx((c) => this.appendEvent(c, { sessionId: null, hook, payload }))
+  }
+
+  /** Why a restart now would hurt, or null when quiet (D-036). */
+  busyReason(quietMs: number): string | null {
+    if (this.store.one("SELECT 1 AS x FROM approvals WHERE live = 1 AND decision IS NULL LIMIT 1"))
+      return "a held tool call is waiting"
+    if (this.store.one("SELECT 1 AS x FROM outbox WHERE state IN ('queued','sending') LIMIT 1"))
+      return "a reply is being delivered"
+    if (this.sendingSessions.size > 0) return "a reply is being delivered"
+    // Newest-first by seq: stops at the first hook event instead of scanning the table.
+    const last = this.store.one<{ at: number }>(
+      "SELECT received_at AS at FROM events WHERE hook NOT LIKE 'daemon:%' ORDER BY seq DESC LIMIT 1",
+    )
+    if (last && this.now() - last.at < quietMs) return "a session is active"
+    return null
   }
 }

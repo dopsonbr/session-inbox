@@ -40,6 +40,10 @@ export const Routes = {
   projectMute: (id: string) => `/v1/projects/${id}/mute`,
   settings: "/v1/settings",
   health: "/v1/health",
+  /** Update status (C-013). GET returns UpdateStatus; check/apply are POST. */
+  update: "/v1/update",
+  updateCheck: "/v1/update/check",
+  updateApply: "/v1/update/apply",
 } as const
 
 export const Snapshot = Schema.Struct({
@@ -188,6 +192,54 @@ export const Health = Schema.Struct({
 export type Health = typeof Health.Type
 
 // ---------------------------------------------------------------------------
+// Updates (C-013). The daemon decides; `session-inbox update` does the work.
+// ---------------------------------------------------------------------------
+
+export const UpdateState = Schema.Literals([
+  "unsupported",
+  "idle",
+  "checking",
+  "available",
+  "updating",
+  "failed",
+])
+export type UpdateState = typeof UpdateState.Type
+
+/** How this install was made: from a GitHub release, or built from a checkout. */
+export const UpdateSource = Schema.Literals(["release", "source"])
+export type UpdateSource = typeof UpdateSource.Type
+
+export const UpdateStatus = Schema.Struct({
+  state: UpdateState,
+  /** This daemon's version and build stamp. */
+  current: Schema.String,
+  build: Schema.String,
+  latest: Schema.NullOr(Schema.String),
+  available: Schema.Boolean,
+  notesUrl: Schema.NullOr(Schema.String),
+  publishedAt: Schema.NullOr(Schema.String),
+  /** Epoch ms of the last finished check. */
+  checkedAt: Schema.NullOr(Schema.Number),
+  /** Last check or update error, for display. */
+  error: Schema.NullOr(Schema.String),
+  /** Daemon-computed: this update installs by itself once no session is waiting. */
+  auto: Schema.Boolean,
+  /** null until the first check answers. */
+  source: Schema.NullOr(UpdateSource),
+  /** Version being installed while `updating` (or that failed). */
+  target: Schema.NullOr(Schema.String),
+  /** CLI progress while `updating`: downloading | verifying | installing | done. */
+  progress: Schema.NullOr(Schema.String),
+  /** Set after a restart into a new version, until the daemon restarts again. */
+  justUpdatedFrom: Schema.NullOr(Schema.String),
+  updatedAt: Schema.NullOr(Schema.Number),
+})
+export type UpdateStatus = typeof UpdateStatus.Type
+
+export const UpdateApplyRequest = Schema.Struct({ version: Schema.optional(Schema.String) })
+export type UpdateApplyRequest = typeof UpdateApplyRequest.Type
+
+// ---------------------------------------------------------------------------
 // Stream (SSE). Each SSE `data:` line is one JSON-encoded StreamMessage; the SSE
 // `id:` is the seq so EventSource-style resume works too.
 // ---------------------------------------------------------------------------
@@ -204,7 +256,12 @@ export const NotifyPayload = Schema.Struct({
 export type NotifyPayload = typeof NotifyPayload.Type
 
 export const StreamMessage = Schema.Union([
-  Schema.TaggedStruct("hello", { seq: Schema.Number }),
+  Schema.TaggedStruct("hello", {
+    seq: Schema.Number,
+    /** Daemon version and build stamp (C-014); a page reloads when they change. */
+    version: Schema.optional(Schema.String),
+    build: Schema.optional(Schema.String),
+  }),
   Schema.TaggedStruct("delta", {
     seq: Schema.Number,
     projects: Schema.Array(Project),
@@ -216,6 +273,8 @@ export const StreamMessage = Schema.Union([
   Schema.TaggedStruct("notify", { seq: Schema.Number, notification: NotifyPayload }),
   Schema.TaggedStruct("badge", { seq: Schema.Number, count: Schema.Number }),
   Schema.TaggedStruct("reset", { seq: Schema.Number }),
+  /** Live-only, sent after hello and on every update-status change (C-013). */
+  Schema.TaggedStruct("update", { seq: Schema.Number, status: UpdateStatus }),
 ])
 export type StreamMessage = typeof StreamMessage.Type
 

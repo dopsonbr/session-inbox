@@ -20,7 +20,7 @@ const clientKind = params.get("client") ?? __SESSION_INBOX_DEFAULT_CLIENT__
 const loadClient = async (): Promise<DaemonClientShape> => {
   if (clientKind === "fake") {
     const { makeFakeClient } = await import("./client/fake.ts")
-    return makeFakeClient()
+    return makeFakeClient({ update: params.get("update") ?? "idle" })
   }
   return makeHttpClient({ token: readTokenFromDocument(document) })
 }

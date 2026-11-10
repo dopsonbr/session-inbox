@@ -15,6 +15,8 @@ import type {
   Snapshot,
   SnoozeRequest,
   StreamMessage,
+  UpdateApplyRequest,
+  UpdateStatus,
   UserSettingsPatch,
 } from "@session-inbox/contracts"
 import { Context, Data, type Effect, type Stream } from "effect"
@@ -41,6 +43,10 @@ export type DaemonClientShape = Readonly<{
   getSettings: Effect.Effect<SettingsResponse, DaemonError>
   /** Only the changed keys; `null` resets one. The daemon answers with what it applied. */
   putSettings: (patch: UserSettingsPatch) => Effect.Effect<SettingsResponse, DaemonError>
+  /** Update status and intents (C-013); the daemon decides, these only ask. */
+  updateStatus: Effect.Effect<UpdateStatus, DaemonError>
+  updateCheck: Effect.Effect<UpdateStatus, DaemonError>
+  updateApply: (body: UpdateApplyRequest) => Effect.Effect<UpdateStatus, DaemonError>
 }>
 
 export class DaemonClient extends Context.Service<DaemonClient, DaemonClientShape>()(

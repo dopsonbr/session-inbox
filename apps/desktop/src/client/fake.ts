@@ -13,6 +13,7 @@ import type {
   Snapshot,
   StreamMessage,
   TimelineEntry,
+  UpdateStatus,
 } from "@session-inbox/contracts"
 import { Effect, Queue, Stream } from "effect"
 import { DaemonClient, type DaemonClientShape, DaemonError } from "./daemonClient.ts"
@@ -27,7 +28,61 @@ export type FakeOptions = Readonly<{
   simulate?: boolean
   /** Multiplier for simulated delays (outbox delivery, activity); tests use 0. */
   delayScale?: number
+  /** `?update=available|updating|failed|source|none` picks the update banner state. */
+  update?: string | null
 }>
+
+const FAKE_VERSION = "0.1.0"
+const FAKE_BUILD = "fake000"
+
+/** The update status the fake daemon reports for each `?update=` value. */
+export const fakeUpdateStatus = (kind: string | null | undefined, now: number): UpdateStatus => {
+  const base: UpdateStatus = {
+    state: "idle",
+    current: FAKE_VERSION,
+    build: FAKE_BUILD,
+    latest: null,
+    available: false,
+    notesUrl: null,
+    publishedAt: null,
+    checkedAt: now - 3600_000,
+    error: null,
+    auto: true,
+    source: "release",
+    target: null,
+    progress: null,
+    justUpdatedFrom: null,
+    updatedAt: null,
+  }
+  const offered = {
+    latest: "0.3.0",
+    available: true,
+    notesUrl: "https://github.com/dopsonbr/session-inbox/releases/tag/v0.3.0",
+    publishedAt: "2026-11-01T00:00:00Z",
+  }
+  switch (kind) {
+    case "available":
+      return { ...base, ...offered, state: "available" }
+    case "updating":
+      return { ...base, ...offered, state: "updating", target: "0.3.0", progress: "downloading" }
+    case "failed":
+      return {
+        ...base,
+        ...offered,
+        state: "failed",
+        target: "0.3.0",
+        error: "Checksum mismatch for session-inbox-0.3.0-darwin-arm64.tar.gz",
+      }
+    case "source":
+      return { ...base, ...offered, state: "available", source: "source", auto: false }
+    case "updated":
+      return { ...base, justUpdatedFrom: "0.0.9", updatedAt: now }
+    case "unsupported":
+      return { ...base, state: "unsupported", source: null, auto: false, checkedAt: null }
+    default:
+      return base
+  }
+}
 
 export type FakeDaemon = DaemonClientShape &
   Readonly<{
@@ -44,6 +99,14 @@ export const makeFakeClient = (options: FakeOptions = {}): FakeDaemon => {
   const log: Array<StreamMessage> = []
   const listeners = new Set<(message: StreamMessage) => void>()
   let simulationStarted = false
+  // Tests get "unsupported" (no update frames) unless they ask; entry.ts defaults to "idle".
+  let update = fakeUpdateStatus(options.update ?? "unsupported", now())
+  /** Live-only, like the daemon's: not in the replay log. */
+  const broadcastUpdate = () => {
+    for (const listener of listeners) {
+      listener({ _tag: "update", seq, status: update })
+    }
+  }
 
   const counts = (): Counts => ({
     needsYou: db.items.filter((i) => i.queue === "needs-you").length,
@@ -230,10 +293,18 @@ export const makeFakeClient = (options: FakeOptions = {}): FakeDaemon => {
             const listener = (message: StreamMessage) => {
               Queue.offerUnsafe(queue, message)
             }
-            Queue.offerUnsafe(queue, { _tag: "hello", seq })
+            Queue.offerUnsafe(queue, {
+              _tag: "hello",
+              seq,
+              version: FAKE_VERSION,
+              build: FAKE_BUILD,
+            })
             const replay = since === null ? [] : log.filter((m) => m.seq > since)
             for (const message of replay) {
               Queue.offerUnsafe(queue, message)
+            }
+            if (update.state !== "unsupported") {
+              Queue.offerUnsafe(queue, { _tag: "update", seq, status: update })
             }
             listeners.add(listener)
             startSimulation()
@@ -372,6 +443,25 @@ export const makeFakeClient = (options: FakeOptions = {}): FakeDaemon => {
       }),
 
     ...makeFakeSettings(),
+    updateStatus: Effect.sync(() => update),
+    updateCheck: Effect.sync(() => {
+      update = { ...update, checkedAt: now() }
+      broadcastUpdate()
+      return update
+    }),
+    updateApply: (body) =>
+      update.state === "updating" || (!update.available && update.state !== "failed")
+        ? Effect.fail(new DaemonError({ message: "no update is available", status: 409 }))
+        : Effect.sync(() => {
+            const target = body.version ?? update.latest ?? update.target
+            update = { ...update, state: "updating", target, progress: null, error: null }
+            broadcastUpdate()
+            later(1500, () => {
+              update = { ...update, progress: "installing" }
+              broadcastUpdate()
+            })
+            return update
+          }),
   }
 
   return {

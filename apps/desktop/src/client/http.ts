@@ -12,6 +12,7 @@ import {
   SettingsResponse,
   Snapshot,
   StreamMessage,
+  UpdateStatus,
 } from "@session-inbox/contracts"
 import { Effect, Queue, Schema, Stream } from "effect"
 import { DaemonClient, type DaemonClientShape, DaemonError } from "./daemonClient.ts"
@@ -147,6 +148,9 @@ export const makeHttpClient = (config: HttpClientConfig): DaemonClientShape => {
     mute: (projectId, body) => Effect.asVoid(request("POST", Routes.projectMute(projectId), body)),
     getSettings: decoded(SettingsResponse)(request("GET", Routes.settings)),
     putSettings: (patch) => decoded(SettingsResponse)(request("PUT", Routes.settings, patch)),
+    updateStatus: decoded(UpdateStatus)(request("GET", Routes.update)),
+    updateCheck: decoded(UpdateStatus)(request("POST", Routes.updateCheck, {})),
+    updateApply: (body) => decoded(UpdateStatus)(request("POST", Routes.updateApply, body)),
   }
 }
 

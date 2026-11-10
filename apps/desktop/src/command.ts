@@ -178,6 +178,45 @@ export const SetHash = Command.define("SetHash", {
     }),
 })
 
+// UPDATES (C-013): intents only; the daemon decides and streams the status back.
+
+export const CheckForUpdates = Command.define("CheckForUpdates", {
+  messages: [Message.SucceededUpdateRequest, Message.FailedUpdateRequest],
+  execute: Effect.gen(function* () {
+    const client = yield* DaemonClient
+    const status = yield* client.updateCheck
+    return Message.SucceededUpdateRequest({ status })
+  }).pipe(
+    Effect.catch((error) =>
+      Effect.succeed(Message.FailedUpdateRequest({ error: describe(error) })),
+    ),
+  ),
+})
+
+export const ApplyUpdate = Command.define("ApplyUpdate", {
+  args: { version: Schema.NullOr(Schema.String) },
+  messages: [Message.SucceededUpdateRequest, Message.FailedUpdateRequest],
+  execute: ({ version }) =>
+    Effect.gen(function* () {
+      const client = yield* DaemonClient
+      const status = yield* client.updateApply(version === null ? {} : { version })
+      return Message.SucceededUpdateRequest({ status })
+    }).pipe(
+      Effect.catch((error) =>
+        Effect.succeed(Message.FailedUpdateRequest({ error: describe(error) })),
+      ),
+    ),
+})
+
+/** A window left open across an update loads the new build's assets (U-022). */
+export const ReloadPage = Command.define("ReloadPage", {
+  messages: [Message.CompletedReload],
+  execute: Effect.sync(() => {
+    window.location.reload()
+    return Message.CompletedReload()
+  }),
+})
+
 export const FocusTreeNode = Command.define("FocusTreeNode", {
   args: { nodeId: Schema.String },
   messages: [Message.CompletedFocusTreeNode],

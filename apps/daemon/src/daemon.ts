@@ -9,7 +9,7 @@ import { homedir } from "node:os"
 import { join, resolve } from "node:path"
 import type { Connection } from "@session-inbox/contracts"
 import { CHANNELS, type Channel, paths } from "@session-inbox/contracts/paths"
-import { Effect, Schedule } from "effect"
+import { Effect, Option, Schedule } from "effect"
 import { openDb } from "./db/db.ts"
 import { Engine } from "./engine.ts"
 import { BUILD, hookHandler, type ServerContext, uiHandler, VERSION } from "./server.ts"
@@ -26,8 +26,11 @@ import {
   type NotifierShape,
   Opener,
   type OpenerShape,
+  Updater,
+  type UpdaterShape,
 } from "./services.ts"
 import { DEFAULT_SETTINGS, loadSettings, type Settings } from "./settings.ts"
+import { attachUpdates, fileMemo } from "./updates.ts"
 
 export interface DaemonOptions {
   readonly home: string
@@ -50,6 +53,8 @@ export interface DaemonServices {
   readonly notifier: NotifierShape
   readonly opener: OpenerShape
   readonly log: LoggerShape
+  /** Absent (dev runs, most tests) ⇒ updates are "unsupported" (D-035). */
+  readonly updater?: UpdaterShape | null
 }
 
 export interface DaemonHandle {
@@ -97,6 +102,13 @@ export const startDaemon = async (
     settingDefaults,
   })
   engine.recover()
+  engine.hub.info = { version: VERSION, build: BUILD }
+  attachUpdates(engine, {
+    updater: svc.updater ?? null,
+    version: VERSION,
+    build: BUILD,
+    memo: fileMemo(join(p.home, "update-memo.json")),
+  })
   const token = loadToken(p.home)
   const channel = opts.channel ?? "ga"
   const other: Channel = channel === "ga" ? "beta" : "ga"
@@ -171,6 +183,7 @@ export const daemonProgram = (opts: DaemonOptions) =>
       notifier: yield* Notifier,
       opener: yield* Opener,
       log: yield* Logger,
+      updater: Option.getOrNull(yield* Effect.serviceOption(Updater)),
     }
     const handle = yield* Effect.acquireRelease(
       Effect.promise(() => startDaemon(opts, svc)),

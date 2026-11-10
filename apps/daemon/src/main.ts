@@ -6,9 +6,9 @@
  */
 import { BunRuntime } from "@effect/platform-bun"
 import { DEFAULT_HOME, isChannel } from "@session-inbox/contracts/paths"
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
 import { DEFAULT_CLAUDE_DIR, DEFAULT_UI_DIR, daemonProgram } from "./daemon.ts"
-import { LiveServices } from "./services.ts"
+import { LiveServices, makeLiveUpdater, Updater } from "./services.ts"
 
 const args = process.argv.slice(2)
 const flag = (name: string) => {
@@ -41,4 +41,10 @@ daemonProgram({
   claudeConfigDir: DEFAULT_CLAUDE_DIR,
   channel,
   settingDefaults,
-}).pipe(Effect.scoped, Effect.provide(LiveServices), BunRuntime.runMain)
+}).pipe(
+  Effect.scoped,
+  Effect.provide(LiveServices),
+  // Unsupported (no checks, no UI) unless <home>/bin/session-inbox exists (D-035).
+  Effect.provide(Layer.succeed(Updater)(makeLiveUpdater({ home, channel }))),
+  BunRuntime.runMain,
+)

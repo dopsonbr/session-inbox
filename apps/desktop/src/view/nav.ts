@@ -13,6 +13,7 @@ import {
 } from "../selectors.ts"
 import { SettingsMessage } from "../settings.ts"
 import { dot, Icon, kbd, type Tone } from "./parts.ts"
+import { versionView } from "./update.ts"
 
 type H = HtmlBuilder<Message>
 
@@ -53,6 +54,7 @@ export const headerView = (model: Model, h: H): Html => {
         ],
         [Icon.search(h), h.span([h.Class("flex-1")], ["Jump to session"]), kbd(h, "⌘K")],
       ),
+      versionView(model, h),
       h.button(
         [
           h.Type("button"),

@@ -5,6 +5,7 @@ import {
   ItemDetail,
   Snapshot,
   StreamMessage,
+  UpdateStatus,
 } from "@session-inbox/contracts"
 import { Schema } from "effect"
 import { defineMessageUnion } from "foldkit/message"
@@ -79,6 +80,13 @@ export const Message = defineMessageUnion({
   GotJumpComboboxMessage: { message: Combobox.Message },
   GotToastMessage: { message: Toast.Message },
   GotSettingsMessage: { message: SettingsMessage },
+
+  ClickedCheckForUpdates: {},
+  ClickedUpdateNow: {},
+  DismissedUpdateBanner: {},
+  SucceededUpdateRequest: { status: UpdateStatus },
+  FailedUpdateRequest: { error: Schema.String },
+  CompletedReload: {},
 
   CompletedMarkRead: {},
   CompletedSetHash: {},

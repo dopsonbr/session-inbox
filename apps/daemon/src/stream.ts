@@ -23,6 +23,10 @@ export class StreamHub {
   private floor: number
   private readonly clients = new Set<StreamClient>()
   onShellChange: ((connected: boolean) => void) | null = null
+  /** Sent in every `hello` so a page can tell which daemon build it talks to (C-014). */
+  info: { version?: string; build?: string } = {}
+  /** Live-only messages sent to each new client after hello/replay (update status, C-013). */
+  greeting: (() => StreamMessage | null) | null = null
 
   constructor(startSeq: number) {
     this.floor = startSeq
@@ -43,6 +47,12 @@ export class StreamHub {
       for (const c of this.clients) if (c.kind === "shell") this.safeSend(c, frame)
       return
     }
+    if (msg._tag === "update") {
+      // Live-only, every client: each (re)connect gets the current status as a greeting.
+      const frame = sseFrame(msg, false)
+      for (const c of this.clients) this.safeSend(c, frame)
+      return
+    }
     this.ring.push(msg)
     if (this.ring.length > RING_SIZE) {
       const dropped = this.ring.splice(0, this.ring.length - RING_SIZE)
@@ -60,7 +70,7 @@ export class StreamHub {
    * `reset` when the ring can't cover it.
    */
   subscribe(client: StreamClient, since: number | null, currentSeq: number): () => void {
-    client.send(sseFrame({ _tag: "hello", seq: currentSeq }))
+    client.send(sseFrame({ _tag: "hello", seq: currentSeq, ...this.info }))
     if (since !== null) {
       if (since < this.floor || since > currentSeq) {
         client.send(sseFrame({ _tag: "reset", seq: currentSeq }))
@@ -68,6 +78,8 @@ export class StreamHub {
         for (const m of this.ring) if (m.seq > since) client.send(sseFrame(m))
       }
     }
+    const greeting = this.greeting?.()
+    if (greeting) client.send(sseFrame(greeting, false))
     const wasShell = this.shellConnected
     this.clients.add(client)
     if (client.kind === "shell" && !wasShell) this.onShellChange?.(true)

@@ -7,6 +7,7 @@ import { headerView, navView } from "./nav.ts"
 import { jumpDialogView, toastsView } from "./overlays.ts"
 import { queueView } from "./queue.ts"
 import { settingsDialogView } from "./settings.ts"
+import { updateBannerView } from "./update.ts"
 
 // VIEW
 
@@ -24,6 +25,7 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
           [h.Class("flex h-screen flex-col bg-background text-foreground")],
           [
             headerView(model, h),
+            updateBannerView(model, h),
             h.div(
               [h.Class("shell min-h-0 flex-1")],
               [navView(model, h), queueView(model, h), detailView(model, h)],

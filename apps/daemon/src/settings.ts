@@ -31,6 +31,11 @@ export interface Settings {
   "items.confirmWindowMs": number
   "outbox.maxAttempts": number
   "outbox.backoffMs": number
+  /** Check for a new release ~60 s after start and every `checkIntervalMs` (D-035). */
+  "updates.check": boolean
+  /** Install a release update by itself once no session is waiting (D-036). */
+  "updates.auto": boolean
+  "updates.checkIntervalMs": number
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -58,6 +63,9 @@ export const DEFAULT_SETTINGS: Settings = {
   "items.confirmWindowMs": 5 * 60_000,
   "outbox.maxAttempts": 3,
   "outbox.backoffMs": 5_000,
+  "updates.check": true,
+  "updates.auto": true,
+  "updates.checkIntervalMs": 6 * 3600_000,
 }
 
 export const loadSettings = (

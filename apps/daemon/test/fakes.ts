@@ -11,6 +11,9 @@ import type {
   LoggerShape,
   NotifierShape,
   OpenerShape,
+  UpdateCheckResult,
+  UpdaterShape,
+  UpdateStateFile,
 } from "../src/services.ts"
 import { DEFAULT_SETTINGS, type Settings } from "../src/settings.ts"
 
@@ -67,6 +70,47 @@ export class FakeOpener implements OpenerShape {
   copy = async (text: string) => {
     this.copied.push(text)
   }
+}
+
+export class FakeUpdater implements UpdaterShape {
+  isSupported = true
+  checks = 0
+  applied: string[] = []
+  result: UpdateCheckResult = {
+    current: "0.1.0",
+    latest: null,
+    available: false,
+    notesUrl: null,
+    publishedAt: null,
+    source: "release",
+    error: null,
+  }
+  failCheck: string | null = null
+  failApply: string | null = null
+  stateFile: UpdateStateFile | null = null
+  onExit: ((code: number | null) => void) | null = null
+  offer(version: string, source: "release" | "source" = "release") {
+    this.result = {
+      ...this.result,
+      latest: version,
+      available: true,
+      source,
+      notesUrl: `https://example.test/releases/v${version}`,
+      publishedAt: "2026-11-01T00:00:00Z",
+    }
+  }
+  supported = () => this.isSupported
+  check = async () => {
+    this.checks++
+    if (this.failCheck) throw new Error(this.failCheck)
+    return this.result
+  }
+  apply = async (version: string, onExit?: (code: number | null) => void) => {
+    this.applied.push(version)
+    this.onExit = onExit ?? null
+    if (this.failApply) throw new Error(this.failApply)
+  }
+  readState = () => this.stateFile
 }
 
 export const silentLog: LoggerShape = { info: () => {}, warn: () => {}, error: () => {} }
