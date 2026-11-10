@@ -136,7 +136,8 @@ const describeInstall = async (t: StatusTarget, say: Say): Promise<void> => {
     say(
       `  inbox    ${snap.sessions.length} sessions · ${snap.counts.needsYou ?? 0} need you · ${snap.counts.review ?? 0} to review`,
     )
-    say(`  url      http://127.0.0.1:${conn.httpPort}/`)
+    // The page only loads for a request that carries the token (D-095); don't print the token.
+    say(`  url      http://127.0.0.1:${conn.httpPort}/  (open it with: session-inbox open)`)
   } catch (e) {
     say(`  daemon   unreachable (${(e as Error).message})`)
   }
@@ -160,8 +161,12 @@ export const setHolds = (holder: Channel, say: Say): void => {
   }
 }
 
+/** The inbox page for a browser: the token rides along as `k`, or the daemon serves a notice (D-095). */
+export const inboxUrl = (conn: { httpPort: number; token: string }): string =>
+  `http://127.0.0.1:${conn.httpPort}/?k=${encodeURIComponent(conn.token)}`
+
 export const openInbox = (channel: Channel): void => {
   const conn = connection(CHANNELS[channel].home)
   if (!conn) throw new Error(`${channel} is not running`)
-  Bun.spawnSync(["/usr/bin/open", `http://127.0.0.1:${conn.httpPort}/`])
+  Bun.spawnSync(["/usr/bin/open", inboxUrl(conn)])
 }

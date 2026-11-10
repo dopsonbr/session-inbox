@@ -617,3 +617,12 @@ describe("review fixes", () => {
     })
   })
 })
+
+describe("inbox URL for a browser (D-095)", () => {
+  test("carries the token as k, encoded", async () => {
+    const { inboxUrl } = await import("../src/status.ts")
+    expect(inboxUrl({ httpPort: 4312, token: "a+b/c=" })).toBe(
+      "http://127.0.0.1:4312/?k=a%2Bb%2Fc%3D",
+    )
+  })
+})
