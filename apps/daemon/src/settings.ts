@@ -36,6 +36,8 @@ export interface Settings {
   /** Install a release update by itself once no session is waiting (D-036). */
   "updates.auto": boolean
   "updates.checkIntervalMs": number
+  /** Days of history kept; older events and finished rows are pruned daily (D-063). */
+  "storage.retentionDays": number
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -66,6 +68,7 @@ export const DEFAULT_SETTINGS: Settings = {
   "updates.check": true,
   "updates.auto": true,
   "updates.checkIntervalMs": 6 * 3600_000,
+  "storage.retentionDays": 14,
 }
 
 export const loadSettings = (

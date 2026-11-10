@@ -254,6 +254,8 @@ describe("hooks + UI round trips", () => {
     const before = ((await (await api("/v1/snapshot")).json()) as { seq: number }).seq
     const shell = readStream(Routes.stream(null, "shell"), 4, 1500)
     await Bun.sleep(50)
+    // The app says macOS lets it show notifications: the shell only, no fallback (D-062).
+    expect((await post(Routes.shellStatus, { notifications: "authorized" })).status).toBe(200)
     const ing = await hook("PreToolUse", {
       session_id: sid,
       cwd: projectDir(),
@@ -384,6 +386,41 @@ describe("hooks + UI round trips", () => {
     expect((await post(Routes.projectMute(pid), { muted: false })).status).toBe(200)
     expect((await api(Routes.item("nope"))).status).toBe(404)
     expect((await post(Routes.snooze(id), { nope: 1 })).status).toBe(400)
+  })
+
+  test("shell status: bad body is 400; doctor report and test notification", async () => {
+    expect((await post(Routes.shellStatus, { notifications: "maybe" })).status).toBe(400)
+    expect((await post(Routes.shellStatus, {})).status).toBe(400)
+    const r = await api(Routes.doctor)
+    expect(r.status).toBe(200)
+    const report = (await r.json()) as {
+      checks: { id: string; status: string }[]
+      firstRun: boolean
+      attention: number
+    }
+    expect(report.checks.map((c) => c.id)).toEqual([
+      "daemon",
+      "hooks",
+      "events",
+      "holds",
+      "claude-cli",
+      "app",
+      "notifications",
+      "updates",
+      "storage",
+    ])
+    expect(report.firstRun).toBe(false)
+    expect(report.checks.find((c) => c.id === "hooks")?.status).toBe("fail")
+    // No app connected now: the test notification goes to the osascript fallback.
+    const before = notifier.posted.length
+    const sent = (await (await post(Routes.doctorNotify, {})).json()) as { via: string }
+    expect(sent.via).toBe("fallback")
+    await d.engine.idle()
+    expect(notifier.posted.at(before)?.title).toBe("Session Inbox test notification")
+    // Clicking it in the app reports an id with no row: tolerated.
+    expect((await post(Routes.notificationActed("setup_abc"), { action: "click" })).status).toBe(
+      200,
+    )
   })
 
   test("garbage on the socket is stored, never a 500", async () => {

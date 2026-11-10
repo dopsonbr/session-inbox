@@ -22,12 +22,14 @@ import {
   type ItemDetail,
   type NotificationAction,
   NotificationPayload,
+  type NotificationPermission,
   type NotifyPayload,
   PostToolUsePayload,
   PreToolUsePayload,
   type Session,
   SessionEndPayload,
   SessionStartPayload,
+  type ShellStatus,
   type Snapshot,
   StopPayload,
   SubagentPayload,
@@ -40,6 +42,7 @@ import {
 } from "@session-inbox/contracts"
 import { Result, Schema } from "effect"
 import { computePreview } from "./approvalPreview.ts"
+import { canShow, deliveryRoute, type Route, SHELL_REPORT_GRACE_MS } from "./delivery.ts"
 import {
   type LifecycleEvent,
   type LifecycleState,
@@ -47,6 +50,7 @@ import {
   transition,
 } from "./domain/lifecycle.ts"
 import { allowAlwaysRule, appendAllowRule, ruleVerdict } from "./domain/permissions.ts"
+import { displayPathFor } from "./domain/preview.ts"
 import {
   type AnswerMode,
   encodeLiveAnswers,
@@ -55,21 +59,31 @@ import {
   validateAnswers,
 } from "./domain/questions.ts"
 import {
+  cleanPromptText,
   firstLine,
   lastTurnErrored,
   permissionSummary,
   provisionalTitle,
+  type ShowPath,
+  TITLE_HEAD_BYTES,
+  TRANSCRIPT_TAIL_BYTES,
   toolLine,
+  transcriptTitle,
+  UNTITLED,
 } from "./domain/text.ts"
-import type {
-  ClaudeCliShape,
-  ClockShape,
-  FilesShape,
-  GitInfo,
-  GitShape,
-  LoggerShape,
-  NotifierShape,
-  OpenerShape,
+import { type PruneCounts, pruneHistory, reclaimSpace } from "./retention.ts"
+import {
+  type ClaudeAuth,
+  type ClaudeCliShape,
+  type ClockShape,
+  type FilesShape,
+  type GitInfo,
+  type GitShape,
+  LiveFiles,
+  type LoggerShape,
+  type NotifierShape,
+  type OpenerShape,
+  UNKNOWN_AUTH,
 } from "./services.ts"
 import { DEFAULT_SETTINGS, type Settings } from "./settings.ts"
 import {
@@ -132,7 +146,27 @@ class Changes {
   readonly agents = new Set<string>()
   readonly items = new Set<string>()
   readonly after: Array<() => void> = []
+  /** Notification ids the app was given that no longer need an answer (`unnotify`). */
+  readonly cleared: string[] = []
 }
+
+/** Reasons a free-text reply can't leave the inbox (C-023, D-061). */
+export const REPLY_CLI_MISSING =
+  "Replies are sent with the claude CLI, which wasn't found on this Mac. Install Claude Code's command-line tool, or open the session in Claude."
+export const REPLY_CLI_LOGGED_OUT =
+  "Replies are sent with the claude CLI, which isn't logged in on this Mac. Run `claude` in a terminal once to log in, or open the session in Claude."
+
+/** Item id the setup check's test notification carries; the app routes it to Setup (C-021). */
+export const SETUP_ITEM_ID = "setup"
+export const TEST_NOTIFICATION = {
+  title: "Session Inbox test notification",
+  body: "If you can read this, notifications work. Click to open the inbox.",
+}
+
+const LAST_MESSAGE_MAX = 20_000
+const DOCTOR_RECHECK_MS = 60_000
+const PRUNE_EVERY_MS = 24 * 3600_000
+const FIRST_HOOK_KEY = "meta.firstHookEventAt"
 
 /** Normal SessionEnd reasons; anything else is "abnormal" ⇒ failed. TODO-SPIKE: confirm. */
 const NORMAL_END_REASONS = new Set([
@@ -151,6 +185,9 @@ const ACTIVITY = new Set([
   "SubagentStart",
   "SubagentStop",
 ])
+
+/** Events after which the transcript may carry a new title (D-059). */
+const TITLE_EVENTS = new Set(["SessionStart", "UserPromptSubmit", "Stop", "SubagentStop"])
 
 const PERMISSION_NOTIFICATIONS = new Set(["permission_prompt", "worker_permission_prompt"])
 const INPUT_NOTIFICATIONS = new Set(["idle_prompt", "agent_needs_input"])
@@ -210,10 +247,10 @@ export const resumeCommandFor = (session: Session): string =>
   `${session.cwd ? `cd ${JSON.stringify(session.cwd)} && ` : ""}claude --resume ${session.id}`
 
 /** One timeline line for a stored event (activity hooks, plus the source events of items). */
-const timelineText = (hook: string, p: Record<string, unknown>): string => {
+const timelineText = (hook: string, p: Record<string, unknown>, show: ShowPath): string => {
   switch (hook) {
     case "PostToolUse":
-      return toolLine(String(p.tool_name ?? "tool"), p.tool_input)
+      return toolLine(String(p.tool_name ?? "tool"), p.tool_input, show)
     case "PreToolUse": {
       const tool = String(p.tool_name ?? "tool")
       if (tool === "AskUserQuestion") {
@@ -221,7 +258,7 @@ const timelineText = (hook: string, p: Record<string, unknown>): string => {
         const n = Array.isArray(qs) ? qs.length : 0
         return n === 1 ? "Asked 1 question" : n > 1 ? `Asked ${n} questions` : "Asked a question"
       }
-      return permissionSummary(tool, p.tool_input)
+      return permissionSummary(tool, p.tool_input, show)
     }
     case "Notification":
       return firstLine(typeof p.message === "string" ? p.message : null) ?? "Needs your input"
@@ -230,7 +267,7 @@ const timelineText = (hook: string, p: Record<string, unknown>): string => {
     case "SubagentStop":
       return `${String(p.agent_type ?? "Subagent")} finished`
     case "UserPromptSubmit":
-      return `Prompt: ${provisionalTitle(String(p.prompt ?? "")) ?? ""}`
+      return `Prompt: ${provisionalTitle(cleanPromptText(String(p.prompt ?? "")) ?? "") ?? ""}`
     case "SessionEnd":
       return "Session ended"
     default:
@@ -248,14 +285,67 @@ export class Engine {
   private readonly sendingSessions = new Set<string>()
   private lastBadge = -1
 
+  /** What the connected menu-bar app last said about itself (C-022); reset when none is connected. */
+  private shell: { status: ShellStatus | null; connectedAt: number | null } = {
+    status: null,
+    connectedAt: null,
+  }
+  /** The permission of the last `daemon:shell-status` event, so only changes are recorded. */
+  private recordedPermission: NotificationPermission | null = null
+  /** Posted to an app that hasn't reported yet: osascript follows unless it says it can show them. */
+  private readonly unverified = new Map<string, { title: string; body: string }>()
+  /** Last `claude` CLI probe (D-061); unknown until the first one answers. */
+  auth: ClaudeAuth = UNKNOWN_AUTH
+  private loggedTitleSkip = false
+  /** Epoch ms of the first / latest hook event ever received (setup check, D-065). */
+  firstHookAt: number | null = null
+  lastHookAt: number | null = null
+  private nextDoctorAt = 0
+  private nextPruneAt = 0
+  /** Set by the setup check: re-evaluate and tell pages when its attention count changed. */
+  onDoctorChange: (() => void) | null = null
+
   constructor(readonly deps: EngineDeps) {
     this.store = new Store(deps.db)
     this.hub = new StreamHub(this.store.maxSeq())
     this.startedAt = deps.clock.now()
-    this.hub.onShellChange = (connected) => {
-      if (connected) this.flushPendingNotifications()
-    }
+    this.hub.onShellChange = (connected) => this.onShellChange(connected)
     this.lastBadge = this.store.counts().needsYou
+    const last = this.store.one<{ payload_json: string }>(
+      "SELECT payload_json FROM events WHERE hook = 'daemon:shell-status' ORDER BY seq DESC LIMIT 1",
+    )
+    try {
+      const p = last ? (JSON.parse(last.payload_json) as { notifications?: unknown }) : null
+      if (typeof p?.notifications === "string")
+        this.recordedPermission = p.notifications as NotificationPermission
+    } catch {
+      // a corrupt row only means one more event later
+    }
+    this.lastHookAt =
+      this.store.one<{ at: number }>(
+        "SELECT received_at AS at FROM events WHERE hook NOT LIKE 'daemon:%' ORDER BY seq DESC LIMIT 1",
+      )?.at ?? null
+    const marker = this.store.one<{ value_json: string }>(
+      "SELECT value_json FROM settings WHERE key = ?",
+      FIRST_HOOK_KEY,
+    )
+    const marked = marker ? Number(JSON.parse(marker.value_json)) : Number.NaN
+    if (Number.isFinite(marked)) this.firstHookAt = marked
+    else if (this.lastHookAt !== null) {
+      this.firstHookAt =
+        this.store.one<{ at: number }>(
+          "SELECT MIN(received_at) AS at FROM events WHERE hook NOT LIKE 'daemon:%'",
+        )?.at ?? this.lastHookAt
+      this.store.run(
+        "INSERT OR REPLACE INTO settings (key, value_json) VALUES (?, ?)",
+        FIRST_HOOK_KEY,
+        JSON.stringify(this.firstHookAt),
+      )
+    }
+  }
+
+  private get files(): FilesShape {
+    return this.deps.files ?? LiveFiles
   }
 
   get settings(): Settings {
@@ -273,6 +363,10 @@ export class Engine {
     const c = new Changes()
     const result = this.deps.db.transaction(() => fn(c))()
     this.publish(c)
+    if (c.cleared.length > 0) {
+      for (const id of c.cleared) this.unverified.delete(id)
+      this.hub.publish({ _tag: "unnotify", seq: c.seq, ids: c.cleared })
+    }
     for (const f of c.after) {
       try {
         f()
@@ -309,6 +403,19 @@ export class Engine {
         this.now(),
       ) as { seq: number }
     c.seq = r.seq
+    if (!e.hook.startsWith("daemon:")) {
+      const first = this.firstHookAt === null
+      this.lastHookAt = this.now()
+      if (first) {
+        this.firstHookAt = this.now()
+        this.store.run(
+          "INSERT OR REPLACE INTO settings (key, value_json) VALUES (?, ?)",
+          FIRST_HOOK_KEY,
+          JSON.stringify(this.firstHookAt),
+        )
+        c.after.push(() => this.onDoctorChange?.())
+      }
+    }
     return r.seq
   }
 
@@ -386,6 +493,8 @@ export class Engine {
       row.id,
     )
     c.items.add(row.id)
+    // Answered, resolved, expired or dismissed: its notifications need no answer any more.
+    if (next._tag !== "open" && next._tag !== "snoozed") this.clearNotifications(c, row.id)
     return next
   }
 
@@ -655,6 +764,10 @@ export class Engine {
     // Activity supersedes stale items (review always; failed on a new prompt).
     if (ACTIVITY.has(event)) this.supersedeStale(c, sid, event === "UserPromptSubmit")
 
+    // Claude's own title, from the transcript, beats prompt-derived and generated ones (D-059).
+    if (TITLE_EVENTS.has(event))
+      this.syncTranscriptTitle(c, sid, p.transcript_path ?? session.transcript_path)
+
     let requestId: string | null = null
     switch (event) {
       case "SessionStart": {
@@ -672,18 +785,25 @@ export class Engine {
       case "UserPromptSubmit": {
         this.setSessionState(c, sid, "running")
         this.setAgentState(c, mainAgentId(sid), "running")
-        if (session.title === null) {
-          const t = provisionalTitle(String(p.prompt ?? ""))
+        const fresh = this.store.session(sid)
+        if (fresh && (fresh.title === null || fresh.title_source === "placeholder")) {
+          // Markup and "Background (from the session that started this one)" stripped (D-060).
+          const text = cleanPromptText(String(p.prompt ?? ""))
+          const t = text ? provisionalTitle(text) : null
           if (t) {
             this.store.run(
               "UPDATE sessions SET title = ?, title_source = 'prompt' WHERE id = ?",
               t,
               sid,
             )
-            if (this.settings["titles.generate"]) {
-              const prompt = String(p.prompt)
-              c.after.push(() => this.generateTitle(sid, prompt))
-            }
+            if (this.settings["titles.generate"] && text)
+              c.after.push(() => this.generateTitle(sid, text))
+          } else if (fresh.title === null) {
+            this.store.run(
+              "UPDATE sessions SET title = ?, title_source = 'placeholder' WHERE id = ?",
+              UNTITLED,
+              sid,
+            )
           }
         }
         break
@@ -762,7 +882,46 @@ export class Engine {
         break
       }
     }
-    return { seq: c.seq, requestId }
+    return { seq, requestId }
+  }
+
+  /**
+   * The title Claude wrote into the transcript (desktop `custom-title` lines, P-015): tail
+   * 64 KB, then head 16 KB. Bounded, synchronous, never throws; a change appends `daemon:title`.
+   */
+  private syncTranscriptTitle(c: Changes, sessionId: string, path: string | null | undefined) {
+    if (!path) return
+    let title: string | null = null
+    try {
+      title =
+        transcriptTitle(this.files.tail(path, TRANSCRIPT_TAIL_BYTES)) ??
+        transcriptTitle(this.files.head(path, TITLE_HEAD_BYTES))
+    } catch (e) {
+      this.deps.log.warn("transcript title read failed", e)
+      return
+    }
+    const t = title ? provisionalTitle(title) : null
+    const s = this.store.session(sessionId)
+    if (!t || !s || (s.title === t && s.title_source === "claude")) return
+    this.appendEvent(c, {
+      sessionId,
+      hook: "daemon:title",
+      payload: { title: t, source: "transcript" },
+    })
+    this.store.run(
+      "UPDATE sessions SET title = ?, title_source = 'claude' WHERE id = ?",
+      t,
+      sessionId,
+    )
+    c.sessions.add(sessionId)
+  }
+
+  /** Session dirs a file path is shown relative to: worktree, project root, cwd (D-064). */
+  private showPathFor(sessionId: string): ShowPath {
+    const s = this.store.session(sessionId)
+    const root = s ? this.store.project(s.project_id)?.root_path : null
+    const bases = [s?.worktree ?? null, root ?? null, s?.cwd ?? null]
+    return (path) => displayPathFor(path, bases)
   }
 
   /**
@@ -930,7 +1089,7 @@ export class Engine {
         : questions.length === 1
           ? (questions[0]?.text ?? null)
           : questions.map((q) => q.header ?? q.text).join(" · ")
-      : permissionSummary(tool, p.tool_input)
+      : permissionSummary(tool, p.tool_input, this.showPathFor(session.id))
     // Preview now, before Claude can touch the file (D-056). Never throws; bounded reads.
     const pv =
       hold && !isQuestion
@@ -1015,7 +1174,7 @@ export class Engine {
       if (item.kind === "permission") this.apply(c, item, { _tag: "Expire" })
       this.setAgentState(c, item.agent_id ?? mainAgentId(item.session_id), "waiting")
     }
-    this.clearNotifications(a.item_id)
+    this.clearNotifications(c, a.item_id)
     c.after.push(() => this.wake(a.hook_request_id))
   }
 
@@ -1178,15 +1337,24 @@ export class Engine {
       item.agent_id ?? mainAgentId(item.session_id),
       decision === "ask" ? "waiting" : "running",
     )
-    this.clearNotifications(item.id)
+    this.clearNotifications(c, item.id)
     c.after.push(() => this.wake(a.hook_request_id))
   }
 
-  private clearNotifications(itemId: string) {
+  /** Mark an item's live notifications cleared; the app is told to remove the ones it got. */
+  private clearNotifications(c: Changes, itemId: string) {
+    const rows = this.store.all<{ id: string; channel: string | null }>(
+      "SELECT id, channel FROM notifications WHERE item_id = ? AND state IN ('pending','posted')",
+      itemId,
+    )
+    if (rows.length === 0) return
     this.store.run(
       "UPDATE notifications SET state = 'cleared' WHERE item_id = ? AND state IN ('pending','posted')",
       itemId,
     )
+    for (const r of rows)
+      if (r.channel === "shell" || r.channel === "both") c.cleared.push(r.id)
+      else this.unverified.delete(r.id)
   }
 
   decide(
@@ -1240,6 +1408,8 @@ export class Engine {
             ...(enc.updatedInput === undefined ? {} : { updatedInput: enc.updatedInput }),
           })
         } else {
+          const blocked = this.replyUnavailable()
+          if (blocked) throw conflict(blocked)
           this.appendEvent(c, {
             sessionId: item.session_id,
             agentId: item.agent_id,
@@ -1273,6 +1443,9 @@ export class Engine {
           this.decideIn(c, item, "deny", "reply", { reason: `The user replied: ${text}` })
           return this.respond(itemId)
         }
+        // Don't queue what can't be delivered: it would fail three times (C-023).
+        const blocked = this.replyUnavailable()
+        if (blocked) throw conflict(blocked)
         this.appendEvent(c, {
           sessionId: item.session_id,
           agentId: item.agent_id,
@@ -1316,7 +1489,7 @@ export class Engine {
       const fresh = this.store.item(itemId) as ItemRow
       if (!this.apply(c, fresh, { _tag: "Dismiss" }))
         throw conflict(`cannot dismiss a ${fresh.state} item`)
-      this.clearNotifications(itemId)
+      this.clearNotifications(c, itemId)
       return this.respond(itemId)
     })
   }
@@ -1374,6 +1547,8 @@ export class Engine {
 
   async notificationActed(id: string, action: NotificationAction): Promise<ActionResponse> {
     const n = this.store.notification(id)
+    // The setup check's test notification has no row and no item; nothing to do (C-021).
+    if (!n && id.startsWith(`${SETUP_ITEM_ID}_`)) return { ok: true, item: null }
     if (!n) throw notFound("notification")
     // Decide first: a rejected decision (e.g. 409, no approval) must not mark the notification acted.
     const decided =
@@ -1535,8 +1710,14 @@ export class Engine {
       itemId,
     )
     const session = toSession(s)
+    const live = a?.live === 1
+    const lastMessage = r.kind === "review" || r.kind === "failed" ? this.lastMessageOf(r) : null
+    // A live hold takes the reply as a deny reason through the hook: no CLI needed (D-016).
+    const replyUnavailable = live ? null : this.replyUnavailable()
     return {
-      item: toItem(r, a?.live === 1, this.store.questionCount(itemId)),
+      ...(lastMessage ? { lastMessage } : {}),
+      ...(replyUnavailable ? { replyUnavailable } : {}),
+      item: toItem(r, live, this.store.questionCount(itemId)),
       session,
       project: toProject(p),
       questions: this.store.questions(itemId).map(toQuestion),
@@ -1574,6 +1755,7 @@ export class Engine {
         rows.sort((a, b) => b.seq - a.seq)
       }
     }
+    const show = this.showPathFor(sessionId)
     return rows.map((e) => {
       const p = JSON.parse(e.payload_json) as Record<string, unknown>
       const entry: TimelineEntry = {
@@ -1581,10 +1763,53 @@ export class Engine {
         at: e.received_at,
         hook: e.hook,
         agentId: e.agent_id,
-        text: timelineText(e.hook, p),
+        text: timelineText(e.hook, p, show),
       }
       return e.seq === sourceSeq ? { ...entry, isSource: true } : entry
     })
+  }
+
+  /**
+   * What Claude said last, for a review/failed item (C-023): the session's latest Stop
+   * `last_assistant_message` up to the item's source event, capped. Null when pruned or empty.
+   */
+  private lastMessageOf(r: ItemRow): string | null {
+    const e = this.store.one<{ payload_json: string }>(
+      `SELECT payload_json FROM events WHERE session_id = ? AND hook = 'Stop' AND decode_error IS NULL
+         AND seq <= ? ORDER BY seq DESC LIMIT 1`,
+      r.session_id,
+      r.source_seq ?? Number.MAX_SAFE_INTEGER,
+    )
+    if (!e) return null
+    try {
+      const m = (JSON.parse(e.payload_json) as { last_assistant_message?: unknown })
+        .last_assistant_message
+      if (typeof m !== "string" || m.trim() === "") return null
+      return m.length > LAST_MESSAGE_MAX ? `${m.slice(0, LAST_MESSAGE_MAX - 1)}…` : m
+    } catch {
+      return null
+    }
+  }
+
+  /** Why a reply through `claude --resume` can't be delivered right now, or null (C-023). */
+  replyUnavailable(): string | null {
+    if (this.auth.found === false) return REPLY_CLI_MISSING
+    if (this.auth.loggedIn === false) return REPLY_CLI_LOGGED_OUT
+    return null
+  }
+
+  /** Ask the ClaudeCli service (cached 10 min there); tell the setup check when it changed. */
+  async refreshAuth(): Promise<ClaudeAuth> {
+    let next: ClaudeAuth
+    try {
+      next = await this.deps.claude.authStatus()
+    } catch {
+      next = { ...UNKNOWN_AUTH, checkedAt: this.now() }
+    }
+    const changed = next.found !== this.auth.found || next.loggedIn !== this.auth.loggedIn
+    this.auth = next
+    if (changed) this.onDoctorChange?.()
+    return next
   }
 
   // -------------------------------------------------------------------------
@@ -1691,34 +1916,133 @@ export class Engine {
       actions: JSON.parse(n.actions_json) as NotificationAction[],
       critical: n.critical === 1,
     }
-    if (this.hub.shellConnected) {
-      this.store.run(
-        "UPDATE notifications SET state = 'posted', channel = 'shell', posted_at = ? WHERE id = ?",
-        this.now(),
-        n.id,
-      )
-      this.hub.publish({ _tag: "notify", seq: this.store.maxSeq(), notification: payload })
-      return
-    }
-    if (!this.settings["notifications.fallback"]) return // stays pending for the shell
+    const route = this.route()
+    if (route === "none") return // stays pending until an app that can show it (D-019)
+    const channel = route === "both" ? "both" : route === "fallback" ? "osascript" : "shell"
     this.store.run(
-      "UPDATE notifications SET state = 'posted', channel = 'osascript', posted_at = ? WHERE id = ?",
+      "UPDATE notifications SET state = 'posted', channel = ?, posted_at = ? WHERE id = ?",
+      channel,
       this.now(),
       n.id,
     )
+    if (route !== "fallback")
+      this.hub.publish({ _tag: "notify", seq: this.store.maxSeq(), notification: payload })
+    if (route === "shell-unverified") this.unverified.set(n.id, { title: n.title, body: n.body })
+    if (route === "both" || route === "fallback") this.sendFallback(n.id, n.title, n.body, route)
+  }
+
+  /** osascript; a failure puts a fallback-only notification back to pending. */
+  private sendFallback(id: string | null, title: string, body: string, route: Route) {
     this.track(
-      this.deps.notifier.fallback(n.title, n.body).catch((e) => {
+      this.deps.notifier.fallback(title, body).catch((e) => {
         this.deps.log.warn("fallback notification failed", e)
-        this.store.run(
-          "UPDATE notifications SET state = 'pending', channel = NULL WHERE id = ? AND state = 'posted'",
-          n.id,
-        )
+        if (id && route === "fallback")
+          this.store.run(
+            "UPDATE notifications SET state = 'pending', channel = NULL WHERE id = ? AND state = 'posted'",
+            id,
+          )
       }),
     )
   }
 
+  /** Where a notification goes right now (D-062). */
+  route(): Route {
+    const connectedAt = this.shell.connectedAt
+    return deliveryRoute({
+      shellConnected: this.hub.shellConnected,
+      permission: this.shell.status?.notifications ?? null,
+      connectedForMs: connectedAt === null ? 0 : this.now() - connectedAt,
+      fallback: this.settings["notifications.fallback"],
+    })
+  }
+
+  /** The app never vouched for notifications it was given: send the fallback for live ones. */
+  private resolveUnverified() {
+    if (this.unverified.size === 0) return
+    const pending = [...this.unverified]
+    this.unverified.clear()
+    if (!this.settings["notifications.fallback"]) return
+    for (const [id, n] of pending) {
+      if (!id.startsWith(`${SETUP_ITEM_ID}_`)) {
+        const row = this.store.one<{ state: string; item_state: string }>(
+          `SELECT n.state, i.state AS item_state FROM notifications n
+             JOIN attention_items i ON i.id = n.item_id WHERE n.id = ?`,
+          id,
+        )
+        if (row?.state !== "posted" || row.item_state !== "open") continue
+        this.store.run("UPDATE notifications SET channel = 'both' WHERE id = ?", id)
+      }
+      this.sendFallback(null, n.title, n.body, "both")
+    }
+  }
+
+  private onShellChange(connected: boolean) {
+    if (connected) {
+      this.shell = { status: this.shell.status, connectedAt: this.now() }
+      this.flushPendingNotifications()
+    } else {
+      // Whatever it was given unverified may never have been shown.
+      this.resolveUnverified()
+      this.shell = { status: null, connectedAt: null }
+    }
+    this.onDoctorChange?.()
+  }
+
+  /** The app's notification permission etc. as it last reported it, if one is connected. */
+  shellStatus(): { connected: boolean; status: ShellStatus | null; connectedAt: number | null } {
+    return { connected: this.hub.shellConnected, ...this.shell }
+  }
+
+  /**
+   * POST /v1/shell/status (C-022). Kept in memory; a changed permission appends
+   * `daemon:shell-status`. An app that can show notifications gets the pending ones (D-019);
+   * one that can't makes the fallback cover what it was given unverified.
+   */
+  reportShellStatus(status: ShellStatus): void {
+    this.shell = { ...this.shell, status }
+    if (status.notifications !== this.recordedPermission) {
+      this.recordedPermission = status.notifications
+      this.daemonEvent("daemon:shell-status", status)
+    }
+    if (canShow(status.notifications)) {
+      this.unverified.clear()
+      if (this.hub.shellConnected) this.flushPendingNotifications()
+    } else this.resolveUnverified()
+    this.onDoctorChange?.()
+  }
+
+  /**
+   * POST /v1/doctor/notify: one test notification down the normal path, item `setup`, no row
+   * (it answers nothing). Returns where it went.
+   */
+  testNotification(): { ok: true; via: "shell" | "fallback" | "none" } {
+    const route = this.route()
+    const id = `${SETUP_ITEM_ID}_${randomUUID().replaceAll("-", "").slice(0, 12)}`
+    const { title, body } = TEST_NOTIFICATION
+    if (route !== "fallback" && route !== "none")
+      this.hub.publish({
+        _tag: "notify",
+        seq: this.store.maxSeq(),
+        notification: {
+          id,
+          itemId: SETUP_ITEM_ID,
+          title,
+          body,
+          actions: ["open"],
+          critical: false,
+        },
+      })
+    if (route === "shell-unverified") this.unverified.set(id, { title, body })
+    if (route === "both" || route === "fallback") this.sendFallback(null, title, body, route)
+    const via =
+      route === "none" ? "none" : route === "both" || route === "fallback" ? "fallback" : "shell"
+    this.daemonEvent("daemon:doctor-notify", { route, via })
+    return { ok: true, via }
+  }
+
   /** A shell connected: deliver notifications that are still pending and still relevant. */
   private flushPendingNotifications() {
+    if (this.route() === "none") return
     const rows = this.store.all<NotificationRow>(
       `SELECT n.* FROM notifications n JOIN attention_items i ON i.id = n.item_id
          WHERE n.state = 'pending' AND i.state = 'open' AND n.created_at > ? ORDER BY n.created_at`,
@@ -1731,12 +2055,31 @@ export class Engine {
   // Titles
   // -------------------------------------------------------------------------
 
+  /** Claude's own title (transcript) already set: nothing to generate or overwrite (D-059). */
+  private hasClaudeTitle(sessionId: string): boolean {
+    return this.store.session(sessionId)?.title_source === "claude"
+  }
+
   private generateTitle(sessionId: string, prompt: string) {
+    if (this.hasClaudeTitle(sessionId)) return
     this.track(
-      this.deps.claude
-        .title(prompt)
+      (async () => {
+        // No CLI login (desktop-only users): every `claude -p` would fail (D-061).
+        const auth = await this.refreshAuth()
+        if (auth.found === false || auth.loggedIn === false) {
+          if (!this.loggedTitleSkip) {
+            this.loggedTitleSkip = true
+            this.deps.log.info(
+              `skipping generated titles: the claude CLI is ${auth.found === false ? "not installed" : "not logged in"}`,
+            )
+          }
+          return null
+        }
+        if (this.hasClaudeTitle(sessionId)) return null
+        return this.deps.claude.title(prompt)
+      })()
         .then((title) => {
-          if (!title) return
+          if (!title || this.hasClaudeTitle(sessionId)) return
           this.tx((c) => {
             this.appendEvent(c, { sessionId, hook: "daemon:title", payload: { title } })
             this.store.run(
@@ -1919,6 +2262,56 @@ export class Engine {
     this.flushReviewGroup()
     this.kickOutbox()
     this.updates?.tick()
+    // An app that connected and never reported is an older one: cover what it was given.
+    const { connectedAt, status } = this.shell
+    if (
+      this.unverified.size > 0 &&
+      status === null &&
+      connectedAt !== null &&
+      now - connectedAt >= SHELL_REPORT_GRACE_MS
+    )
+      this.resolveUnverified()
+    if (now >= this.nextDoctorAt) {
+      this.nextDoctorAt = now + DOCTOR_RECHECK_MS
+      this.track(this.refreshAuth())
+      this.onDoctorChange?.()
+    }
+    if (now >= this.nextPruneAt) this.prune(false)
+  }
+
+  /**
+   * Retention (D-063): delete finished history older than `storage.retentionDays` in one
+   * transaction with a `daemon:pruned` event, then give the space back. `startup` may run a
+   * full VACUUM on a mostly-free file; the daily pass never blocks on one.
+   */
+  prune(startup: boolean): PruneCounts | null {
+    const now = this.now()
+    this.nextPruneAt = now + PRUNE_EVERY_MS
+    const days = Math.min(365, Math.max(1, this.settings["storage.retentionDays"] || 14))
+    const cutoff = now - days * 24 * 3600_000
+    let counts: PruneCounts | null = null
+    try {
+      counts = this.tx((c) => {
+        const r = pruneHistory(this.deps.db, cutoff)
+        const total = Object.values(r).reduce((a, b) => a + b, 0)
+        if (total > 0)
+          this.appendEvent(c, {
+            sessionId: null,
+            hook: "daemon:pruned",
+            payload: { ...r, days, cutoff },
+          })
+        return total > 0 ? r : null
+      })
+      if (counts) this.deps.log.info("pruned history", counts)
+    } catch (e) {
+      this.deps.log.error("pruning history failed", e)
+    }
+    try {
+      if (counts || startup) reclaimSpace(this.deps.db, startup)
+    } catch (e) {
+      this.deps.log.warn("reclaiming space failed", e)
+    }
+    return counts
   }
 
   /** After a restart: rows that were mid-send go back to the queue. Holds/snoozes recover via tick(). */

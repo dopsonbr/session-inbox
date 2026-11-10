@@ -11,6 +11,7 @@ import type { Connection } from "@session-inbox/contracts"
 import { CHANNELS, type Channel, paths } from "@session-inbox/contracts/paths"
 import { Effect, Option, Schedule } from "effect"
 import { openDb } from "./db/db.ts"
+import { Doctor } from "./doctor.ts"
 import { Engine } from "./engine.ts"
 import { BUILD, hookHandler, type ServerContext, uiHandler, VERSION } from "./server.ts"
 import {
@@ -113,11 +114,27 @@ export const startDaemon = async (
     build: BUILD,
     memo: fileMemo(join(p.home, "update-memo.json")),
   })
+  // Retention (D-063): once at startup, then daily from the tick.
+  engine.prune(true)
   const token = loadToken(p.home)
   const channel = opts.channel ?? "ga"
   const other: Channel = channel === "ga" ? "beta" : "ga"
   const otherHome =
     opts.otherChannelHome === undefined ? CHANNELS[other].home : opts.otherChannelHome
+  const otherChannel = () =>
+    otherHome !== null && resolve(otherHome) !== resolve(p.home) && existsSync(paths(otherHome).db)
+      ? other
+      : null
+  const doctor = new Doctor(engine, {
+    home: p.home,
+    dbPath: p.db,
+    claudeConfigDir: opts.claudeConfigDir,
+    channel,
+    version: VERSION,
+    build: BUILD,
+    otherChannel,
+  })
+  doctor.recheck()
   const ctx: ServerContext = {
     engine,
     token,
@@ -125,12 +142,8 @@ export const startDaemon = async (
     channel,
     title: CHANNELS[channel].title,
     port: 0,
-    otherChannel: () =>
-      otherHome !== null &&
-      resolve(otherHome) !== resolve(p.home) &&
-      existsSync(paths(otherHome).db)
-        ? other
-        : null,
+    otherChannel,
+    doctor,
   }
 
   if (existsSync(p.socket)) rmSync(p.socket)

@@ -6,6 +6,7 @@ import { openDb } from "../src/db/db.ts"
 import type { ReadResult } from "../src/domain/preview.ts"
 import { Engine } from "../src/engine.ts"
 import type {
+  ClaudeAuth,
   ClaudeCliShape,
   FilesShape,
   GitInfo,
@@ -43,6 +44,12 @@ export class FakeClaude implements ClaudeCliShape {
   resumes: { sessionId: string; cwd: string | null; body: string }[] = []
   titleResult: string | null = "Generated Title"
   failResumes = 0
+  auth: ClaudeAuth = { found: true, loggedIn: true, method: "claude.ai", checkedAt: 0 }
+  authCalls = 0
+  authStatus = async () => {
+    this.authCalls++
+    return this.auth
+  }
   title = async (prompt: string) => {
     this.titles.push(prompt)
     return this.titleResult
@@ -131,6 +138,10 @@ export class FakeFiles implements FilesShape {
   tail = (path: string, bytes: number): string | null => {
     const t = this.tails[path]
     return t === undefined ? null : t.slice(-bytes)
+  }
+  head = (path: string, bytes: number): string | null => {
+    const t = this.tails[path]
+    return t === undefined ? null : t.slice(0, bytes)
   }
 }
 
