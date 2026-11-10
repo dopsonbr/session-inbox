@@ -240,6 +240,8 @@ export const transcriptTitle = (text: string | null): string | null => {
 
 const BACKGROUND = /^Background \(from the session that started this one\):/i
 const LEADING_TAG = /^<([A-Za-z][\w:-]*)(?:\s[^>]*)?\/?>/
+/** Wrappers whose inside IS the prompt (a message relayed from another session): unwrap, don't drop. */
+const UNWRAP_TAGS = new Set(["cross-session-message"])
 
 /**
  * The part of a prompt worth titling a session after (D-060): leading `<tag>…</tag>` blocks
@@ -258,6 +260,10 @@ export const cleanPromptText = (prompt: string): string | null => {
         continue
       }
       const close = s.indexOf(`</${tag}>`, m[0].length)
+      if (UNWRAP_TAGS.has(tag)) {
+        s = (close < 0 ? s.slice(m[0].length) : s.slice(m[0].length, close)).trim()
+        continue
+      }
       s = close < 0 ? "" : s.slice(close + tag.length + 3).trim()
       continue
     }

@@ -17,6 +17,17 @@ const titleEvents = (h: Harness) =>
   h.engine.deps.db.query("SELECT payload_json FROM events WHERE hook = 'daemon:title'").all()
 
 describe("cleaned prompt titles (D-060)", () => {
+  test("a message relayed from another session is titled by what it says (seen live)", () => {
+    expect(
+      cleanPromptText(
+        '<cross-session-message from="local_80d1" from-name="Session inbox app optimization">\nNext test round. Do exactly these steps.\n</cross-session-message>',
+      ),
+    ).toBe("Next test round. Do exactly these steps.")
+    expect(cleanPromptText('<cross-session-message from="x">\nUnclosed but readable')).toBe(
+      "Unclosed but readable",
+    )
+  })
+
   test("a session started by another session", () => {
     expect(
       cleanPromptText(
