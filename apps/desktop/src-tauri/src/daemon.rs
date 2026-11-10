@@ -31,7 +31,8 @@ pub fn home_dir() -> PathBuf {
     match std::env::var_os("SESSION_INBOX_HOME") {
         Some(p) => PathBuf::from(p),
         None => PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
-            .join("Library/Application Support/SessionInbox"),
+            .join("Library/Application Support")
+            .join(crate::channel::current().support_dir),
     }
 }
 

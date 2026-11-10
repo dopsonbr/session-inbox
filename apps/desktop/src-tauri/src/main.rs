@@ -1,6 +1,7 @@
 //! Session Inbox shell: menu-bar bridge for the daemon. It renders nothing itself;
 //! its windows load the daemon-served UI, and it only relays notifications,
 //! the badge, deep links and the global shortcut.
+mod channel;
 mod daemon;
 mod notify;
 
@@ -26,12 +27,16 @@ struct Shell {
     last_blur: Mutex<Option<Instant>>,
 }
 
-/// `sessioninbox://item/<id>` -> `#/item/<id>`, same for `session`.
+/// `<scheme>://item/<id>` -> `#/item/<id>`, same for `session`.
 fn deep_link_hash(url: &str) -> Option<String> {
+    deep_link_hash_for(url, channel::current().scheme)
+}
+
+fn deep_link_hash_for(url: &str, scheme: &str) -> Option<String> {
     let u = tauri::Url::parse(url).ok()?;
     let kind = u.host_str().filter(|k| matches!(*k, "item" | "session"))?;
     let id = u.path().trim_matches('/');
-    (u.scheme() == "sessioninbox" && !id.is_empty()).then(|| format!("#/{kind}/{id}"))
+    (u.scheme() == scheme && !id.is_empty()).then(|| format!("#/{kind}/{id}"))
 }
 
 fn on_daemon_origin(w: &WebviewWindow, c: &Connection) -> bool {
@@ -97,7 +102,7 @@ fn kickstart() {
     let uid = std::process::Command::new("id").arg("-u").output().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
     if let Ok(uid) = uid {
         let _ = std::process::Command::new("launchctl")
-            .args(["kickstart", "-k", &format!("gui/{uid}/com.sessioninbox.inboxd")])
+            .args(["kickstart", "-k", &format!("gui/{uid}/{}", channel::current().launchd_label)])
             .output();
     }
 }
@@ -131,7 +136,7 @@ fn health_loop(app: AppHandle) -> ! {
 fn create_windows(app: &AppHandle) -> tauri::Result<()> {
     let offline = || WebviewUrl::App("index.html".into());
     let main = WebviewWindowBuilder::new(app, "main", offline())
-        .title("Session Inbox")
+        .title(channel::current().product_name)
         .inner_size(1280.0, 820.0)
         .visible(false)
         .build()?;
@@ -164,10 +169,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.set_activation_policy(ActivationPolicy::Accessory);
     let h = app.handle().clone();
 
-    let open = MenuItem::with_id(&h, "open", "Open inbox", true, Some("CmdOrCtrl+Shift+I"))?;
+    let open = MenuItem::with_id(&h, "open", "Open inbox", true, Some(channel::current().shortcut))?;
     let pause = CheckMenuItem::with_id(&h, "pause", "Pause notifications", true, false, None::<&str>)?;
     let status = MenuItem::with_id(&h, "status", "Daemon: checking…", false, None::<&str>)?;
-    let quit = MenuItem::with_id(&h, "quit", "Quit Session Inbox", true, Some("CmdOrCtrl+Q"))?;
+    let quit = MenuItem::with_id(&h, "quit", format!("Quit {}", channel::current().product_name), true, Some("CmdOrCtrl+Q"))?;
     let menu = Menu::with_items(
         &h,
         &[&open, &pause, &PredefinedMenuItem::separator(&h)?, &status, &PredefinedMenuItem::separator(&h)?, &quit],
@@ -178,7 +183,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     TrayIconBuilder::with_id("main")
         .icon(tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?)
         .icon_as_template(true)
-        .tooltip("Session Inbox")
+        .tooltip(channel::current().product_name)
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, e| match e.id().as_ref() {
@@ -196,7 +201,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         })
         .build(&h)?;
 
-    h.global_shortcut().register("CmdOrCtrl+Shift+I")?;
+    h.global_shortcut().register(channel::current().shortcut)?;
     let links = h.clone();
     h.deep_link().on_open_url(move |e| {
         for hash in e.urls().iter().filter_map(|u| deep_link_hash(u.as_str())) {
@@ -240,7 +245,7 @@ fn main() {
         )
         .setup(setup)
         .build(tauri::generate_context!())
-        .expect("failed to build Session Inbox shell")
+        .expect("failed to build shell")
         .run(|_, e| {
             // Menu-bar app: closing windows must not quit; only the Quit item does.
             if let RunEvent::ExitRequested { api, code: None, .. } = e {
@@ -251,14 +256,16 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::deep_link_hash;
+    use super::{deep_link_hash, deep_link_hash_for};
 
     #[test]
     fn maps_deep_links_to_routes() {
-        assert_eq!(deep_link_hash("sessioninbox://item/abc"), Some("#/item/abc".into()));
-        assert_eq!(deep_link_hash("sessioninbox://session/s-1/"), Some("#/session/s-1".into()));
-        assert_eq!(deep_link_hash("sessioninbox://other/abc"), None);
+        assert_eq!(deep_link_hash_for("sessioninbox://item/abc", "sessioninbox"), Some("#/item/abc".into()));
+        assert_eq!(deep_link_hash_for("sessioninbox://session/s-1/", "sessioninbox"), Some("#/session/s-1".into()));
+        assert_eq!(deep_link_hash_for("sessioninbox://other/abc", "sessioninbox"), None);
         assert_eq!(deep_link_hash("https://item/abc"), None);
-        assert_eq!(deep_link_hash("sessioninbox://item"), None);
+        assert_eq!(deep_link_hash_for("sessioninbox-beta://item/abc", "sessioninbox-beta"), Some("#/item/abc".into()));
+        assert_eq!(deep_link_hash_for("sessioninbox-beta://item/abc", "sessioninbox"), None);
+        assert_eq!(deep_link_hash_for("sessioninbox://item", "sessioninbox"), None);
     }
 }
