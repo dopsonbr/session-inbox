@@ -520,6 +520,12 @@ const decisionFooter = (
   h: H,
 ): ReadonlyArray<Html> => {
   const secondsLeft = Math.max(0, Math.round((approval.expiresAt - model.now) / 1000))
+  const within = secondsLeft > 0 ? `about ${Math.max(1, Math.round(secondsLeft / 60))} min` : null
+  // The daemon says how this request reached us; the words follow it (U-045).
+  const viaRequest = approval.via === "permissionRequest"
+  const liveLine = viaRequest
+    ? `Claude is asking in its own window too; whichever is answered first wins.${within === null ? "" : ` The inbox can answer for ${within}.`}`
+    : `Claude is paused on this. If you don't answer${within === null ? " soon" : ` within ${within}`}, Claude's own prompt takes over.`
   return [
     h.p(
       [h.Class("text-[13px] text-muted-foreground")],
@@ -527,7 +533,7 @@ const decisionFooter = (
         isDecided
           ? `Decided: ${approval.decision ?? "answered"}${approval.decidedAt === null ? "" : ` at ${formatClock(approval.decidedAt)}`}.`
           : detail.item.live
-            ? `Claude is paused on this. If you don't answer${secondsLeft > 0 ? ` within about ${Math.max(1, Math.round(secondsLeft / 60))} min` : " soon"}, Claude's own prompt takes over.`
+            ? liveLine
             : "Claude's own prompt has taken over — deciding here may not reach it. Open it in Claude.",
       ],
     ),
@@ -573,7 +579,11 @@ const decisionFooter = (
     ),
     h.p(
       [h.Class("text-xs text-subtle-foreground")],
-      ["Always allow adds a rule to this project's .claude/settings.local.json."],
+      [
+        viaRequest
+          ? "Always allow applies the rule Claude itself suggests for this request."
+          : "Always allow adds a rule to this project's .claude/settings.local.json.",
+      ],
     ),
   ]
 }

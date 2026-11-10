@@ -161,7 +161,7 @@ export const SETTINGS_FIELDS: ReadonlyArray<SettingsField> = [
     group: "updates",
     kind: "toggle",
     label: "Install updates automatically",
-    help: "Only while no tool call is held and nothing is being sent. Otherwise you get an Update now button.",
+    help: "Only while nothing is waiting on you, nothing is being sent and sessions have been quiet for 30 seconds. Until then you get an Update now button.",
   },
 ]
 

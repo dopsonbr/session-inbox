@@ -62,7 +62,7 @@ const proj = (name: string) => {
   return projects[name]
 }
 
-const hook = async (
+const post = async (
   sid: string,
   project: string,
   event: string,
@@ -87,6 +87,18 @@ const hook = async (
     }),
   })
   return (await r.json()) as { requestId: string | null }
+}
+
+/**
+ * One hook event. A PreToolUse is followed by the PermissionRequest Claude sends when it is
+ * about to ask (same tool and input, no tool_use_id): in the default mode that is what the
+ * inbox answers (D-074), and without it the seeded approvals would only be observed.
+ */
+const hook: typeof post = async (sid, project, event, payload = {}, entrypoint) => {
+  const first = await post(sid, project, event, payload, entrypoint)
+  if (event !== "PreToolUse") return first
+  const { tool_use_id: _id, ...request } = payload
+  return post(sid, project, "PermissionRequest", request, entrypoint)
 }
 
 const session = async (sid: string, project: string, prompt: string, entrypoint?: string) => {
@@ -116,7 +128,7 @@ await hook(s1, "order-up-api", "PreToolUse", {
         question: "Which integration tests should I run before opening the PR?",
         header: "Tests",
         options: [
-          { label: "Only *Usom* tests" },
+          { label: "Only Usom tests" },
           { label: "Full integration suite" },
           { label: "Skip — I'll run them" },
         ],
@@ -249,5 +261,5 @@ await hook(
 
 console.log(`\nSession Inbox demo running: http://127.0.0.1:${c.httpPort}/`)
 console.log(`  compact: http://127.0.0.1:${c.httpPort}/?view=compact`)
-console.log("  held hooks lapse to 'ask' after 120 s. Ctrl-C to stop.\n")
+console.log("  approvals stay answerable for 10 minutes, then wait in Claude. Ctrl-C to stop.\n")
 await daemon.exited
