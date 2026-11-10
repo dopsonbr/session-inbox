@@ -3,7 +3,7 @@
 // The beta channel builds "Session Inbox Beta.app", which runs beside the ga app
 // (own bundle id, URL scheme, launchd label, data home and shortcut; see src/channel.rs).
 import { existsSync, readFileSync, rmSync } from "node:fs"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 
 export type Channel = "ga" | "beta"
 
@@ -34,6 +34,10 @@ export function configOverride(channel: Channel, version: string): Record<string
     plugins: { "deep-link": { desktop: { schemes: ["sessioninbox-beta"] } } },
   }
 }
+
+/** Cargo's target dir: `CARGO_TARGET_DIR` (relative to the crate) when set, else `src-tauri/target`. */
+export const targetDir = (tauriDir: string, cargoTargetDir?: string): string =>
+  cargoTargetDir ? resolve(tauriDir, cargoTargetDir) : join(tauriDir, "target")
 
 export function parseChannel(argv: string[]): Channel {
   const i = argv.indexOf("--channel")
@@ -68,7 +72,7 @@ if (import.meta.main) {
   const proc = Bun.spawn(args, { cwd: tauriDir, stdout: "inherit", stderr: "inherit", env })
   if ((await proc.exited) !== 0) process.exit(1)
 
-  const bundleDir = join(tauriDir, "target", "release", "bundle")
+  const bundleDir = join(targetDir(tauriDir, process.env.CARGO_TARGET_DIR), "release", "bundle")
   const built = join(bundleDir, "macos", `${productName(channel)}.app`)
   if (!existsSync(built)) {
     console.error(`build finished but ${built} is missing`)
