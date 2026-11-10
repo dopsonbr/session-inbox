@@ -244,7 +244,8 @@ const main = async () => {
   const settingsAfterInstall = readFileSync(settings, "utf8")
   check(settingsAfterInstall.includes(`${home}/bin/inbox-hook`), "hooks point at the e2e home")
 
-  // 2. a live hold through the real inbox-hook binary.
+  // 2. a live request through the real inbox-hook binary, the way the default mode holds:
+  //    Claude's PermissionRequest hook (D-074). The PreToolUse before it is only observed.
   for (const e of [
     ["SessionStart", { source: "startup" }],
     ["UserPromptSubmit", { prompt: "e2e update" }],
@@ -252,11 +253,14 @@ const main = async () => {
     const r = await hook(e[0], e[1])
     if (r.code !== 0) throw new Failed(`${e[0]} hook exited ${r.code}`)
   }
-  const held = hook("PreToolUse", {
+  const write = { file_path: join(project, "x.txt"), content: "hi" }
+  const pre = await hook("PreToolUse", {
     tool_name: "Write",
     tool_use_id: "e2e-w1",
-    tool_input: { file_path: join(project, "x.txt"), content: "hi" },
+    tool_input: write,
   })
+  check(pre.code === 0 && pre.stdout.trim() === "", "PreToolUse is observed, not held")
+  const held = hook("PermissionRequest", { tool_name: "Write", tool_input: write })
   type Item = { id: string; kind: string; state: string; live: boolean }
   const item = await waitFor(
     async () =>
@@ -266,7 +270,7 @@ const main = async () => {
     "a live permission hold",
     10_000,
   )
-  pass(`the Write is held (item ${item.id})`)
+  pass(`the Write request is live (item ${item.id})`)
 
   fake.setLatest("0.0.2")
   const c2 = (await api("/v1/update/check", { body: {} })).body as UpdateStatus
@@ -286,10 +290,10 @@ const main = async () => {
   check(d.status === 200, "deny accepted over HTTP")
   const hr = await held
   const out = JSON.parse(hr.stdout.trim() || "{}") as {
-    hookSpecificOutput?: { permissionDecision?: string }
+    hookSpecificOutput?: { decision?: { behavior?: string } }
   }
   check(
-    hr.code === 0 && out.hookSpecificOutput?.permissionDecision === "deny",
+    hr.code === 0 && out.hookSpecificOutput?.decision?.behavior === "deny",
     "inbox-hook printed the deny and exited 0",
     hr.stdout,
   )
