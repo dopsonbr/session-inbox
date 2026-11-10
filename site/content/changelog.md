@@ -9,7 +9,9 @@ section: Reference
 
 What changed in each release, newest first. Versions are tagged on [GitHub Releases](https://github.com/dopsonbr/session-inbox/releases), where you can download them.
 
-## Unreleased
+## 0.4.0
+
+Published 2026-11-10: [v0.4.0 on GitHub](https://github.com/dopsonbr/session-inbox/releases/tag/v0.4.0). An install of 0.3.1 updates to it by itself, or with **Update now**.
 
 - **A Dock icon and a normal window.** Session Inbox is a regular Mac app as well as a menu-bar app: it is in the Dock and in <kbd>⌘</kbd><kbd>Tab</kbd>, and the Dock icon carries the same count as the menu bar. Launching the app, clicking its Dock icon or switching to it with <kbd>⌘</kbd><kbd>Tab</kbd> opens the inbox window. Closing the window hides it; <kbd>⌘</kbd><kbd>Q</kbd> quits the menu-bar app while the daemon keeps running. See [The window is an app too](using-it.md#the-window-is-an-app-too).
 - **The window stays where you put it.** Its position, size and whether it was open are kept across restarts and updates, on another monitor too. At login or after an update the app starts in the background and brings the window back only if it was open.

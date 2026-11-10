@@ -65,7 +65,7 @@ Starting point unless stated: the inbox window is open on **Needs you** with the
 | 18 | See the note you sent with a denial | not possible | 2 | 2 | History, the row: "Sent with the denial: …". |
 | 19 | Change a shortcut | not possible | not possible | 3 | 3 since the shortcut settings (`0.3.0`): Settings, **Change** on the row, press the keys. |
 | 20 | Clear a stuck call you expected (a dev server) | not possible | not possible | 3 | 3 with stuck calls, measured on `dev:mock`: the **Review** tab, the row, **Done** (or `e`). The next Review item is selected after. |
-| 21 | Open the inbox window from another app | 1 | 1 | 1 | ⌘⇧I. The menu-bar icon then **Open inbox** is 2. Since the Dock icon (unreleased): ⌘Tab to the app while no window shows, or a click on its Dock icon, is 1 too; not yet counted in the running app. |
+| 21 | Open the inbox window from another app | 1 | 1 | 1 | ⌘⇧I. The menu-bar icon then **Open inbox** is 2. Since the Dock icon (0.4.0): ⌘Tab to the app while no window shows, or a click on its Dock icon, is 1 too; not yet counted in the running app. |
 
 ## Findings
 
@@ -140,7 +140,7 @@ Starting point unless stated: the inbox window is open on **Needs you** with the
 
 ## Changes
 
-- 2026-11-10 — The app as a window (unreleased): a Dock icon with the count, ⌘Tab, a window that hides on close and remembers its place, Settings › Window and menu bar (U-089), and the popover marking the row a notification pointed at (U-090 to U-092). The setting and the marked row were checked in a browser against the demo daemon, in light and dark, at 1280×900 and the popover at 480×600 and 480×400; the Dock icon, ⌘Tab and the window's memory are unseen by a person. Closes UX-067 to UX-069; step 21 added.
+- 2026-11-10 — The app as a window (0.4.0): a Dock icon with the count, ⌘Tab, a window that hides on close and remembers its place, Settings › Window and menu bar (U-089), and the popover marking the row a notification pointed at (U-090 to U-092). The setting and the marked row were checked in a browser against the demo daemon, in light and dark, at 1280×900 and the popover at 480×600 and 480×400; the Dock icon, ⌘Tab and the window's memory are unseen by a person. Closes UX-067 to UX-069; step 21 added.
 - 2026-11-10 — Stuck calls in the UI (G-035, C-030, U-084 to U-088): a Review row and title reading "Running npm run dev for 12 min", a card with the command and "Started at … No result yet.", Done/Snooze/Open in Claude, "Ran long" in History, and a switch plus minutes in Settings › Notifications. Checked on `dev:mock` in light and dark at 1280×820 and the popover at 480×600; not yet on a real hung call.
 - 2026-11-10 — Shortcut settings (G-034): a Shortcuts group in Settings with press-to-record, Clear and Reset, clash warnings, and the menu-bar app re-registering its system-wide key. Checked on the real daemon: after changing Next to N, J did nothing, N moved, and N still worked after a reload. The system-wide key changing in the running app is unverified (nobody could press keys). Closes UX-064; opens UX-065.
 - 2026-11-10 — Second pass on `3b2144c`, re-measured on the real daemon: scores and step counts above. Still open: UX-010 (partly), UX-031, UX-032, UX-055 to UX-059, UX-062, UX-063.
