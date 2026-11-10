@@ -1,7 +1,7 @@
 import type { Item, Snapshot } from "@session-inbox/contracts"
 import { Option } from "effect"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import type { Message } from "../message.ts"
+import { Message } from "../message.ts"
 import type { Model } from "../model.ts"
 import { findProject, findSession, formatAge, hashForItem, itemsInQueue } from "../selectors.ts"
 import { inlineLineView } from "./markdown.ts"
@@ -25,21 +25,20 @@ const row = (model: Model, snapshot: Snapshot, item: Item, isFirst: boolean, h: 
     Option.map(project, (p) => p.name),
     () => "",
   )
-  // Review rows say what was done (the summary, inline Markdown, one line); others say what's asked.
-  const subtitle: ReadonlyArray<Html | string> =
-    item.queue === "review" && item.summary !== null
-      ? inlineLineView(h, item.summary)
-      : [`${itemKindLabel(item)} · ${projectName}`]
+  const canDecide = item.kind === "permission" && item.live && item.queue === "needs-you"
+  // The buttons sit beside the link, not in it, so a click on them never opens the window.
   return h.keyed("li")(
     item.id,
-    [],
+    [
+      h.Class(
+        `flex items-center hover:bg-accent focus-within:bg-accent ${isFirst ? "bg-needs-tint" : ""}`,
+      ),
+    ],
     [
       h.a(
         [
           h.Href(`/${hashForItem(item.id)}`),
-          h.Class(
-            `flex items-center gap-2.5 px-3.5 py-2.5 no-underline hover:bg-accent focus-visible:bg-accent ${isFirst ? "bg-needs-tint" : ""}`,
-          ),
+          h.Class("flex min-w-0 flex-1 items-center gap-2.5 px-3.5 py-2.5 no-underline"),
         ],
         [
           dot(h, itemTone(item)),
@@ -50,7 +49,10 @@ const row = (model: Model, snapshot: Snapshot, item: Item, isFirst: boolean, h: 
                 [h.Class("block truncate text-[14px] font-semibold text-foreground")],
                 [title],
               ),
-              h.span([h.Class("block truncate text-xs text-muted-foreground")], subtitle),
+              h.span(
+                [h.Class("block truncate text-xs text-muted-foreground")],
+                rowSubtitle(item, projectName, h),
+              ),
             ],
           ),
           h.span(
@@ -59,7 +61,39 @@ const row = (model: Model, snapshot: Snapshot, item: Item, isFirst: boolean, h: 
           ),
         ],
       ),
+      canDecide ? rowDecisions(model, item, h) : h.empty,
     ],
+  )
+}
+
+/**
+ * A row's second line: what is asked (or, for a review, what was done), then the project
+ * (U-062). Without a summary: the kind and the project.
+ */
+export const rowSubtitle = (item: Item, projectName: string, h: H): ReadonlyArray<Html | string> =>
+  item.summary === null || item.summary.trim() === ""
+    ? [`${itemKindLabel(item)} · ${projectName}`]
+    : [...inlineLineView(h, item.summary), projectName === "" ? "" : ` · ${projectName}`]
+
+/** Allow and Deny on a live permission row: decided here, without opening the window (U-062). */
+const rowDecisions = (model: Model, item: Item, h: H): Html => {
+  const isSending = model.submission._tag === "Sending"
+  const button = (decision: "allow" | "deny", label: string, variant: string) =>
+    h.button(
+      [
+        h.Type("button"),
+        h.Class("btn"),
+        h.DataAttribute("variant", variant),
+        h.DataAttribute("size", "sm"),
+        h.Disabled(isSending),
+        h.AriaLabel(`${label}: ${item.summary ?? "permission request"}`),
+        h.OnClick(Message.ClickedRowDecision({ itemId: item.id, decision })),
+      ],
+      [label],
+    )
+  return h.div(
+    [h.Class("flex shrink-0 items-center gap-1.5 pr-3.5")],
+    [button("allow", "Allow", "outline"), button("deny", "Deny", "danger-outline")],
   )
 }
 

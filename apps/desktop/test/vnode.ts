@@ -32,6 +32,15 @@ export const findAll = (node: unknown, sel: string): ReadonlyArray<VNode> => {
   return [...self, ...childrenOf(node).flatMap((child) => findAll(child, sel))]
 }
 
+/** An element's classes, space-separated (Foldkit keeps them as a `class` map). */
+export const classOf = (node: unknown): string => {
+  const classes = (node as { data?: { class?: Record<string, boolean> } } | undefined)?.data?.class
+  return Object.entries(classes ?? {})
+    .filter(([, on]) => on)
+    .map(([name]) => name)
+    .join(" ")
+}
+
 /** A prop or attribute of an element (Foldkit puts most in `props`). */
 export const attrOf = (node: VNode, name: string): unknown =>
   node.data?.props?.[name] ?? node.data?.attrs?.[name]

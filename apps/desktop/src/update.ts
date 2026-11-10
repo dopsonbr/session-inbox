@@ -30,7 +30,9 @@ import {
   OpenInClaude,
   ReloadPage,
   SaveDraft,
+  ScrollToRow,
   SendDecision,
+  SendDenyNote,
   SendReply,
   SendTestNotification,
   SetHash,
@@ -41,7 +43,13 @@ import {
   WaitBeforeSnapshotRetry,
   WaitCopied,
 } from "./command.ts"
-import { Message, type ShortcutTyping, type SnoozeAction, type TreeKey } from "./message.ts"
+import {
+  type ListDirection,
+  Message,
+  type ShortcutTyping,
+  type SnoozeAction,
+  type TreeKey,
+} from "./message.ts"
 import {
   type ActionKind,
   type AnswerDraft,
@@ -53,6 +61,7 @@ import {
   type HistoryModel,
   HistoryResults,
   type Model,
+  type QueueTab,
   type Route,
   Submission,
 } from "./model.ts"
@@ -68,12 +77,19 @@ import {
   formFromDetail,
   hashForHistoryItem,
   hashForItem,
+  historyEntries,
+  itemRowId,
+  itemsInQueue,
   mergeDelta,
+  nextInTab,
   projectNodeId,
   routeFromHash,
   SETUP_HASH,
   sessionNodeId,
+  sessionRowId,
+  stepThrough,
   visibleTreeNodes,
+  workingSessions,
 } from "./selectors.ts"
 import { initSettings, SettingsMessage, updateSettings } from "./settings.ts"
 import { Toast, type ToastPayload } from "./toast.ts"
@@ -127,6 +143,7 @@ export const initialModel = (flags: Flags): Model => ({
   }),
   jumpCombobox: freshJumpCombobox(),
   snoozeMenu: Menu.init({ id: "snooze-menu" }),
+  shortcutsDialog: Dialog.init({ id: "shortcuts-dialog" }),
   toasts: Toast.init({ id: "toasts", defaultDuration: "4 seconds" }),
   settings: initSettings(),
   maybeUpdate: Option.none(),
@@ -147,6 +164,8 @@ export const initialModel = (flags: Flags): Model => ({
   isTestNotifying: false,
   isLastMessageExpanded: false,
   maybeReplyError: Option.none(),
+  denyNote: "",
+  maybeAdvanceFrom: Option.none(),
   history: initialHistory,
 })
 
@@ -280,6 +299,8 @@ export const selectItem = (
     isLastMessageExpanded: (expanded) => isSame && expanded,
     maybeReplyError: (error) => (isSame ? error : Option.none()),
     submission: (submission) => (isSame ? submission : Submission.Idle()),
+    denyNote: (note) => (isSame ? note : ""),
+    maybeAdvanceFrom: (from) => (isSame ? from : Option.none()),
     route: () => route,
   })
   const hash = route === "history" ? hashForHistoryItem(itemId) : hashForItem(itemId)
@@ -302,6 +323,8 @@ const selectSession = (model: Model, sessionId: string): UpdateReturn =>
             maybeForm: () => Option.none(),
             submission: () => Submission.Idle(),
             maybeReplyError: () => Option.none(),
+            denyNote: () => "",
+            maybeAdvanceFrom: () => Option.none(),
             route: () => "inbox",
           }),
         }),
@@ -340,8 +363,29 @@ const toAnswers = (form: Form): ReadonlyArray<Answer> =>
 
 const isSending = (model: Model) => model.submission._tag === "Sending"
 
+/** The actions after which the selection moves on to the next item (U-059); never a reply. */
+const ADVANCING: ReadonlyArray<ActionKind> = ["answers", "decision", "dismiss", "snooze"]
+
+/** The selected item, when it is one of the rows of the queue tab on screen. */
+const selectedInShownTab = (model: Model): Option.Option<string> =>
+  model.view !== "full" || model.route !== "inbox" || model.queueTab === "working"
+    ? Option.none()
+    : Option.flatMap(model.maybeSnapshot, (snapshot) =>
+        Option.filter(model.maybeSelectedItemId, (itemId) =>
+          itemsInQueue(
+            snapshot,
+            model.itemOrder,
+            model.queueTab as Exclude<QueueTab, "working">,
+          ).some((i) => i.id === itemId),
+        ),
+      )
+
 const startAction = (model: Model, action: ActionKind) =>
-  modifyFields(model, { submission: () => Submission.Sending({ action }) })
+  modifyFields(model, {
+    submission: () => Submission.Sending({ action }),
+    maybeAdvanceFrom: () =>
+      ADVANCING.includes(action) ? selectedInShownTab(model) : Option.none(),
+  })
 
 const submitAnswers = (model: Model): UpdateReturn =>
   Option.match(Option.all([model.maybeForm, loadedDetail(model)]), {
@@ -386,7 +430,10 @@ const submitReply = (model: Model): UpdateReturn =>
 
 /** Settings, ⌘K or the snooze menu is over the detail pane: its shortcuts must not reach it. */
 export const isOverlayOpen = (model: Model): boolean =>
-  model.settings.dialog.isOpen || model.jumpDialog.isOpen || model.snoozeMenu.isOpen
+  model.settings.dialog.isOpen ||
+  model.jumpDialog.isOpen ||
+  model.snoozeMenu.isOpen ||
+  model.shortcutsDialog.isOpen
 
 /**
  * The detail pane's shortcuts apply only when it's what the person is looking at: on the inbox
@@ -416,6 +463,158 @@ const submitShortcut = (model: Model, typing: ShortcutTyping): UpdateReturn =>
       },
     },
   )
+
+/**
+ * Deny, with the note beside the button when there is one (U-063). A note goes through the reply
+ * intent: for a live hold the daemon denies with the text as the reason. Not live: no decision.
+ */
+const denyWithNote = (model: Model): UpdateReturn => {
+  const note = model.denyNote.trim()
+  if (note === "") {
+    return sendDecision(model, "deny")
+  }
+  return Option.match(loadedDetail(model), {
+    onNone: () => ({ model }),
+    onSome: (detail) =>
+      isSending(model) ||
+      detail.approval === null ||
+      detail.approval.decision !== null ||
+      !detail.item.live ||
+      detail.item.queue === "done"
+        ? { model }
+        : {
+            model: startAction(model, "decision"),
+            commands: [SendDenyNote({ itemId: detail.item.id, body: note })],
+          },
+  })
+}
+
+/** A review or failed item still open: Done (the dismiss intent) clears it (U-061). */
+export const canMarkDone = (detail: ItemDetail): boolean =>
+  (detail.item.kind === "review" || detail.item.kind === "failed") && detail.item.queue !== "done"
+
+const markDone = (model: Model): UpdateReturn =>
+  Option.match(loadedDetail(model), {
+    onNone: () => ({ model }),
+    onSome: (detail) =>
+      isSending(model) || !canMarkDone(detail)
+        ? { model }
+        : {
+            model: startAction(model, "dismiss"),
+            commands: [DismissItem({ itemId: detail.item.id })],
+          },
+  })
+
+/**
+ * `j` / `k` (U-060): the next or previous row of the list on screen. The inbox: the queue tab's
+ * items, or in Working its sessions. History: its entries. The row is scrolled into view.
+ */
+const stepList = (model: Model, direction: ListDirection): UpdateReturn => {
+  if (model.view !== "full" || isOverlayOpen(model)) {
+    return { model }
+  }
+  if (model.route === "history") {
+    const ids = historyEntries(model.history.results).map((e) => e.item.id)
+    return Option.match(stepThrough(ids, model.maybeSelectedItemId, direction), {
+      onNone: () => ({ model }),
+      onSome: (itemId) =>
+        Option.contains(model.maybeSelectedItemId, itemId)
+          ? { model }
+          : withCommands(selectItem(model, itemId, { updateHash: true, route: "history" }), [
+              ScrollToRow({ rowId: itemRowId(itemId) }),
+            ]),
+    })
+  }
+  if (model.route !== "inbox") {
+    return { model }
+  }
+  return Option.match(model.maybeSnapshot, {
+    onNone: () => ({ model }),
+    onSome: (snapshot) => {
+      if (model.queueTab === "working") {
+        const ids = workingSessions(snapshot).map((s) => s.id)
+        const current = Option.orElse(model.maybeSelectedSessionId, () =>
+          Option.flatMap(model.maybeSelectedItemId, (itemId) =>
+            Option.map(findItem(snapshot, itemId), (i) => i.sessionId),
+          ),
+        )
+        return Option.match(stepThrough(ids, current, direction), {
+          onNone: () => ({ model }),
+          onSome: (sessionId) =>
+            Option.contains(current, sessionId)
+              ? { model }
+              : withCommands(
+                  selectSession(
+                    modifyFields(model, {
+                      maybeFocusedNode: () => Option.some(sessionNodeId(sessionId)),
+                    }),
+                    sessionId,
+                  ),
+                  [ScrollToRow({ rowId: sessionRowId(sessionId) })],
+                ),
+        })
+      }
+      const ids = itemsInQueue(snapshot, model.itemOrder, model.queueTab).map((i) => i.id)
+      return Option.match(stepThrough(ids, model.maybeSelectedItemId, direction), {
+        onNone: () => ({ model }),
+        onSome: (itemId) =>
+          Option.contains(model.maybeSelectedItemId, itemId)
+            ? { model }
+            : withCommands(selectItem(model, itemId, { updateHash: true }), [
+                ScrollToRow({ rowId: itemRowId(itemId) }),
+              ]),
+      })
+    },
+  })
+}
+
+/** After the selected item left the tab on screen, select the one that took its place (U-059). */
+const advanceAfter = (model: Model, action: ActionKind, itemId: string): Option.Option<string> =>
+  !ADVANCING.includes(action) ||
+  !Option.contains(model.maybeAdvanceFrom, itemId) ||
+  !Option.contains(model.maybeSelectedItemId, itemId) ||
+  model.view !== "full" ||
+  model.route !== "inbox" ||
+  model.queueTab === "working"
+    ? Option.none()
+    : Option.flatMap(model.maybeSnapshot, (snapshot) =>
+        itemsInQueue(
+          snapshot,
+          model.itemOrder,
+          model.queueTab as Exclude<QueueTab, "working">,
+        ).some((i) => i.id === itemId)
+          ? Option.none()
+          : nextInTab(snapshot, model.itemOrder, model.queueTab, itemId),
+      )
+
+/** A popover row's Allow or Deny (U-062): no selection, one decision at a time. */
+const decideRow = (model: Model, itemId: string, decision: Decision): UpdateReturn =>
+  isSending(model) || (decision !== "allow" && decision !== "deny")
+    ? { model }
+    : {
+        model: modifyFields(model, {
+          submission: () => Submission.Sending({ action: "decision" }),
+        }),
+        commands: [SendDecision({ itemId, decision })],
+      }
+
+const liftShortcutsDialog = (
+  model: Model,
+  result: ChildResult<Dialog.Model, Dialog.Message, Dialog.OutMessage>,
+): UpdateReturn => {
+  const lifted = lift(
+    result,
+    (shortcutsDialog) => modifyFields(model, { shortcutsDialog: () => shortcutsDialog }),
+    (message) => Message.GotShortcutsDialogMessage({ message }),
+  )
+  return { model: lifted.model, commands: lifted.commands }
+}
+
+/** `?` or the nav's Shortcuts entry: the list of shortcuts (U-073). */
+const openShortcuts = (model: Model): UpdateReturn =>
+  model.view !== "full" || isOverlayOpen(model)
+    ? { model }
+    : liftShortcutsDialog(model, Dialog.open(model.shortcutsDialog))
 
 const agentLabel = (detail: ItemDetail, snapshot: Option.Option<Snapshot>): string =>
   Option.getOrElse(
@@ -914,6 +1113,8 @@ const clearSelection = (model: Model): Model =>
     maybeReplyError: () => Option.none(),
     isPreviewExpanded: () => false,
     isLastMessageExpanded: () => false,
+    denyNote: () => "",
+    maybeAdvanceFrom: () => Option.none(),
   })
 
 /**
@@ -1312,17 +1513,32 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
     SubmittedAnswers: () => submitAnswers(model),
     PressedSubmitShortcut: ({ typing }) => submitShortcut(model, typing),
-    ClickedDecision: ({ decision }) => sendDecision(model, decision),
+    ClickedDecision: ({ decision }) =>
+      decision === "deny" ? denyWithNote(model) : sendDecision(model, decision),
     PressedDenyShortcut: () =>
       detailHasKeys(model) &&
       Option.exists(loadedDetail(model), (d) => d.approval !== null && d.item.live)
-        ? sendDecision(model, "deny")
+        ? denyWithNote(model)
         : { model },
+    UpdatedDenyNote: ({ value }) => ({
+      model: modifyFields(model, { denyNote: () => value }),
+    }),
+    SubmittedDenyNote: () => denyWithNote(model),
+    ClickedRowDecision: ({ itemId, decision }) => decideRow(model, itemId, decision),
     SubmittedReply: () => submitReply(model),
+    ClickedDone: () => markDone(model),
+    PressedDoneShortcut: () => (detailHasKeys(model) ? markDone(model) : { model }),
+    PressedListKey: ({ direction }) => stepList(model, direction),
+    PressedShortcutsKey: () => openShortcuts(model),
+    ClickedShortcuts: () => openShortcuts(model),
+    GotShortcutsDialogMessage: ({ message: dialogMessage }) =>
+      liftShortcutsDialog(model, Dialog.update(model.shortcutsDialog, dialogMessage)),
+    CompletedScrollToRow: () => ({ model }),
 
     SucceededAction: ({ action, itemId, response }) => {
       const withItem = modifyFields(model, {
         submission: () => Submission.Idle(),
+        denyNote: (note) => (action === "decision" ? "" : note),
         maybeSnapshot: (maybeSnapshot) =>
           Option.map(maybeSnapshot, (snapshot) =>
             response.item === null
@@ -1342,7 +1558,15 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         ? [FetchItemDetail({ itemId })]
         : []
       const toast = actionToast(action)
-      const base: UpdateReturn = { model: withItem, commands: refetch }
+      // The item left the tab on screen: the next one takes its place (U-059).
+      const settled = modifyFields(withItem, { maybeAdvanceFrom: () => Option.none() })
+      const base: UpdateReturn = Option.match(advanceAfter(withItem, action, itemId), {
+        onNone: () => ({ model: settled, commands: refetch }),
+        onSome: (nextId) =>
+          withCommands(selectItem(settled, nextId, { updateHash: true }), [
+            ScrollToRow({ rowId: itemRowId(nextId) }),
+          ]),
+      })
       return toast === null ? base : showToasts(base, [{ payload: toast, variant: "Success" }])
     },
 
@@ -1353,12 +1577,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             model: modifyFields(model, {
               submission: () => Submission.Failed({ action, error }),
               maybeReplyError: () => Option.some(error),
+              maybeAdvanceFrom: () => Option.none(),
             }),
           }
         : showToasts(
             {
               model: modifyFields(model, {
                 submission: () => Submission.Failed({ action, error }),
+                maybeAdvanceFrom: () => Option.none(),
               }),
             },
             [

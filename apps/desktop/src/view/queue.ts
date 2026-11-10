@@ -11,7 +11,9 @@ import {
   formatAge,
   formatAgo,
   formatClock,
+  itemRowId,
   itemsInQueue,
+  sessionRowId,
   workingSessions,
 } from "../selectors.ts"
 import { inlineLineView } from "./markdown.ts"
@@ -22,13 +24,18 @@ type H = HtmlBuilder<Message>
 const TABS: ReadonlyArray<{ tab: QueueTab; label: string; count: (s: Snapshot) => number }> = [
   { tab: "needs-you", label: "Needs you", count: (s) => s.counts.needsYou },
   { tab: "working", label: "Working", count: (s) => s.counts.working },
-  { tab: "review", label: "Ready to review", count: (s) => s.counts.review },
+  // "Review" in the tab only, so the four fit on one row (U-070).
+  { tab: "review", label: "Review", count: (s) => s.counts.review },
   { tab: "snoozed", label: "Snoozed", count: (s) => s.counts.snoozed },
 ]
 
 const tabsView = (model: Model, snapshot: Snapshot, h: H): Html =>
   h.div(
-    [h.Role("tablist"), h.AriaLabel("Queues"), h.Class("mb-1 flex flex-wrap gap-1.5")],
+    [
+      h.Role("tablist"),
+      h.AriaLabel("Queues"),
+      h.Class("mb-1 flex shrink-0 flex-nowrap gap-1 overflow-x-auto"),
+    ],
     TABS.map(({ tab, label, count }) => {
       const isSelected = model.queueTab === tab
       return h.button(
@@ -39,7 +46,7 @@ const tabsView = (model: Model, snapshot: Snapshot, h: H): Html =>
           h.AriaSelected(isSelected),
           h.AriaControls("queue-panel"),
           h.Class(
-            `h-8 cursor-pointer rounded-full px-3 text-[13px] ${
+            `h-8 shrink-0 cursor-pointer rounded-full px-2 text-[12px] whitespace-nowrap ${
               isSelected
                 ? "bg-primary font-semibold text-primary-foreground"
                 : "border border-input bg-card font-medium text-muted-foreground hover:bg-accent"
@@ -99,6 +106,7 @@ const itemCard = (model: Model, snapshot: Snapshot, item: Item, h: H): Html => {
         [
           h.Type("button"),
           h.AriaCurrent(isSelected ? "true" : "false"),
+          h.DataAttribute("row", itemRowId(item.id)),
           h.Class(
             `flex w-full cursor-pointer flex-col gap-1.5 rounded-[14px] bg-card px-3.5 py-3 text-left hover:bg-accent/60 ${border}`,
           ),
@@ -110,7 +118,6 @@ const itemCard = (model: Model, snapshot: Snapshot, item: Item, h: H): Html => {
             [
               itemBadge(h, item),
               h.span([h.Class("truncate text-subtle-foreground")], [breadcrumb(snapshot, item)]),
-              item.unread ? h.span([h.Class("sr-only")], ["unread"]) : h.empty,
               h.span([h.Class("ml-auto shrink-0 text-subtle-foreground")], [age]),
             ],
           ),
@@ -121,8 +128,13 @@ const itemCard = (model: Model, snapshot: Snapshot, item: Item, h: H): Html => {
               ),
             ],
             [
+              // Neutral, so it never reads as the tree's blue "working" dot (U-069).
               item.unread
-                ? h.span([h.Class("size-1.5 shrink-0 rounded-full bg-working"), h.AriaHidden(true)])
+                ? h.span([
+                    h.Role("img"),
+                    h.AriaLabel("Unread"),
+                    h.Class("size-[7px] shrink-0 rounded-full bg-foreground"),
+                  ])
                 : h.empty,
               h.span([h.Class("truncate")], [title]),
             ],
@@ -151,6 +163,7 @@ const sessionCard = (model: Model, snapshot: Snapshot, session: Session, h: H): 
         [
           h.Type("button"),
           h.AriaCurrent(isSelected ? "true" : "false"),
+          h.DataAttribute("row", sessionRowId(session.id)),
           h.Class(
             `flex w-full cursor-pointer flex-col gap-1.5 rounded-[14px] border bg-card px-3.5 py-3 text-left hover:bg-accent/60 ${
               isSelected ? "border-foreground/40 ring-1 ring-foreground/20" : "border-border"
@@ -164,7 +177,7 @@ const sessionCard = (model: Model, snapshot: Snapshot, session: Session, h: H): 
             [
               h.span(
                 [h.Class("inline-flex items-center gap-1 font-semibold text-working")],
-                [Icon.activity(h), "Working"],
+                [Icon.activity(h, "size-[12px]"), "Working"],
               ),
               h.span(
                 [h.Class("text-subtle-foreground")],

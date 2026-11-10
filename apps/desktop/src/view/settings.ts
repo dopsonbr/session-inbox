@@ -60,7 +60,7 @@ const statusLine = (settings: SettingsModel, key: string, h: H): Html => {
   if (status._tag === "Saved") {
     return h.p(
       [h.Class("flex items-center gap-1 text-xs text-ready"), h.AriaLive("polite")],
-      [Icon.check(h, "size-3"), "Saved"],
+      [Icon.check(h, "size-[12px]"), "Saved"],
     )
   }
   return h.p([h.Class("text-xs text-failed"), h.Role("alert")], [status.error])
@@ -97,10 +97,10 @@ const checkBox = (h: H, isChecked: boolean): Html =>
     [
       h.AriaHidden(true),
       h.Class(
-        `mt-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded border ${isChecked ? "border-primary bg-primary text-primary-foreground" : "border-input bg-card"}`,
+        `mt-0.5 inline-flex size-[16px] shrink-0 items-center justify-center rounded border ${isChecked ? "border-primary bg-primary text-primary-foreground" : "border-input bg-card"}`,
       ),
     ],
-    [isChecked ? Icon.check(h, "size-3") : h.empty],
+    [isChecked ? Icon.check(h, "size-[12px]") : h.empty],
   )
 
 const toggleRow = (loaded: Loaded, field: SettingsField, isDisabled: boolean, h: H): Html => {
@@ -227,17 +227,28 @@ const toolsRow = (loaded: Loaded, field: SettingsField, isDisabled: boolean, h: 
                 h.div(
                   [
                     ...checkbox,
-                    h.Class("choice data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50"),
+                    // Selected: the app's primary fill with a check (U-074); never dimmed.
+                    h.Class(
+                      `inline-flex min-h-8 cursor-pointer items-center gap-2 rounded-lg border px-3 text-[13px] select-none data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50 ${
+                        isChecked
+                          ? "border-primary bg-primary font-semibold text-primary-foreground"
+                          : "border-input border-dashed bg-card text-muted-foreground hover:bg-accent"
+                      }`,
+                    ),
                   ],
                   [
                     h.span(
                       [
                         h.AriaHidden(true),
                         h.Class(
-                          "inline-flex size-4 items-center justify-center rounded border border-current",
+                          `inline-flex size-[16px] items-center justify-center rounded border ${
+                            isChecked
+                              ? "border-primary-foreground bg-primary-foreground text-primary"
+                              : "border-input bg-card"
+                          }`,
                         ),
                       ],
-                      [isChecked ? Icon.check(h, "size-3") : h.empty],
+                      [isChecked ? Icon.check(h, "size-[12px]") : h.empty],
                     ),
                     h.span([...label], [tool]),
                   ],
@@ -380,10 +391,7 @@ const holdsCaveat = (loaded: Loaded, h: H): Html =>
       )
 
 const fieldRow = (settings: SettingsModel, loaded: Loaded, field: SettingsField, h: H): Html => {
-  const shown = loaded.shown as Readonly<Record<string, unknown>>
-  const isUnused = field.disabledWhen?.(shown) === true
-  const isDisabled =
-    isUnused || (field.needsHolds === true && loaded.shown["holds.enabled"] !== true)
+  const isDisabled = field.needsHolds === true && loaded.shown["holds.enabled"] !== true
   const control = (() => {
     switch (field.kind) {
       case "toggle":
@@ -408,9 +416,6 @@ const fieldRow = (settings: SettingsModel, loaded: Loaded, field: SettingsField,
         ? helpLineForToggle(loaded, field, h)
         : h.empty,
       field.key === "holds.enabled" ? holdsCaveat(loaded, h) : h.empty,
-      isUnused && field.disabledNote
-        ? h.p([h.Class("text-xs text-subtle-foreground")], [field.disabledNote])
-        : h.empty,
       statusLine(settings, field.key, h),
     ],
   )
@@ -585,8 +590,22 @@ export const settingsBody = (model: Model, h: H): Html => {
   return h.p([h.Class("text-[13px] text-muted-foreground")], ["Loading settings…"])
 }
 
-const channelLabel = (model: Model): string =>
-  model.settings.load._tag === "Loaded" ? ` · ${model.settings.load.loaded.saved.channel}` : ""
+/** "Beta" beside the title on the beta channel only; GA says nothing (U-074). */
+export const settingsTitle = (model: Model, h: H): ReadonlyArray<Html | string> => [
+  "Settings",
+  model.settings.load._tag === "Loaded" && model.settings.load.loaded.saved.channel === "beta"
+    ? h.span(
+        [
+          h.Class(
+            "ml-2 rounded-full border border-border bg-muted px-1.5 py-px align-middle text-xs font-semibold text-muted-foreground",
+          ),
+        ],
+        ["Beta"],
+      )
+    : h.empty,
+]
+
+export const SETTINGS_APPLY_TEXT = "Changes apply as you make them."
 
 export const settingsDialogView = (model: Model, h: H): Html =>
   h.submodel({
@@ -616,9 +635,15 @@ export const settingsDialogView = (model: Model, h: H): Html =>
                     h.div(
                       [h.Class("flex items-center gap-2 border-b border-border px-5 py-3")],
                       [
-                        h.h2(
-                          [...title, h.Class("flex-1 text-[14px] font-semibold")],
-                          [`Settings${channelLabel(model)}`],
+                        h.div(
+                          [h.Class("flex-1")],
+                          [
+                            h.h2(
+                              [...title, h.Class("text-[14px] font-semibold")],
+                              settingsTitle(model, h),
+                            ),
+                            h.p([h.Class("text-xs text-subtle-foreground")], [SETTINGS_APPLY_TEXT]),
+                          ],
                         ),
                         h.button(
                           [

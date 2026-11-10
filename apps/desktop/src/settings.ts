@@ -41,17 +41,15 @@ export type SettingsField = Readonly<{
   needsHolds?: boolean
   /** `choice` fields: the values the daemon accepts, in order, with their labels. */
   options?: ReadonlyArray<Readonly<{ value: string; label: string }>>
-  /** Shown only when this holds for what the controls show (U-044). */
+  /** Shown only when this holds for what the controls show (U-044, U-074). */
   showWhen?: (shown: Readonly<Record<string, unknown>>) => boolean
-  /** Disabled, with `disabledNote` under it, when this holds (U-044). */
-  disabledWhen?: (shown: Readonly<Record<string, unknown>>) => boolean
-  disabledNote?: string
 }>
 
 /** The inbox answers Claude's own prompt: the PreToolUse hold settings don't apply (D-074). */
 const answersPrompt = (shown: Readonly<Record<string, unknown>>) =>
   shown["holds.via"] === "permissionRequest"
-const NOT_USED_IN_PROMPT_MODE = "Not used while the inbox answers Claude's own prompt."
+/** The classic hold's own settings: on screen only while it is chosen; the daemon keeps them. */
+const holdsClassic = (shown: Readonly<Record<string, unknown>>) => !answersPrompt(shown)
 
 export const SETTINGS_GROUPS: ReadonlyArray<Readonly<{ id: SettingsGroupId; title: string }>> = [
   { id: "approvals", title: "Approvals" },
@@ -97,8 +95,7 @@ export const SETTINGS_FIELDS: ReadonlyArray<SettingsField> = [
     label: "Tools that can be held",
     help: "Only when Claude itself would ask. Questions (AskUserQuestion) always come to the inbox.",
     needsHolds: true,
-    disabledWhen: answersPrompt,
-    disabledNote: NOT_USED_IN_PROMPT_MODE,
+    showWhen: holdsClassic,
   },
   {
     key: "holds.budgetMs",
@@ -107,8 +104,7 @@ export const SETTINGS_FIELDS: ReadonlyArray<SettingsField> = [
     label: "Wait for an answer",
     help: "Then Claude shows its own prompt. 15 to 120 seconds.",
     needsHolds: true,
-    disabledWhen: answersPrompt,
-    disabledNote: NOT_USED_IN_PROMPT_MODE,
+    showWhen: holdsClassic,
   },
   {
     key: "holds.safeBashPrefixes",
@@ -117,8 +113,7 @@ export const SETTINGS_FIELDS: ReadonlyArray<SettingsField> = [
     label: "Bash commands never held",
     help: "A command matches when it is the prefix or starts with it plus a space.",
     needsHolds: true,
-    disabledWhen: answersPrompt,
-    disabledNote: NOT_USED_IN_PROMPT_MODE,
+    showWhen: holdsClassic,
   },
   {
     key: "notifications.fallback",

@@ -70,7 +70,7 @@ export const headerView = (model: Model, h: H): Html => {
           h.AriaHasPopup("dialog"),
           h.OnClick(Message.GotSettingsMessage({ message: SettingsMessage.RequestedOpen() })),
         ],
-        [Icon.gear(h, "size-4")],
+        [Icon.gear(h, "size-[16px]")],
       ),
     ],
   )
@@ -182,9 +182,9 @@ const nodeContent = (h: H, snapshot: Snapshot, node: TreeNode, isExpanded: boole
   return {
     leading:
       state === "done"
-        ? h.span([h.Class("text-ready")], [Icon.check(h, "size-3")])
+        ? h.span([h.Class("text-ready")], [Icon.check(h, "size-[13px]")])
         : state === "running"
-          ? h.span([h.Class("text-working")], [Icon.circle(h, "size-3")])
+          ? h.span([h.Class("text-working")], [Icon.circle(h, "size-[13px]")])
           : dot(h, agentTone(state)),
     label: `${agent === undefined ? id : agentDisplayName(agent)} · ${agentStateWord[state] ?? state}`,
     trailing: null,
@@ -213,7 +213,7 @@ const treeRow = (
   const rowClass = {
     project: "min-h-9 text-[14px] font-semibold",
     session: "min-h-8 text-[13px]",
-    agent: "min-h-7 text-[13px] text-muted-foreground",
+    agent: "min-h-[24px] text-[13px] text-muted-foreground",
   }[node.kind]
   return h.keyed("li")(
     node.id,
@@ -308,7 +308,23 @@ export const navView = (model: Model, h: H): Html =>
       }),
       historyNavEntry(model, h),
       whereSessionsRun(model, h),
+      shortcutsNavEntry(h),
     ],
+  )
+
+/** A quiet way to the shortcut list at the bottom of the nav (U-073). */
+const shortcutsNavEntry = (h: H): Html =>
+  h.button(
+    [
+      h.Type("button"),
+      h.Class(
+        "mt-auto flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-lg border border-transparent px-2 pt-4 text-left text-[13px] text-subtle-foreground hover:bg-accent",
+      ),
+      h.AriaHasPopup("dialog"),
+      h.AriaKeyshortcuts("Shift+?"),
+      h.OnClick(Message.ClickedShortcuts()),
+    ],
+    [Icon.keyboard(h), h.span([h.Class("flex-1")], ["Shortcuts"]), kbd(h, "?")],
   )
 
 const loadingText = (model: Model): string =>

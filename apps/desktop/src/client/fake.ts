@@ -439,7 +439,17 @@ export const makeFakeClient = (options: FakeOptions = {}): FakeDaemon => {
               )
             : Effect.succeed(item),
         ),
-        Effect.map(() => {
+        Effect.map((item) => {
+          const approval = db.extras[itemId]?.approval ?? null
+          if (item.live && approval !== null) {
+            // Like the daemon: a reply to a live hold is a denial with the text as its reason.
+            patchExtras(itemId, { approval: { ...approval, decision: "deny", decidedAt: now() } })
+            const denied = closeItem(itemId, "answered")
+            patchSession(item.sessionId, { state: "running", lastEventAt: now() })
+            addTimeline(item.sessionId, `You denied it: ${body.body}`, "PreToolUse")
+            emitDelta({ sessions: [item.sessionId] })
+            return ok(denied)
+          }
           const next = closeItem(itemId, "answered")
           sendThroughOutbox(next, body.body, body.idempotencyKey)
           return ok(next)
