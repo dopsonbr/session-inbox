@@ -21,6 +21,7 @@ import {
 import { join } from "node:path"
 import { type FakeReleases, startFakeReleases } from "../../../scripts/fake-releases.ts"
 import { buildRelease, type ReleaseResult } from "../../../scripts/release.ts"
+import { HOOK_SPECS } from "../../hook/src/settings.ts"
 
 const repo = join(import.meta.dir, "../../..")
 const root = mkdtempSync("/tmp/si-rel-")
@@ -359,8 +360,8 @@ describe("two channels side by side", () => {
     expect((await as([payloadCli, ...base, "--channel", "beta"])).code).toBe(0)
     fakeApp(gaApp, gaHome, "Session Inbox")
     fakeApp(betaApp, betaHome, "Session Inbox Beta")
-    expect(hookCount(gaHome)).toBe(10)
-    expect(hookCount(betaHome)).toBe(10)
+    expect(hookCount(gaHome)).toBe(HOOK_SPECS.length)
+    expect(hookCount(betaHome)).toBe(HOOK_SPECS.length)
     const gaRecord = readFileSync(join(gaHome, "install.json"), "utf8")
 
     const dry = await gaCli("uninstall", "--channel", "beta", "--no-launchd")
@@ -371,7 +372,7 @@ describe("two channels side by side", () => {
     const u = await gaCli("uninstall", "--channel", "beta", "--yes", "--no-launchd")
     expect(u.stderr).toBe("")
     expect(u.code).toBe(0)
-    expect(hookCount(gaHome)).toBe(10)
+    expect(hookCount(gaHome)).toBe(HOOK_SPECS.length)
     expect(hookCount(betaHome)).toBe(0)
     expect(readFileSync(join(gaHome, "install.json"), "utf8")).toBe(gaRecord)
     expect(existsSync(gaApp)).toBe(true)

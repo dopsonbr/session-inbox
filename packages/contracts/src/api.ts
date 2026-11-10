@@ -7,6 +7,7 @@ import { Schema, Struct } from "effect"
 import {
   Agent,
   Approval,
+  ApprovalPreview,
   type AttentionKind,
   Counts,
   Decision,
@@ -96,6 +97,17 @@ export const ItemDetail = Schema.Struct({
    * instead of the reply box (e.g. the claude CLI isn't logged in) (C-023).
    */
   replyUnavailable: Schema.optional(Schema.String),
+  /**
+   * `stuck` items: the tool call that was still running, with the same preview a permission
+   * request gets, and when it started (C-030). Kept after the call ends, for History.
+   */
+  running: Schema.optional(
+    Schema.Struct({
+      tool: Schema.String,
+      since: Millis,
+      preview: Schema.optional(ApprovalPreview),
+    }),
+  ),
 })
 export type ItemDetail = typeof ItemDetail.Type
 
@@ -243,6 +255,9 @@ export const UserSettings = Schema.Struct({
   "updates.auto": Schema.Boolean,
   /** Days of history kept: older events and finished items are pruned daily (D-063). */
   "storage.retentionDays": Schema.Finite,
+  /** Flag a tool call that has been running this long as a `stuck` item (C-030). */
+  "stuck.enabled": Schema.Boolean,
+  "stuck.afterMs": Schema.Finite,
   /**
    * One key press per shortcut action, or "" for none (C-029); grammar and rules in
    * `shortcuts.ts`. `shortcuts.openInbox` is the menu-bar app's system-wide key.
@@ -268,6 +283,7 @@ export const SETTING_LIMITS = {
   "holds.requestBudgetMs": { min: 60_000, max: 3_300_000 },
   "notifications.reviewGroupMs": { min: 0, max: 600_000 },
   "storage.retentionDays": { min: 1, max: 365 },
+  "stuck.afterMs": { min: 60_000, max: 4 * 3600_000 },
 } as const satisfies Partial<Record<UserSettingKey, { min: number; max: number }>>
 
 /** PUT body: any subset of UserSettings; `null` resets that key to its default. */

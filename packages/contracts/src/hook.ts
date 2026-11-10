@@ -15,6 +15,8 @@ export const HookEvent = Schema.Literals([
   "Notification",
   "PreToolUse",
   "PostToolUse",
+  /** A tool call that failed or timed out; no PostToolUse follows (C-030). */
+  "PostToolUseFailure",
   "PermissionRequest",
   "SubagentStart",
   "SubagentStop",

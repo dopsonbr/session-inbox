@@ -96,6 +96,30 @@ export const permissionSummary = (tool: string, input: unknown, show: ShowPath =
   return `Wants to use ${tool}`
 }
 
+/** What a call still in flight is doing: "Running npm run dev", "Fetching https://…" (D-099). */
+export const runningSummary = (tool: string, input: unknown, show: ShowPath = asIs): string => {
+  const cmd = field(input, "command")
+  const file = filePath(input, show)
+  switch (tool) {
+    case "Bash":
+      return cmd ? `Running ${short(cmd)}` : "Running a command"
+    case "Edit":
+    case "MultiEdit":
+    case "NotebookEdit":
+      return file ? `Editing ${short(file)}` : "Editing a file"
+    case "Write":
+      return file ? `Writing ${short(file)}` : "Writing a file"
+    case "Read":
+      return file ? `Reading ${short(file)}` : "Reading a file"
+    case "WebFetch": {
+      const url = field(input, "url")
+      return url ? `Fetching ${short(url)}` : "Fetching a URL"
+    }
+    default:
+      return `Running ${tool}`
+  }
+}
+
 /** One timeline line for a PostToolUse. */
 export const toolLine = (tool: string, input: unknown, show: ShowPath = asIs): string => {
   const cmd = field(input, "command")

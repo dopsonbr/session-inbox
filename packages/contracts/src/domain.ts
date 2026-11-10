@@ -17,8 +17,17 @@ export type SessionState = typeof SessionState.Type
 export const AgentState = Schema.Literals(["running", "waiting", "done", "failed"])
 export type AgentState = typeof AgentState.Type
 
-/** What you owe Claude. `progress` never becomes an item; it is timeline-only. */
-export const AttentionKind = Schema.Literals(["question", "permission", "failed", "review"])
+/**
+ * What you owe Claude. `progress` never becomes an item; it is timeline-only.
+ * `stuck`: a tool call that has been running for longer than `stuck.afterMs` (C-030).
+ */
+export const AttentionKind = Schema.Literals([
+  "question",
+  "permission",
+  "failed",
+  "review",
+  "stuck",
+])
 export type AttentionKind = typeof AttentionKind.Type
 
 export const ItemState = Schema.Literals([
@@ -95,6 +104,11 @@ export const Item = Schema.Struct({
   snoozeUntil: Schema.NullOr(Millis),
   /** Question items: how many questions Claude asked (absent for an idle "waiting for input"). */
   questionCount: Schema.optional(Schema.Number),
+  /**
+   * Open `stuck` items: when the tool call started running. The summary says what
+   * ("Running npm run dev"); the UI adds how long from this (C-030).
+   */
+  runningSince: Schema.optional(Millis),
   createdAt: Millis,
   updatedAt: Millis,
 })

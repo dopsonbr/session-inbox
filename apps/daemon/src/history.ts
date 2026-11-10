@@ -25,7 +25,7 @@ import {
   toSession,
 } from "./store.ts"
 
-const KINDS: ReadonlyArray<AttentionKind> = ["question", "permission", "failed", "review"]
+const KINDS: ReadonlyArray<AttentionKind> = ["question", "permission", "failed", "review", "stuck"]
 const MAX_WORDS = 8
 const MAX_WORD_LENGTH = 100
 const EXCERPT_BEFORE = 40

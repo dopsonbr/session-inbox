@@ -143,9 +143,26 @@ export interface EventRow {
   received_at: number
 }
 
+/** Payload of the `daemon:stuck` event that raises a stuck item (D-099). */
+export interface StuckSource {
+  toolUseId: string
+  tool: string
+  input: unknown
+  since: number
+}
+export interface ToolCallRow {
+  session_id: string
+  tool_use_id: string
+  agent_id: string | null
+  tool: string
+  input_json: string
+  started_at: number
+}
+
 export const queueOf = (kind: string, state: string): Queue => {
   if (state === "snoozed") return "snoozed"
-  if (state === "open") return kind === "review" ? "review" : "needs-you"
+  // A stuck call is news, not a question: it sits with the finished work (D-099).
+  if (state === "open") return kind === "review" || kind === "stuck" ? "review" : "needs-you"
   return "done"
 }
 
@@ -293,7 +310,31 @@ export class Store {
   }
   /** The contract `Item` for a row: live flag and question count looked up. */
   itemView(r: ItemRow): Item {
-    return toItem(r, this.isLive(r.id), r.kind === "question" ? this.questionCount(r.id) : 0)
+    return this.withRunning(
+      r,
+      toItem(r, this.isLive(r.id), r.kind === "question" ? this.questionCount(r.id) : 0),
+    )
+  }
+  /** What the event that raised a stuck item recorded: the call and when it started (D-099). */
+  stuckSource(r: Pick<ItemRow, "kind" | "source_seq">): StuckSource | null {
+    if (r.kind !== "stuck" || r.source_seq === null) return null
+    const e = this.one<{ payload_json: string }>(
+      "SELECT payload_json FROM events WHERE seq = ? AND hook = 'daemon:stuck'",
+      r.source_seq,
+    )
+    if (!e) return null
+    try {
+      const p = JSON.parse(e.payload_json) as Partial<StuckSource>
+      return typeof p.tool === "string" && typeof p.since === "number" ? (p as StuckSource) : null
+    } catch {
+      return null
+    }
+  }
+  /** An open stuck item carries `runningSince`, so the UI can say how long (C-030). */
+  withRunning(r: ItemRow, item: Item): Item {
+    if (r.kind !== "stuck" || (r.state !== "open" && r.state !== "snoozed")) return item
+    const source = this.stuckSource(r)
+    return source ? { ...item, runningSince: source.since } : item
   }
   itemOut(id: string): Item | null {
     const r = this.item(id)
@@ -306,11 +347,11 @@ export class Store {
     const q = (sql: string) => this.one<{ n: number }>(sql)?.n ?? 0
     return {
       needsYou: q(
-        "SELECT COUNT(*) AS n FROM attention_items WHERE state = 'open' AND kind != 'review'",
+        "SELECT COUNT(*) AS n FROM attention_items WHERE state = 'open' AND kind NOT IN ('review','stuck')",
       ),
       working: q("SELECT COUNT(*) AS n FROM sessions WHERE state = 'running'"),
       review: q(
-        "SELECT COUNT(*) AS n FROM attention_items WHERE state = 'open' AND kind = 'review'",
+        "SELECT COUNT(*) AS n FROM attention_items WHERE state = 'open' AND kind IN ('review','stuck')",
       ),
       snoozed: q("SELECT COUNT(*) AS n FROM attention_items WHERE state = 'snoozed'"),
     }

@@ -86,6 +86,7 @@ import {
   lastTurnErrored,
   permissionSummary,
   provisionalTitle,
+  runningSummary,
   type ShowPath,
   summaryLine,
   TITLE_HEAD_BYTES,
@@ -120,8 +121,11 @@ import {
   type ItemRow,
   type NotificationRow,
   type OutboxRow,
+  type ProjectRow,
   type SessionRow,
   Store,
+  type StuckSource,
+  type ToolCallRow,
   toAgent,
   toApproval,
   toItem,
@@ -184,6 +188,8 @@ export const REPLY_CLI_MISSING =
   "Replies are sent with the claude CLI, which wasn't found on this Mac. Install Claude Code's command-line tool, or open the session in Claude."
 /** Claude's own prompt is on screen for this item: `--resume` would collide with it (D-073). */
 export const ANSWER_IN_CLAUDE = "Claude is asking in its own window. Answer there."
+/** A stuck item's session is busy with the call; a reply couldn't reach it (D-099). */
+export const STUCK_NO_REPLY = "Claude is busy with this call. Open it in Claude to stop it."
 /** What a plain Deny from the inbox tells Claude (D-078); replies keep "The user replied: …". */
 export const DENIED_IN_INBOX = "Denied by the user in Session Inbox."
 export const REPLY_CLI_LOGGED_OUT =
@@ -229,9 +235,17 @@ const ACTIVITY = new Set([
   "UserPromptSubmit",
   "PreToolUse",
   "PostToolUse",
+  "PostToolUseFailure",
   "SubagentStart",
   "SubagentStop",
 ])
+
+/** Tools whose calls are expected to take as long as they take, or wait on you (D-099). */
+const NEVER_STUCK = new Set(["Task", "Agent", "AskUserQuestion", "ExitPlanMode"])
+/** One agent's parallel calls start within this of each other; older ones are over (D-099). */
+const BATCH_WINDOW_MS = 60_000
+/** An in-flight row nothing ever ended (its session vanished) is swept after this. */
+const STALE_CALL_MS = 24 * 3600_000
 
 /** Events after which the transcript may carry a new title (D-059). */
 const TITLE_EVENTS = new Set(["SessionStart", "UserPromptSubmit", "Stop", "SubagentStop"])
@@ -279,6 +293,7 @@ const payloadSchema = {
   Notification: NotificationPayload,
   PreToolUse: PreToolUsePayload,
   PostToolUse: PostToolUsePayload,
+  PostToolUseFailure: PostToolUsePayload,
   PermissionRequest: PermissionRequestPayload,
   SubagentStart: SubagentPayload,
   SubagentStop: SubagentPayload,
@@ -341,6 +356,10 @@ const timelineText = (hook: string, p: Record<string, unknown>, show: ShowPath):
   switch (hook) {
     case "PostToolUse":
       return toolLine(String(p.tool_name ?? "tool"), p.tool_input, show)
+    case "PostToolUseFailure":
+      return `${toolLine(String(p.tool_name ?? "tool"), p.tool_input, show)} (failed)`
+    case "daemon:stuck":
+      return `Still ${runningSummary(String(p.tool ?? "tool"), p.input, show).replace(/^./, (ch: string) => ch.toLowerCase())}`
     case "PreToolUse":
     case "PermissionRequest": {
       const tool = String(p.tool_name ?? "tool")
@@ -985,6 +1004,7 @@ export class Engine {
     let holdMs: number | undefined
     switch (event) {
       case "SessionStart": {
+        this.endToolCalls(c, "session_id = ?", sid)
         if (session.state === "ended") this.setSessionState(c, sid, "idle")
         const t = typeof p.session_title === "string" ? provisionalTitle(p.session_title) : null
         if (t && session.title_source !== "claude") {
@@ -999,6 +1019,7 @@ export class Engine {
       case "UserPromptSubmit": {
         // A typed prompt means nothing is waiting on Claude's permission prompt any more.
         this.finishRequests(c, sid, "UserPromptSubmit")
+        this.endToolCalls(c, "session_id = ?", sid)
         this.setSessionState(c, sid, "running")
         this.setAgentState(c, mainAgentId(sid), "running")
         const fresh = this.store.session(sid)
@@ -1030,9 +1051,13 @@ export class Engine {
       case "PreToolUse":
         this.setSessionState(c, sid, "running")
         this.setAgentState(c, agentId, "running")
+        this.trackToolCall(c, sid, agentId, p)
         requestId = this.onPreToolUse(c, session, agentId, p)
         break
       case "PostToolUse":
+      case "PostToolUseFailure":
+        if (typeof p.tool_use_id === "string")
+          this.endToolCalls(c, "session_id = ? AND tool_use_id = ?", sid, p.tool_use_id)
         this.finishMatchedRequest(c, sid, agentId, p)
         this.setSessionState(c, sid, "running")
         this.setAgentState(c, agentId, "running")
@@ -1047,10 +1072,14 @@ export class Engine {
         this.setSessionState(c, sid, "running")
         break
       case "SubagentStop":
-        if (rawAgent) this.setAgentState(c, agentId, "done", true)
+        if (rawAgent) {
+          this.endToolCalls(c, "session_id = ? AND agent_id = ?", sid, agentId)
+          this.setAgentState(c, agentId, "done", true)
+        }
         break
       case "Stop": {
         this.finishRequests(c, sid, "Stop")
+        this.endToolCalls(c, "session_id = ?", sid)
         this.releaseLiveHolds(c, sid)
         this.setSessionState(c, sid, "idle")
         const lastMessage =
@@ -1084,6 +1113,7 @@ export class Engine {
       }
       case "SessionEnd": {
         this.finishRequests(c, sid, "SessionEnd")
+        this.endToolCalls(c, "session_id = ?", sid)
         this.releaseLiveHolds(c, sid)
         this.setSessionState(c, sid, "ended")
         for (const a of this.store.all<AgentRow>(
@@ -2632,7 +2662,7 @@ export class Engine {
         .map(toAgent),
       items: items
         .filter((i) => sids.has(i.session_id))
-        .map((i) => toItem(i, live.has(i.id), qn.get(i.id) ?? 0)),
+        .map((i) => this.store.withRunning(i, toItem(i, live.has(i.id), qn.get(i.id) ?? 0))),
       counts: this.store.counts(),
     }
   }
@@ -2700,9 +2730,13 @@ export class Engine {
       ? null
       : this.isWaitingInClaude(r)
         ? ANSWER_IN_CLAUDE
-        : this.replyUnavailable()
+        : r.kind === "stuck"
+          ? STUCK_NO_REPLY
+          : this.replyUnavailable()
+    const running = this.runningView(r, s, p)
     return {
       ...(lastMessage ? { lastMessage } : {}),
+      ...(running ? { running } : {}),
       ...(replyUnavailable ? { replyUnavailable } : {}),
       item: toItem(r, live, this.store.questionCount(itemId)),
       session,
@@ -2726,7 +2760,7 @@ export class Engine {
   timeline(sessionId: string, limit = 50, sourceSeq: number | null = null): TimelineEntry[] {
     const rows = this.store.all<EventRow>(
       `SELECT * FROM events WHERE session_id = ? AND decode_error IS NULL
-         AND hook IN ('PostToolUse','SubagentStart','SubagentStop','UserPromptSubmit','Stop')
+         AND hook IN ('PostToolUse','PostToolUseFailure','SubagentStart','SubagentStop','UserPromptSubmit','Stop')
          ORDER BY seq DESC LIMIT ?`,
       sessionId,
       limit,
@@ -2818,7 +2852,9 @@ export class Engine {
           ? (item.summary ?? "Needs your permission")
           : kind === "failed"
             ? (item.summary ?? "Stopped with errors")
-            : (item.summary ?? "Ready to review")
+            : kind === "stuck"
+              ? this.stuckLine(item)
+              : (item.summary ?? "Ready to review")
     const live = this.store.isLive(item.id)
     // A lapsed hold: Claude's own prompt is what's waiting, so only Open can still work (D-073).
     if (this.isLapsedHold(item))
@@ -2852,6 +2888,148 @@ export class Engine {
     if (item.state !== "open" && item.state !== "snoozed") return false
     const a = this.store.approval(item.id)
     return a !== null && a.live === 0 && (a.decision === "ask" || a.via === "permissionRequest")
+  }
+
+  // -------------------------------------------------------------------------
+  // Calls that run long (D-099)
+  // -------------------------------------------------------------------------
+
+  private stuckKey(r: Pick<ToolCallRow, "session_id" | "agent_id" | "tool_use_id">): string {
+    return this.dedupeKey(r.session_id, r.agent_id, "stuck", r.tool_use_id)
+  }
+
+  /** A PreToolUse starts a call. What the same agent started before this batch is over. */
+  private trackToolCall(c: Changes, sid: string, agentId: string, p: Payload) {
+    const now = this.now()
+    // An agent starts new calls only once its last batch has resolved, so a call of its own
+    // from before this batch was denied, or its end was never reported.
+    this.endToolCalls(
+      c,
+      "session_id = ? AND agent_id = ? AND started_at < ?",
+      sid,
+      agentId,
+      now - BATCH_WINDOW_MS,
+    )
+    const toolUseId = typeof p.tool_use_id === "string" ? p.tool_use_id : null
+    const tool = String(p.tool_name ?? "")
+    if (toolUseId === null || NEVER_STUCK.has(tool)) return
+    const input = p.tool_input as { run_in_background?: unknown } | null | undefined
+    if (input?.run_in_background === true) return
+    this.store.run(
+      `INSERT OR REPLACE INTO tool_calls (session_id, tool_use_id, agent_id, tool, input_json, started_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      sid,
+      toolUseId,
+      agentId,
+      tool,
+      JSON.stringify(p.tool_input ?? null),
+      now,
+    )
+  }
+
+  /** End the in-flight calls matching `where`, and resolve the stuck items raised for them. */
+  private endToolCalls(c: Changes, where: string, ...params: unknown[]) {
+    const rows = this.store.all<ToolCallRow>(`SELECT * FROM tool_calls WHERE ${where}`, ...params)
+    if (rows.length === 0) return
+    this.store.run(`DELETE FROM tool_calls WHERE ${where}`, ...params)
+    for (const r of rows) {
+      const item = this.store.one<ItemRow>(
+        "SELECT * FROM attention_items WHERE dedupe_key = ? AND state IN ('open','snoozed')",
+        this.stuckKey(r),
+      )
+      if (!item) continue
+      this.apply(c, item, { _tag: "Supersede" })
+      this.clearNotifications(c, item.id)
+    }
+  }
+
+  /**
+   * Raise a stuck item for each call that has been running longer than `stuck.afterMs`: a hung
+   * command, or a server started in the foreground. Once per call, and never while the
+   * session waits on an answer from you, which the inbox already shows.
+   */
+  private checkStuck(now: number) {
+    this.store.run("DELETE FROM tool_calls WHERE started_at < ?", now - STALE_CALL_MS)
+    if (!this.settings["stuck.enabled"]) return
+    const after = normalizeSetting("stuck.afterMs", this.settings["stuck.afterMs"])
+    const rows = this.store.all<ToolCallRow>(
+      `SELECT t.* FROM tool_calls t JOIN sessions s ON s.id = t.session_id
+        WHERE t.started_at <= ? AND s.state != 'ended' ORDER BY t.started_at`,
+      now - after,
+    )
+    for (const r of rows) {
+      const waiting = this.store.one<{ x: number }>(
+        `SELECT 1 AS x FROM attention_items WHERE session_id = ? AND state IN ('open','snoozed')
+           AND kind IN ('question','permission') LIMIT 1`,
+        r.session_id,
+      )
+      if (waiting) continue
+      // The clock starts when the call could run: after the last answer in this session.
+      const answered = this.store.one<{ at: number | null }>(
+        `SELECT MAX(COALESCE(answered_at, updated_at)) AS at FROM attention_items
+          WHERE session_id = ? AND kind IN ('question','permission')
+            AND COALESCE(answered_at, updated_at) > ?`,
+        r.session_id,
+        r.started_at,
+      )
+      const since = Math.max(r.started_at, answered?.at ?? 0)
+      if (now - since < after) continue
+      const key = this.stuckKey(r)
+      // Once per call: Done or Snooze was your answer to this one.
+      if (
+        this.store.one<{ x: number }>(
+          "SELECT 1 AS x FROM attention_items WHERE dedupe_key = ? LIMIT 1",
+          key,
+        )
+      )
+        continue
+      this.tx((c) => {
+        let input: unknown = null
+        try {
+          input = JSON.parse(r.input_json)
+        } catch {
+          // keep null: the summary falls back to the tool's name
+        }
+        const source: StuckSource = { toolUseId: r.tool_use_id, tool: r.tool, input, since }
+        this.appendEvent(c, {
+          sessionId: r.session_id,
+          agentId: r.agent_id,
+          hook: "daemon:stuck",
+          payload: source,
+        })
+        const { row } = this.openItem(c, {
+          sessionId: r.session_id,
+          agentId: r.agent_id,
+          kind: "stuck",
+          dedupeKey: key,
+          summary: runningSummary(r.tool, input, this.showPathFor(r.session_id)),
+        })
+        this.queueNotification(c, row)
+      })
+    }
+  }
+
+  /** "Running npm run dev for 12 min", as of now. */
+  private stuckLine(item: ItemRow): string {
+    const what = item.summary ?? "A tool call is still running"
+    const source = this.store.stuckSource(item)
+    if (!source) return what
+    return `${what} for ${Math.max(1, Math.round((this.now() - source.since) / 60_000))} min`
+  }
+
+  /** The call a stuck item is about, with the preview a permission request would get (C-030). */
+  private runningView(r: ItemRow, s: SessionRow, p: ProjectRow): ItemDetail["running"] {
+    const source = this.store.stuckSource(r)
+    if (!source) return undefined
+    const { preview } = computePreview(this.deps.files, this.deps.log, {
+      tool: source.tool,
+      input: source.input,
+      cwd: s.cwd,
+      roots: [s.worktree, p.root_path],
+      transcriptPath: null,
+      toolUseId: null,
+    })
+    return { tool: source.tool, since: source.since, ...(preview ? { preview } : {}) }
   }
 
   private isMuted(item: ItemRow): boolean {
@@ -3236,6 +3414,7 @@ export class Engine {
       })
     }
     this.checkPolls(now)
+    this.checkStuck(now)
     for (const r of this.store.all<ItemRow>(
       "SELECT * FROM attention_items WHERE state = 'snoozed' AND snooze_until <= ?",
       now,
@@ -3334,6 +3513,7 @@ export class Engine {
           this.clearNotifications(c, a.item_id)
           c.after.push(() => this.wake(a.hook_request_id))
         }
+        this.endToolCalls(c, "session_id = ?", r.id)
         this.setSessionState(c, r.id, "ended")
         for (const ag of this.store.all<AgentRow>(
           "SELECT * FROM agents WHERE session_id = ? AND state IN ('running','waiting')",

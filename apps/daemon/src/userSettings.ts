@@ -50,6 +50,7 @@ export const normalizeSetting = <K extends UserSettingKey>(
     case "holds.requestBudgetMs":
     case "notifications.reviewGroupMs":
     case "storage.retentionDays":
+    case "stuck.afterMs":
       return clamp(key, value as number) as UserSettings[K]
     case "holds.tools": {
       const set = new Set(value as ReadonlyArray<string>)

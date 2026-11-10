@@ -46,6 +46,9 @@ export interface Settings {
   "updates.checkIntervalMs": number
   /** Days of history kept; older events and finished rows are pruned daily (D-063). */
   "storage.retentionDays": number
+  /** Flag a tool call still running after `stuck.afterMs` as a stuck item (D-099). */
+  "stuck.enabled": boolean
+  "stuck.afterMs": number
   /** Key presses for each shortcut action, "" for none (C-029, D-098). */
   "shortcuts.jump": string
   "shortcuts.submit": string
@@ -89,6 +92,8 @@ export const DEFAULT_SETTINGS: Settings = {
   "updates.auto": true,
   "updates.checkIntervalMs": 6 * 3600_000,
   "storage.retentionDays": 14,
+  "stuck.enabled": true,
+  "stuck.afterMs": 5 * 60_000,
   "shortcuts.jump": SHORTCUT_DEFAULTS.jump,
   "shortcuts.submit": SHORTCUT_DEFAULTS.submit,
   "shortcuts.deny": SHORTCUT_DEFAULTS.deny,

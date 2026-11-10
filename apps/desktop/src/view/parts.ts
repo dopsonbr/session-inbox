@@ -227,6 +227,7 @@ export const KIND_WORD: Record<AttentionKind, string> = {
   permission: "Permission",
   review: "Ready to review",
   failed: "Stopped with errors",
+  stuck: "Still running",
 }
 
 const KIND_ICON: Record<AttentionKind, (h: H, c?: string) => Html> = {
@@ -234,6 +235,7 @@ const KIND_ICON: Record<AttentionKind, (h: H, c?: string) => Html> = {
   permission: Icon.shield,
   review: Icon.check,
   failed: Icon.alert,
+  stuck: Icon.clock,
 }
 
 /** A finished item's kind, quiet: icon + word. */

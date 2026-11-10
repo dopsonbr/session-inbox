@@ -30,6 +30,9 @@ export const HOOK_SPECS: Spec[] = [
   { event: "Notification", timeout: 5 },
   { event: "PreToolUse", matcher: PRE_TOOL_USE_MATCHER, timeout: 130 },
   { event: "PostToolUse", matcher: "*", timeout: 5 },
+  // A failed or timed-out call fires this, not PostToolUse; without it a failed command
+  // would look as if it were still running (D-099).
+  { event: "PostToolUseFailure", matcher: "*", timeout: 5 },
   // Every tool Claude is about to ask about. Observed: the hook exits at once. Answered from
   // the inbox (holds.via = permissionRequest): waits up to 55 min, so the timeout is above it.
   { event: "PermissionRequest", matcher: "*", timeout: PERMISSION_REQUEST_TIMEOUT_S },

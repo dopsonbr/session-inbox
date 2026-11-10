@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
   buildHooks,
+  HOOK_SPECS,
   hookHome,
   isOurs,
   mergeHooks,
@@ -28,9 +29,9 @@ const existing: Settings = {
 }
 
 describe("settings merge", () => {
-  test("fresh file gets all ten events", () => {
+  test("fresh file gets every event", () => {
     const out = mergeHooks({}, HOME)
-    expect(Object.keys(out.hooks ?? {})).toHaveLength(10)
+    expect(Object.keys(out.hooks ?? {})).toHaveLength(HOOK_SPECS.length)
     expect(out.hooks?.PreToolUse?.[0]?.hooks[0]).toEqual({
       type: "command",
       command: `"${HOME}/bin/inbox-hook" PreToolUse`,
