@@ -33,53 +33,62 @@ Scope for v1: sessions on **this Mac** only (the Claude desktop app's Code tab a
 
 ## Install
 
-Requirements: macOS, [Bun](https://bun.sh) ≥ 1.4, Rust (`brew install rust`) for the menu-bar app, and the Claude desktop app or the `claude` CLI.
+Requirements: an Apple-silicon Mac and the Claude desktop app or the `claude` CLI. Nothing else: the release is prebuilt.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dopsonbr/session-inbox/main/install.sh | sh
+```
+
+The script checks the download's SHA-256, then hands over to the release's own `session-inbox install`, which:
+
+1. Copies `inbox-hook`, `inboxd`, `session-inbox` and the UI to `~/Library/Application Support/SessionInbox/`.
+2. Loads the launchd agent `com.sessioninbox.inboxd`.
+3. Merges the hooks into `~/.claude/settings.json`. It backs the file up first, keeps everything else in it, and re-running it changes nothing.
+4. Installs and opens `~/Applications/Session Inbox.app`.
+5. Links `~/.local/bin/session-inbox` (add `~/.local/bin` to your `PATH` if it isn't there).
+
+Nothing needs `sudo`. Options go after `sh -s --`, for example `curl -fsSL …/install.sh | sh -s -- --no-app`, and `SESSION_INBOX_VERSION=v0.2.0` picks a version. To see every change before making it, download a release tarball, unpack it, and run `bin/session-inbox install` without `--yes` (a dry run). New Claude sessions pick up the hooks. Restart any session that's already open.
+
+### Update
+
+```bash
+session-inbox update --check   # is there a newer release?
+session-inbox update --yes     # download, verify, and install it over this one
+```
+
+An update moves hook, daemon, UI and app together and keeps the choices you installed with (`<home>/install.json`). `session-inbox status` shows what's installed and running.
+
+### Install from source
+
+Needed on an Intel Mac (releases are Apple silicon only), and for development. Requirements: [Bun](https://bun.sh) ≥ 1.4, and Rust (`brew install rust`) for the menu-bar app.
 
 ```bash
 git clone https://github.com/dopsonbr/session-inbox && cd session-inbox
 bun install
 bun scripts/install.ts           # dry run: prints every file, launchd and settings.json change
+bun scripts/install.ts --yes     # builds from this checkout and runs the same installer
 ```
 
-Review the diff, then apply it:
-
-```bash
-bun scripts/install.ts --yes
-```
-
-That command does four things:
-
-1. Builds `inbox-hook`, `inboxd` and the UI.
-2. Copies them to `~/Library/Application Support/SessionInbox/`.
-3. Loads the launchd agent `com.sessioninbox.inboxd`.
-4. Merges the hooks into `~/.claude/settings.json`. It backs the file up first, keeps everything else in it, and re-running it changes nothing.
-
-Add `--app` to also build the menu-bar app, install it as `~/Applications/Session Inbox.app` and open it (the first Rust build takes a few minutes):
-
-```bash
-bun scripts/install.ts --yes --app
-```
-
-New Claude sessions pick up the hooks. Restart any session that's already open.
+Add `--app` to also build the menu-bar app, install it as `~/Applications/Session Inbox.app` and open it (the first Rust build takes a few minutes). `session-inbox update --yes` replaces a source install with the release build.
 
 ### GA and beta side by side
 
-Install a second, **beta** channel from a working branch to compare it with the GA install from `main`:
+Install a second, **beta** channel from a working branch to compare it with the GA install:
 
 ```bash
 git switch my-branch
 bun scripts/install.ts --channel beta --yes --app   # → ~/Applications/Session Inbox Beta.app
-bun scripts/channels.ts                               # status of both: running, build, holds, URL
+session-inbox status                                  # both channels: version, running, holds, URL
 ```
 
-Beta has its own data (`~/Library/Application Support/SessionInbox-beta`), launchd agent (`com.sessioninbox.inboxd.beta`), port, app, `sessioninbox-beta://` links and ⌘⌥⇧I. Both channels see every session. Only one may **hold** tool calls (otherwise each would wait for its own answer), so a channel installed beside another starts as an observer: it shows the same items and notifies too, but never holds (its permission items aren't answerable; answer in the channel that holds). To swap roles:
+Beta has its own data (`~/Library/Application Support/SessionInbox-beta`), launchd agent (`com.sessioninbox.inboxd.beta`), port, app, `sessioninbox-beta://` links, ⌘⌥⇧I and `~/.local/bin/session-inbox-beta`. It never updates from releases. Both channels see every session. Only one may **hold** tool calls (otherwise each would wait for its own answer), so a channel installed beside another starts as an observer: it shows the same items and notifies too, but never holds (its permission items aren't answerable; answer in the channel that holds). To swap roles:
 
 ```bash
-bun scripts/channels.ts holds beta   # beta holds, GA observes (holds ga to switch back)
-bun scripts/channels.ts open beta    # beta inbox in the browser
+session-inbox holds beta   # beta holds, GA observes (holds ga to switch back)
+session-inbox open beta    # beta inbox in the browser
 ```
 
-Remove beta with `bun scripts/uninstall.ts --channel beta --yes --app`. GA's hooks are left alone.
+(`bun scripts/channels.ts` does the same from a checkout.) Remove beta with `bun scripts/uninstall.ts --channel beta --yes --app`. GA's hooks are left alone.
 
 ### Try it in one project first
 
@@ -93,9 +102,12 @@ bun apps/daemon/src/main.ts      # logs the inbox URL; Ctrl-C to stop
 ### Uninstall
 
 ```bash
-bun scripts/uninstall.ts         # dry run
-bun scripts/uninstall.ts --yes   # removes our hooks (only ours) and the launchd agent; --app also removes the app
+session-inbox uninstall          # dry run
+session-inbox uninstall --yes    # removes our hooks (only ours), the launchd agent, the PATH link and the app
+session-inbox uninstall --yes --purge   # also deletes ~/Library/Application Support/SessionInbox (data too)
 ```
+
+From a checkout, `bun scripts/uninstall.ts` takes the same flags.
 
 ## Using it
 
@@ -115,7 +127,9 @@ Everything lives in `~/Library/Application Support/SessionInbox/`:
 
 | File | Purpose |
 | --- | --- |
-| `bin/inbox-hook`, `bin/inboxd`, `ui/` | Installed binaries and UI |
+| `bin/inbox-hook`, `bin/inboxd`, `bin/session-inbox`, `ui/` | Installed binaries and UI |
+| `install.json` | Version, channel and the options it was installed with; `update` re-applies them |
+| `update-state.json`, `update.log`, `updates/` | Progress and log of the last update, and its download while it runs |
 | `inbox.db` | SQLite (WAL): sessions, items, events, outbox, notifications, drafts, settings |
 | `inboxd.sock` | Unix socket for hooks (mode 0600) |
 | `connection.json`, `token` | HTTP port and bearer token for the app (mode 0600) |
@@ -177,18 +191,23 @@ bun scripts/demo.ts                   # real daemon seeded with sample sessions;
 bun run --cwd apps/desktop dev:mock   # UI against an in-memory fake daemon
 bun run --cwd apps/daemon dev         # daemon with --watch on .dev/home
 cd apps/desktop/src-tauri && cargo test && cargo clippy -- -D warnings
+bun scripts/release.ts --skip-app     # payload + tarball + .sha256 in dist/release (no app: fast)
 ```
+
+Releases: the **Release** GitHub workflow (Actions → Release → Run, pick patch/minor/major) bumps `VERSION`, runs every check, builds with `bun scripts/release.ts`, tags and publishes the tarball, its checksum and `install.sh`. CI runs the same checks on every push.
 
 | Path | What |
 | --- | --- |
 | `apps/daemon` | `inboxd`: ingest, attention-item state machine, holds, outbox, notification policy, HTTP + SSE |
 | `apps/hook` | `inbox-hook`: forward, long-poll, fail open; `record` mode writes fixtures; settings merge |
+| `apps/cli` | `session-inbox`: install, uninstall, update, status (the one install path) |
 | `apps/desktop/src` | Foldkit + Effect UI: main window and `?view=compact` popover |
 | `apps/desktop/src-tauri` | Tauri v2 shell: tray, popover, notifications, deep links, autostart |
 | `packages/contracts` | Effect Schemas shared by the daemon and the UI: the only shared code |
 | `fixtures/` | Recorded (real) and synthetic hook payloads replayed by the tests |
 | `ops/` | launchd plist template, Claude settings snippet |
-| `scripts/` | Bun scripts: install, uninstall, build, build-shell, smoke, demo, spike tools |
+| `scripts/` | Bun scripts: install, uninstall, build, build-shell, release, bump, smoke, demo, spike tools |
+| `install.sh` | The `curl \| sh` bootstrap: download, verify, hand over to `session-inbox install` |
 | `docs/` | Spec snapshot, mockups, Phase 0 spike report |
 
 Stack: Bun 1.4 · Effect 4.1.2 · Foldkit 0.170 · Basecoat CSS · Tailwind 4 · Tauri 2 · SQLite. Contributor and agent guidance is in [CLAUDE.md](CLAUDE.md).
