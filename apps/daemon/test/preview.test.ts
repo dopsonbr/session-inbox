@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import type { ApprovalPreview } from "@session-inbox/contracts"
 import { displayPathFor } from "../src/domain/preview.ts"
 import { lastAssistantText } from "../src/domain/text.ts"
-import { envelope, FakeGit, makeHarness } from "./fakes.ts"
+import { envelope, FakeGit, makeClassicHarness as makeHarness } from "./fakes.ts"
 
 const SID = "cccccccc-0000-4000-8000-000000000001"
 const CWD = "/work/x/apps/web"

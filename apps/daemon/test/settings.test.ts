@@ -11,7 +11,7 @@ import {
   FakeGit,
   FakeNotifier,
   FakeOpener,
-  makeHarness,
+  makeClassicHarness as makeHarness,
   silentLog,
 } from "./fakes.ts"
 

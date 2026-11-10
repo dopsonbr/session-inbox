@@ -87,7 +87,14 @@ beforeAll(async () => {
     JSON.stringify({ permissions: { allow: ["Bash(npm test:*)"] } }),
   )
   d = await startDaemon(
-    { home, port: 0, uiDir, claudeConfigDir: claudeDir, settings: { "titles.generate": false } },
+    {
+      home,
+      port: 0,
+      uiDir,
+      claudeConfigDir: claudeDir,
+      // Classic PreToolUse holds: these round trips hold and decide them (D-074).
+      settings: { "titles.generate": false, "holds.via": "preToolUse" },
+    },
     { clock, git: new FakeGit(), claude, notifier, opener, log: silentLog },
   )
 })

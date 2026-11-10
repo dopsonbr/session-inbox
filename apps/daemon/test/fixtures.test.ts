@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { ApprovalRow, ItemRow, NotificationRow } from "../src/store.ts"
-import { FakeGit, type Harness, makeHarness } from "./fakes.ts"
+import { FakeGit, type Harness, makeClassicHarness as makeHarness } from "./fakes.ts"
 import { type Fixture, loadFixtures, replay } from "./replay.ts"
 
 const rows = (h: Harness) => ({
@@ -64,14 +64,45 @@ describe("synthetic fixture replay", () => {
     expect(h.notifier.posted).toHaveLength(1) // no shell connected ⇒ osascript fallback
   })
 
-  test("permission timeout → expired, decision ask", async () => {
+  test("permission timeout → decision ask, item stays open waiting in Claude (D-073)", async () => {
     const h = makeHarness()
     const r = await replay(h, fx("permission-timeout"))
     const { items, approvals } = rows(h)
-    expect(items[0]?.state).toBe("expired")
+    expect(items[0]?.state).toBe("open")
     expect(approvals[0]?.decision).toBe("ask")
     expect(approvals[0]?.live).toBe(0)
     expect((await h.engine.waitDecision(r.requestIds[0] ?? "", 5)).decision).toBe("ask")
+  })
+
+  test("a lapsed hold stays visible until its own call runs (D-073)", async () => {
+    const h = makeHarness()
+    const f = fx("hold-lapse-stays-visible")
+    const r = await replay(h, { ...f, steps: f.steps.slice(0, 5) })
+    expect(r.requestIds).toHaveLength(1)
+    let { items, notifications } = rows(h)
+    expect(items.map((i) => [i.kind, i.state, i.summary])).toEqual([
+      ["permission", "open", "Wants to run bun run migrate"],
+    ])
+    expect(h.engine.snapshot().items[0]?.live).toBe(false)
+    expect(h.engine.snapshot().counts.needsYou).toBe(1)
+    expect(notifications.map((n) => [n.state, JSON.parse(n.actions_json), n.body])).toEqual([
+      ["cleared", ["allow", "deny", "open"], "Wants to run bun run migrate"],
+      ["posted", ["open"], "Still waiting in Claude: Wants to run bun run migrate"],
+    ])
+    // Claude's own PermissionRequest and Notification for it: refreshed, nothing new.
+    await replay(h, { ...f, steps: f.steps.slice(5, 8) })
+    ;({ items, notifications } = rows(h))
+    expect(items).toHaveLength(1)
+    expect(items[0]?.state).toBe("open")
+    expect(notifications).toHaveLength(2)
+    // Another call's activity doesn't end it; its own PostToolUse does.
+    await replay(h, { ...f, steps: f.steps.slice(8, 11) })
+    expect(rows(h).items[0]?.state).toBe("open")
+    await replay(h, { ...f, steps: f.steps.slice(11) })
+    ;({ items, notifications } = rows(h))
+    expect(items.map((i) => i.state)).toEqual(["resolved"])
+    expect(notifications.map((n) => n.state)).toEqual(["cleared", "cleared"])
+    expect(h.engine.snapshot().counts.needsYou).toBe(0)
   })
 
   test("a prompt for another tool right after an allowed hold opens a new item (D-067)", async () => {

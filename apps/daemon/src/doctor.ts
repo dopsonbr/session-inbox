@@ -42,7 +42,14 @@ export interface DoctorFacts {
   readonly hooks: HooksFacts
   readonly firstHookAt: number | null
   readonly lastHookAt: number | null
-  readonly holds: { enabled: boolean; tools: ReadonlyArray<string> }
+  readonly holds: {
+    enabled: boolean
+    tools: ReadonlyArray<string>
+    /** D-074: answer Claude's PermissionRequest (default) or hold PreToolUse (classic). */
+    via: "permissionRequest" | "preToolUse"
+    /** Minutes the inbox answers a PermissionRequest for. */
+    requestBudgetMs: number
+  }
   readonly otherChannel: string | null
   readonly auth: ClaudeAuth
   readonly shell: { connected: boolean; status: ShellStatus | null; connectedAt: number | null }
@@ -130,12 +137,21 @@ const hooksCheck = (f: DoctorFacts): DoctorCheck => {
       fix,
     )
   const missing = HOOK_EVENTS.filter((e) => !h.registered.includes(e))
+  // Every other event there: the install predates the PermissionRequest hook (H-037).
+  if (missing.length === 1 && missing[0] === "PermissionRequest")
+    return check(
+      "hooks",
+      title,
+      "warn",
+      `The hooks were installed before the PermissionRequest hook was added; reinstall or update to add it. Until then Claude's own permission prompts reach the inbox only about 6 seconds late, and can't be answered from it.`,
+      fix,
+    )
   if (missing.length > 0)
     return check(
       "hooks",
       title,
       "warn",
-      `Only ${h.registered.length} of ${HOOK_EVENTS.length} hook events are registered; ${list(missing)} ${missing.length === 1 ? "is" : "are"} missing, so some sessions won't show up correctly.`,
+      `${h.registered.length} of ${HOOK_EVENTS.length} hook events are registered. Missing: ${list(missing)}, so some sessions won't show up correctly. Reinstall to add ${missing.length === 1 ? "it" : "them"}.`,
       fix,
     )
   return check(
@@ -172,12 +188,30 @@ const holdsCheck = (f: DoctorFacts): DoctorCheck => {
       "info",
       `This install only observes: Claude asks for permission in its own window, and the inbox shows and notifies.${other}`,
     )
+  if (f.holds.via === "permissionRequest") {
+    const minutes = Math.round(f.holds.requestBudgetMs / 6_000) / 10
+    // Nothing to answer through without the hook (H-037): say so, with the reinstall.
+    if (f.hooks.settings === "ok" && !f.hooks.registered.includes("PermissionRequest"))
+      return check(
+        "holds",
+        "Approvals",
+        "warn",
+        `This install answers Claude's own permission prompts, but no PermissionRequest hook is registered for it, so nothing can be answered from the inbox. Reinstall or update to add the hook.${other}`,
+        { label: "Reinstall the hooks", kind: "copy", value: installCommand(f) },
+      )
+    return check(
+      "holds",
+      "Approvals",
+      "ok",
+      `This install answers Claude's own permission prompts: whenever Claude asks, for any tool, the prompt shows up in the inbox while it stays open in Claude, and whichever is answered first wins. The inbox answers for up to ${minutes} min.${other}`,
+    )
+  }
   const tools = f.holds.tools.length > 0 ? list(f.holds.tools) : "no tools"
   return check(
     "holds",
     "Approvals",
     "ok",
-    `This install holds tool calls for approval in the inbox (${tools}, plus Claude's questions) whenever Claude itself would ask.${other}`,
+    `This install holds tool calls before Claude asks (classic): ${tools}, plus Claude's questions, whenever Claude itself would ask, for up to two minutes.${other}`,
   )
 }
 
@@ -506,7 +540,12 @@ export class Doctor {
       hooks: inspectHooks(this.env.claudeConfigDir, this.env.home),
       firstHookAt: e.firstHookAt,
       lastHookAt: e.lastHookAt,
-      holds: { enabled: e.settings["holds.enabled"], tools: e.settings["holds.tools"] },
+      holds: {
+        enabled: e.settings["holds.enabled"],
+        tools: e.settings["holds.tools"],
+        via: e.settings["holds.via"] === "preToolUse" ? "preToolUse" : "permissionRequest",
+        requestBudgetMs: e.settings["holds.requestBudgetMs"],
+      },
       otherChannel: this.env.otherChannel(),
       auth: e.auth,
       shell: e.shellStatus(),

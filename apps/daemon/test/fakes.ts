@@ -183,6 +183,14 @@ export const makeHarness = (
   return { engine, clock, git, claude, notifier, opener, files, claudeDir }
 }
 
+/**
+ * The classic mode, PreToolUse holds (D-074 made answering Claude's PermissionRequest the
+ * default). Tests of holds, previews at hold time and lapses run in it explicitly.
+ */
+export const CLASSIC: Partial<Settings> = { "holds.via": "preToolUse" }
+export const makeClassicHarness = (opts: Parameters<typeof makeHarness>[0] = {}): Harness =>
+  makeHarness({ ...opts, settings: { ...CLASSIC, ...opts.settings } })
+
 export const env = (entrypoint: string | null = "cli", hostSessionId: string | null = null) => ({
   entrypoint,
   hostSessionId,

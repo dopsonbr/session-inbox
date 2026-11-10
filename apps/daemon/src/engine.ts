@@ -69,9 +69,11 @@ import {
   permissionSummary,
   provisionalTitle,
   type ShowPath,
+  summaryLine,
   TITLE_HEAD_BYTES,
   TRANSCRIPT_TAIL_BYTES,
   toolLine,
+  toolUsesIn,
   transcriptTitle,
   UNTITLED,
 } from "./domain/text.ts"
@@ -157,6 +159,10 @@ class Changes {
 /** Reasons a free-text reply can't leave the inbox (C-023, D-061). */
 export const REPLY_CLI_MISSING =
   "Replies are sent with the claude CLI, which wasn't found on this Mac. Install Claude Code's command-line tool, or open the session in Claude."
+/** Claude's own prompt is on screen for this item: `--resume` would collide with it (D-073). */
+export const ANSWER_IN_CLAUDE = "Claude is asking in its own window. Answer there."
+/** What a plain Deny from the inbox tells Claude (D-078); replies keep "The user replied: …". */
+export const DENIED_IN_INBOX = "Denied by the user in Session Inbox."
 export const REPLY_CLI_LOGGED_OUT =
   "Replies are sent with the claude CLI, which isn't logged in on this Mac. Run `claude` in a terminal once to log in, or open the session in Claude."
 
@@ -192,6 +198,16 @@ const ACTIVITY = new Set([
 
 /** Events after which the transcript may carry a new title (D-059). */
 const TITLE_EVENTS = new Set(["SessionStart", "UserPromptSubmit", "Stop", "SubagentStop"])
+
+/**
+ * SQL (alias `a` = approvals) for an approval whose item, while open, is Claude's own prompt
+ * waiting in Claude: a PermissionRequest item (D-068), or a hold whose budget lapsed (D-073).
+ * A user's "Open in Claude" also leaves decision `ask`, but its item is answered, not open.
+ */
+const WAITING_IN_CLAUDE = "(a.via = 'permissionRequest' OR a.decision = 'ask')"
+
+/** Notification body for a lapsed hold, so the person who comes back sees what's current. */
+export const STILL_WAITING_PREFIX = "Still waiting in Claude: "
 
 const PERMISSION_NOTIFICATIONS = new Set(["permission_prompt", "worker_permission_prompt"])
 const INPUT_NOTIFICATIONS = new Set(["idle_prompt", "agent_needs_input"])
@@ -859,7 +875,7 @@ export class Engine {
             agentId: main,
             kind: "failed",
             dedupeKey: this.dedupeKey(sid, main, "failed"),
-            summary: firstLine(lastMessage) ?? "Stopped with errors",
+            summary: summaryLine(lastMessage) ?? "Stopped with errors",
           })
           if (created) this.queueNotification(c, row)
         } else {
@@ -868,7 +884,7 @@ export class Engine {
             agentId: main,
             kind: "review",
             dedupeKey: this.dedupeKey(sid, main, "review"),
-            summary: firstLine(lastMessage) ?? "Ready to review",
+            summary: summaryLine(lastMessage) ?? "Ready to review",
           })
           if (created) this.queueNotification(c, row)
         }
@@ -1011,7 +1027,7 @@ export class Engine {
     const rows = this.store.all<ItemRow>(
       `SELECT * FROM attention_items i WHERE session_id = ? AND state IN ('open','snoozed') AND kind IN ${kinds}
          AND NOT EXISTS (SELECT 1 FROM approvals a WHERE a.item_id = i.id AND a.live = 1)
-         AND (? OR NOT EXISTS (SELECT 1 FROM approvals a WHERE a.item_id = i.id AND a.via = 'permissionRequest'))`,
+         AND (? OR NOT EXISTS (SELECT 1 FROM approvals a WHERE a.item_id = i.id AND ${WAITING_IN_CLAUDE}))`,
       sessionId,
       includeFailed ? 1 : 0,
     )
@@ -1227,7 +1243,41 @@ export class Engine {
       this.expireHold(c, a)
   }
 
-  /** Hold budget lapsed (or the hold went stale): decision `ask`; permission items expire. */
+  /**
+   * A held PreToolUse's budget lapsed (D-073): the hook prints `ask` as before, but the item
+   * stays open in "needs you" as Claude's own prompt, waiting in Claude. Its Allow/Deny
+   * notification is replaced by one Open-only "Still waiting in Claude" notification. It ends
+   * like an observed PermissionRequest item (its own PostToolUse, a prompt, Stop, SessionEnd).
+   */
+  private lapseHold(c: Changes, a: ApprovalRow) {
+    if (a.via === "permissionRequest") {
+      this.lapseRequest(c, a)
+      return
+    }
+    let key: string | null = null
+    try {
+      key = inputKey(a.tool, JSON.parse(a.input_json))
+    } catch {
+      key = null
+    }
+    this.store.run(
+      "UPDATE approvals SET decision = 'ask', live = 0, decided_at = ?, input_key = ? WHERE item_id = ?",
+      this.now(),
+      key,
+      a.item_id,
+    )
+    this.clearNotifications(c, a.item_id)
+    c.after.push(() => this.wake(a.hook_request_id))
+    const item = this.store.item(a.item_id)
+    if (!item) return
+    c.items.add(item.id)
+    this.setAgentState(c, item.agent_id ?? mainAgentId(item.session_id), "waiting")
+    if (item.state !== "open" || this.isMuted(item)) return
+    const id = this.insertNotification(item, this.notificationContent(item))
+    c.after.push(() => this.dispatch(id))
+  }
+
+  /** The hold went stale or was released (Stop, SessionEnd, mute, holds off): `ask`; permission items expire. */
   private expireHold(c: Changes, a: ApprovalRow) {
     if (a.via === "permissionRequest") {
       this.lapseRequest(c, a)
@@ -1252,7 +1302,7 @@ export class Engine {
   // PermissionRequest (D-068..D-071; documented, not yet verified live: P-021)
   // -------------------------------------------------------------------------
 
-  /** Experimental decide mode: answer Claude's own prompt instead of holding PreToolUse. */
+  /** Decide mode (the default, D-074): answer Claude's own prompt instead of holding PreToolUse. */
   private decidesViaRequest(): boolean {
     return this.settings["holds.enabled"] && this.settings["holds.via"] === "permissionRequest"
   }
@@ -1341,6 +1391,12 @@ export class Engine {
     if (!decide) {
       // A question is the question item's business (D-034): never a second item for it.
       if (isQuestion) return none
+      // Already tracked with its approval (a lapsed hold, or a repeat request): keep its preview,
+      // computed before the call could run (D-056), and just refresh it (D-073).
+      if (existing && existingApproval) {
+        this.apply(c, existing, { _tag: "Refresh" })
+        return none
+      }
       if (!existing) {
         // Same prompt as an item we have (the Part 1 rule, D-067): our hold lapsed into it.
         const match = matchPrompt(this.promptCandidates(sid), tool, this.now())
@@ -1440,7 +1496,7 @@ export class Engine {
   private finishRequests(c: Changes, sessionId: string, signal: string) {
     for (const a of this.store.all<ApprovalRow>(
       `SELECT a.* FROM approvals a JOIN attention_items i ON i.id = a.item_id
-         WHERE i.session_id = ? AND a.via = 'permissionRequest' AND i.state IN ('open','snoozed')`,
+         WHERE i.session_id = ? AND ${WAITING_IN_CLAUDE} AND i.state IN ('open','snoozed')`,
       sessionId,
     ))
       this.finishRequest(c, a, signal)
@@ -1453,7 +1509,7 @@ export class Engine {
     const key = inputKey(tool, p.tool_input)
     for (const a of this.store.all<ApprovalRow>(
       `SELECT a.* FROM approvals a JOIN attention_items i ON i.id = a.item_id
-         WHERE i.session_id = ? AND a.via = 'permissionRequest' AND i.state IN ('open','snoozed')
+         WHERE i.session_id = ? AND ${WAITING_IN_CLAUDE} AND i.state IN ('open','snoozed')
            AND ((a.tool_use_id IS NOT NULL AND a.tool_use_id = ?)
              OR (a.tool_use_id IS NULL AND a.tool = ? AND a.input_key = ?))`,
       sessionId,
@@ -1479,6 +1535,127 @@ export class Engine {
     // Allow/Deny on its notification would only 409 now.
     this.clearNotifications(c, a.item_id)
     c.after.push(() => this.wake(a.hook_request_id))
+  }
+
+  /**
+   * The transcript pass on the tick (D-075, D-076), for open approval items that are Claude's
+   * own prompt (PermissionRequest items, live or not, and lapsed holds) or have no context yet:
+   * one bounded tail read per session; never throws.
+   * - context: read once the call's own `tool_use` block is written (≥ 1 s, up to 3 tries), and
+   *   the `tool_use_id` recovered from the transcript when no PreToolUse had it;
+   * - answered in Claude: once the call has a `tool_result` (ran, failed or was denied there),
+   *   the item resolves as with its PostToolUse, and a still-waiting hook exits silently.
+   */
+  private followTranscripts() {
+    const now = this.now()
+    const rows = this.store.all<
+      ApprovalRow & { created_at: number; session_id: string; transcript_path: string | null }
+    >(
+      `SELECT a.*, i.created_at, i.session_id, s.transcript_path FROM approvals a
+         JOIN attention_items i ON i.id = a.item_id JOIN sessions s ON s.id = i.session_id
+         WHERE i.state IN ('open','snoozed') AND s.transcript_path IS NOT NULL
+           AND (${WAITING_IN_CLAUDE} OR (a.live = 1 AND a.via = 'permissionRequest')
+             OR (a.context IS NULL AND i.created_at >= ?))
+         ORDER BY i.session_id`,
+      now - 30_000,
+    )
+    const current = new Set(rows.map((r) => r.item_id))
+    for (const id of this.contextTries.keys()) if (!current.has(id)) this.contextTries.delete(id)
+    if (rows.length === 0) return
+    const bySession = new Map<string, typeof rows>()
+    for (const r of rows) bySession.set(r.session_id, [...(bySession.get(r.session_id) ?? []), r])
+    for (const [, items] of bySession) {
+      const first = items[0]
+      if (!first?.transcript_path) continue
+      const due = items.filter((a) => now - a.created_at >= 1_000)
+      if (due.length === 0) continue
+      let tail: string | null = null
+      try {
+        tail = this.files.tail(first.transcript_path, TRANSCRIPT_TAIL_BYTES)
+      } catch (e) {
+        this.deps.log.warn("transcript read failed", e)
+        continue
+      }
+      if (!tail) continue
+      for (const a of due) {
+        try {
+          this.followOne(a, tail, now)
+        } catch (e) {
+          this.deps.log.warn("transcript follow failed", e)
+        }
+      }
+    }
+  }
+
+  private readonly contextTries = new Map<string, number>()
+
+  private followOne(
+    a: ApprovalRow & { created_at: number; session_id: string },
+    tail: string,
+    now: number,
+  ) {
+    let input: unknown = null
+    try {
+      input = JSON.parse(a.input_json)
+    } catch {
+      input = null
+    }
+    const want = canonicalJson(input)
+    let toolUseId = a.tool_use_id
+    let answered = false
+    const uses = toolUsesIn(tail, a.tool, (x) => canonicalJson(x) === want).filter(
+      // An identical call from before this item (a repeated `ls`) isn't this one.
+      (u) => u.at === null || u.at >= a.created_at - 5_000,
+    )
+    if (toolUseId) {
+      answered = uses.some((u) => u.id === toolUseId && u.hasResult)
+    } else {
+      const claimed = new Set(
+        this.store
+          .all<{ tool_use_id: string }>(
+            `SELECT a.tool_use_id FROM approvals a JOIN attention_items i ON i.id = a.item_id
+               WHERE i.session_id = ? AND a.tool_use_id IS NOT NULL AND i.state IN ('open','snoozed')`,
+            a.session_id,
+          )
+          .map((r) => r.tool_use_id),
+      )
+      const pending = uses.find((u) => !u.hasResult && !claimed.has(u.id))
+      const done = uses.find((u) => u.hasResult && !claimed.has(u.id))
+      const found = pending ?? done
+      if (found) {
+        toolUseId = found.id
+        answered = found.hasResult
+        this.store.run(
+          "UPDATE approvals SET tool_use_id = ? WHERE item_id = ? AND tool_use_id IS NULL",
+          found.id,
+          a.item_id,
+        )
+      }
+    }
+    const waiting = a.via === "permissionRequest" || (a.decision === "ask" && a.live === 0)
+    if (answered && waiting && now - a.created_at >= 2_000) {
+      const fresh = this.store.approval(a.item_id)
+      if (fresh && fresh.decision === (a.decision ?? null))
+        this.tx((c) => this.finishRequest(c, fresh, "transcript"))
+      return
+    }
+    if (a.context || !toolUseId) return
+    const tries = this.contextTries.get(a.item_id) ?? 0
+    if (tries >= 3) return
+    this.contextTries.set(a.item_id, tries + 1)
+    const text = lastAssistantText(tail, toolUseId, undefined, { requireToolUse: true })
+    if (!text) return
+    this.contextTries.delete(a.item_id)
+    // Presentation data (D-066), but an open detail pane should see it: one event + delta.
+    this.tx((c) => {
+      this.appendEvent(c, {
+        sessionId: a.session_id,
+        hook: "daemon:context",
+        payload: { itemId: a.item_id },
+      })
+      this.store.run("UPDATE approvals SET context = ? WHERE item_id = ?", text, a.item_id)
+      c.items.add(a.item_id)
+    })
   }
 
   /** The hook's long-poll closed while still waiting: Claude's prompt was answered first. */
@@ -1572,7 +1749,7 @@ export class Engine {
           hook: "daemon:hold-expired",
           payload: { requestId },
         })
-        if (a) this.expireHold(c, a)
+        if (a) this.lapseHold(c, a)
       })
       a = this.store.approvalByRequest(requestId) as ApprovalRow
     }
@@ -1668,7 +1845,7 @@ export class Engine {
     this.store.run(
       "UPDATE approvals SET decision = ?, reason = ?, updated_input_json = ?, live = 0, decided_at = ? WHERE item_id = ?",
       decision,
-      extra.reason ?? null,
+      extra.reason ?? (decision === "deny" ? DENIED_IN_INBOX : null),
       extra.updatedInput === undefined ? null : JSON.stringify(extra.updatedInput),
       this.now(),
       item.id,
@@ -1754,7 +1931,7 @@ export class Engine {
             ...(enc.updatedInput === undefined ? {} : { updatedInput: enc.updatedInput }),
           })
         } else {
-          const blocked = this.replyUnavailable()
+          const blocked = this.isWaitingInClaude(item) ? ANSWER_IN_CLAUDE : this.replyUnavailable()
           if (blocked) throw conflict(blocked)
           this.appendEvent(c, {
             sessionId: item.session_id,
@@ -1790,7 +1967,7 @@ export class Engine {
           return this.respond(itemId)
         }
         // Don't queue what can't be delivered: it would fail three times (C-023).
-        const blocked = this.replyUnavailable()
+        const blocked = this.isWaitingInClaude(item) ? ANSWER_IN_CLAUDE : this.replyUnavailable()
         if (blocked) throw conflict(blocked)
         this.appendEvent(c, {
           sessionId: item.session_id,
@@ -2083,7 +2260,11 @@ export class Engine {
     const live = a?.live === 1
     const lastMessage = r.kind === "review" || r.kind === "failed" ? this.lastMessageOf(r) : null
     // A live hold takes the reply as a deny reason through the hook: no CLI needed (D-016).
-    const replyUnavailable = live ? null : this.replyUnavailable()
+    const replyUnavailable = live
+      ? null
+      : this.isWaitingInClaude(r)
+        ? ANSWER_IN_CLAUDE
+        : this.replyUnavailable()
     return {
       ...(lastMessage ? { lastMessage } : {}),
       ...(replyUnavailable ? { replyUnavailable } : {}),
@@ -2203,6 +2384,15 @@ export class Engine {
             ? (item.summary ?? "Stopped with errors")
             : (item.summary ?? "Ready to review")
     const live = this.store.isLive(item.id)
+    // A lapsed hold: Claude's own prompt is what's waiting, so only Open can still work (D-073).
+    if (this.isLapsedHold(item))
+      return {
+        itemId: item.id,
+        title,
+        body: `${STILL_WAITING_PREFIX}${item.summary ?? (kind === "question" ? "Claude has a question" : "Needs your permission")}`,
+        actions: ["open"],
+        critical: kind === "permission",
+      }
     const actions: NotificationAction[] =
       kind === "question"
         ? ["answer", "open"]
@@ -2212,6 +2402,20 @@ export class Engine {
             : ["open"]
           : ["open"]
     return { itemId: item.id, title, body, actions, critical: kind === "permission" }
+  }
+
+  /** An open item whose hold lapsed into Claude's own prompt (D-073). */
+  private isLapsedHold(item: ItemRow): boolean {
+    if (item.state !== "open" && item.state !== "snoozed") return false
+    const a = this.store.approval(item.id)
+    return a !== null && a.live === 0 && a.decision === "ask"
+  }
+
+  /** An open item that is Claude's own prompt, answerable only in Claude (D-073). */
+  private isWaitingInClaude(item: ItemRow): boolean {
+    if (item.state !== "open" && item.state !== "snoozed") return false
+    const a = this.store.approval(item.id)
+    return a !== null && a.live === 0 && (a.decision === "ask" || a.via === "permissionRequest")
   }
 
   private isMuted(item: ItemRow): boolean {
@@ -2591,7 +2795,7 @@ export class Engine {
           hook: "daemon:hold-expired",
           payload: { itemId: a.item_id },
         })
-        this.expireHold(c, a)
+        this.lapseHold(c, a)
         if (item) this.setSessionState(c, item.session_id, "waiting")
       })
     }
@@ -2629,6 +2833,7 @@ export class Engine {
         this.apply(c, r, { _tag: "MarkUnconfirmed" })
       })
     }
+    this.followTranscripts()
     this.flushReviewGroup()
     this.kickOutbox()
     this.updates?.tick()

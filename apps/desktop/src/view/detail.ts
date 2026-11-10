@@ -486,12 +486,106 @@ const commandPreview = (approval: Approval): { command: string; description: str
   return { command: String(input), description: null }
 }
 
-const approvalCard = (model: Model, detail: ItemDetail, approval: Approval, h: H): Html => {
+/** One quiet line and Open in Claude: the item is Claude's own prompt, answered there (U-043). */
+export const WAITING_IN_CLAUDE_TEXT = "Claude is asking in its own window. Answer there."
+
+const waitingInClaudeFooter = (model: Model, h: H): ReadonlyArray<Html> => {
+  const isOpening = model.submission._tag === "Sending" && model.submission.action === "open"
+  return [
+    h.p([h.Class("text-[13px] text-muted-foreground")], [WAITING_IN_CLAUDE_TEXT]),
+    h.div(
+      [h.Class("flex flex-wrap items-center gap-2")],
+      [
+        h.button(
+          [
+            h.Type("button"),
+            h.Class("btn"),
+            h.DataAttribute("size", "lg"),
+            h.Disabled(isOpening),
+            h.OnClick(Message.ClickedOpenInClaude()),
+          ],
+          [Icon.external(h), "Open in Claude"],
+        ),
+      ],
+    ),
+  ]
+}
+
+const decisionFooter = (
+  model: Model,
+  detail: ItemDetail,
+  approval: Approval,
+  isDecided: boolean,
+  disabled: boolean,
+  h: H,
+): ReadonlyArray<Html> => {
+  const secondsLeft = Math.max(0, Math.round((approval.expiresAt - model.now) / 1000))
+  return [
+    h.p(
+      [h.Class("text-[13px] text-muted-foreground")],
+      [
+        isDecided
+          ? `Decided: ${approval.decision ?? "answered"}${approval.decidedAt === null ? "" : ` at ${formatClock(approval.decidedAt)}`}.`
+          : detail.item.live
+            ? `Claude is paused on this. If you don't answer${secondsLeft > 0 ? ` within about ${Math.max(1, Math.round(secondsLeft / 60))} min` : " soon"}, Claude's own prompt takes over.`
+            : "Claude's own prompt has taken over — deciding here may not reach it. Open it in Claude.",
+      ],
+    ),
+    h.div(
+      [h.Class("flex flex-wrap items-center gap-2")],
+      [
+        h.button(
+          [
+            h.Type("button"),
+            h.Class("btn"),
+            h.DataAttribute("size", "lg"),
+            h.Disabled(disabled),
+            h.AriaKeyshortcuts("Meta+Enter"),
+            h.OnClick(Message.ClickedDecision({ decision: "allow" })),
+          ],
+          ["Allow once", kbd(h, "⌘↵")],
+        ),
+        h.button(
+          [
+            h.Type("button"),
+            h.Class("btn"),
+            h.DataAttribute("variant", "outline"),
+            h.DataAttribute("size", "lg"),
+            h.Disabled(disabled),
+            h.Title("Adds an allow rule to this project's .claude/settings.local.json"),
+            h.OnClick(Message.ClickedDecision({ decision: "allow-always" })),
+          ],
+          ["Always allow"],
+        ),
+        h.button(
+          [
+            h.Type("button"),
+            h.Class("btn ml-auto"),
+            h.DataAttribute("variant", "danger-outline"),
+            h.DataAttribute("size", "lg"),
+            h.Disabled(disabled),
+            h.AriaKeyshortcuts("Meta+Backspace"),
+            h.OnClick(Message.ClickedDecision({ decision: "deny" })),
+          ],
+          ["Deny", kbd(h, "⌘⌫")],
+        ),
+      ],
+    ),
+    h.p(
+      [h.Class("text-xs text-subtle-foreground")],
+      ["Always allow adds a rule to this project's .claude/settings.local.json."],
+    ),
+  ]
+}
+
+export const approvalCard = (model: Model, detail: ItemDetail, approval: Approval, h: H): Html => {
   const { command, description } = commandPreview(approval)
   const isSending = model.submission._tag === "Sending" && model.submission.action === "decision"
   const isDecided = approval.decision !== null || detail.item.queue === "done"
+  // Not held and not finished: Claude's own prompt is what's waiting (observed prompt, lapsed
+  // hold, observer channel). Buttons here couldn't reach it (U-043).
+  const isWaitingInClaude = !detail.item.live && detail.item.queue !== "done"
   const disabled = isSending || isDecided
-  const secondsLeft = Math.max(0, Math.round((approval.expiresAt - model.now) / 1000))
   // Daemon-computed preview (U-031); older approvals without one keep the plain block.
   const preview = previewView(h, approval, model.isPreviewExpanded)
   return h.section(
@@ -517,60 +611,9 @@ const approvalCard = (model: Model, detail: ItemDetail, approval: Approval, h: H
           ],
           [h.code([], [command])],
         ),
-      h.p(
-        [h.Class("text-[13px] text-muted-foreground")],
-        [
-          isDecided
-            ? `Decided: ${approval.decision ?? "answered"}${approval.decidedAt === null ? "" : ` at ${formatClock(approval.decidedAt)}`}.`
-            : detail.item.live
-              ? `Claude is paused on this. If you don't answer${secondsLeft > 0 ? ` within about ${Math.max(1, Math.round(secondsLeft / 60))} min` : " soon"}, Claude's own prompt takes over.`
-              : "Claude's own prompt has taken over — deciding here may not reach it. Open it in Claude.",
-        ],
-      ),
-      h.div(
-        [h.Class("flex flex-wrap items-center gap-2")],
-        [
-          h.button(
-            [
-              h.Type("button"),
-              h.Class("btn"),
-              h.DataAttribute("size", "lg"),
-              h.Disabled(disabled),
-              h.AriaKeyshortcuts("Meta+Enter"),
-              h.OnClick(Message.ClickedDecision({ decision: "allow" })),
-            ],
-            ["Allow once", kbd(h, "⌘↵")],
-          ),
-          h.button(
-            [
-              h.Type("button"),
-              h.Class("btn"),
-              h.DataAttribute("variant", "outline"),
-              h.DataAttribute("size", "lg"),
-              h.Disabled(disabled),
-              h.Title("Adds an allow rule to this project's .claude/settings.local.json"),
-              h.OnClick(Message.ClickedDecision({ decision: "allow-always" })),
-            ],
-            ["Always allow"],
-          ),
-          h.button(
-            [
-              h.Type("button"),
-              h.Class("btn ml-auto"),
-              h.DataAttribute("variant", "danger-outline"),
-              h.DataAttribute("size", "lg"),
-              h.Disabled(disabled),
-              h.AriaKeyshortcuts("Meta+Backspace"),
-              h.OnClick(Message.ClickedDecision({ decision: "deny" })),
-            ],
-            ["Deny", kbd(h, "⌘⌫")],
-          ),
-        ],
-      ),
-      h.p(
-        [h.Class("text-xs text-subtle-foreground")],
-        ["Always allow adds a rule to this project's .claude/settings.local.json."],
-      ),
+      ...(isWaitingInClaude
+        ? waitingInClaudeFooter(model, h)
+        : decisionFooter(model, detail, approval, isDecided, disabled, h)),
     ],
   )
 }

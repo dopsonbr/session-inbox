@@ -352,7 +352,8 @@ const submitShortcut = (model: Model): UpdateReturn =>
         return submitAnswers(model)
       }
       if (detail.approval !== null) {
-        return sendDecision(model, "allow")
+        // Not held: Claude's own prompt is answered in Claude, not here (U-043).
+        return detail.item.live ? sendDecision(model, "allow") : { model }
       }
       return submitReply(model)
     },
@@ -1015,7 +1016,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     PressedSubmitShortcut: () => submitShortcut(model),
     ClickedDecision: ({ decision }) => sendDecision(model, decision),
     PressedDenyShortcut: () =>
-      model.route === "inbox" && Option.exists(loadedDetail(model), (d) => d.approval !== null)
+      model.route === "inbox" &&
+      Option.exists(loadedDetail(model), (d) => d.approval !== null && d.item.live)
         ? sendDecision(model, "deny")
         : { model },
     SubmittedReply: () => submitReply(model),

@@ -10,7 +10,13 @@ import type { Model } from "../src/model.ts"
 import { agentDisplayName, formatAgo, routeFromHash, visibleTreeNodes } from "../src/selectors.ts"
 import { presentFields, SettingsMessage } from "../src/settings.ts"
 import { initialModel, type UpdateReturn, update } from "../src/update.ts"
-import { contextStrip, lastMessageView, replyForm } from "../src/view/detail.ts"
+import {
+  approvalCard,
+  contextStrip,
+  lastMessageView,
+  replyForm,
+  WAITING_IN_CLAUDE_TEXT,
+} from "../src/view/detail.ts"
 import { navView } from "../src/view/nav.ts"
 import { queueView } from "../src/view/queue.ts"
 import { settingsBody } from "../src/view/settings.ts"
@@ -124,6 +130,65 @@ describe("Claude's last message", () => {
   })
 })
 
+describe("approval card honesty (U-043)", () => {
+  const card = (model: Model) => {
+    const detail = loadedDetail(model)
+    if (detail.approval === null) throw new Error("no approval")
+    return approvalCard(model, detail, detail.approval, h)
+  }
+  const notLive = (model: Model): Model => {
+    const detail = loadedDetail(model)
+    return update(
+      model,
+      Message.SucceededFetchItemDetail({
+        detail: { ...detail, item: { ...detail.item, live: false } },
+      }),
+    ).model
+  }
+
+  test("a live hold keeps Allow once / Always allow / Deny", () => {
+    const text = textOf(card(showing("i-pv-edit")))
+    expect(text).toContain("Allow once")
+    expect(text).toContain("Deny")
+    expect(text).not.toContain(WAITING_IN_CLAUDE_TEXT)
+  })
+
+  test("not live: one quiet line and Open in Claude; the preview stays", () => {
+    const model = notLive(showing("i-pv-edit"))
+    const view = card(model)
+    const text = textOf(view)
+    expect(text).toContain(WAITING_IN_CLAUDE_TEXT)
+    expect(text).toContain("Open in Claude")
+    expect(text).not.toContain("Allow once")
+    expect(text).not.toContain("Always allow")
+    expect(text).toContain("src/delivery/window.ts")
+    expect(findAll(view, "button")).toHaveLength(1)
+  })
+
+  test("not live: ⌘↵ and ⌘⌫ decide nothing", () => {
+    const model = notLive(showing("i-pv-edit"))
+    expect(names(update(model, Message.PressedSubmitShortcut()))).toEqual([])
+    expect(names(update(model, Message.PressedDenyShortcut()))).toEqual([])
+    expect(names(update(showing("i-pv-edit"), Message.PressedDenyShortcut()))).not.toEqual([])
+  })
+
+  test("queue card says Waiting in Claude for a non-live permission item", () => {
+    const model = showing("i-pv-edit")
+    const live = textOf(queueView(model, h))
+    expect(live).toContain("waiting")
+    const snap = Option.getOrThrow(model.maybeSnapshot)
+    const quiet = update(model, {
+      ...Message.SucceededFetchSnapshot({
+        snapshot: {
+          ...snap,
+          items: snap.items.map((i) => (i.id === "i-pv-edit" ? { ...i, live: false } : i)),
+        },
+      }),
+    }).model
+    expect(textOf(queueView(quiet, h))).toContain("Waiting in Claude")
+  })
+})
+
 describe("reply box honesty", () => {
   test("replyUnavailable replaces the textarea with the reason and Open in Claude", () => {
     const view = detailParts(showing("i-docs-review"))
@@ -231,6 +296,35 @@ describe("settings: retention days", () => {
       defaults: strip(r.defaults) as SettingsResponse["defaults"],
     }
   }
+
+  test("Approvals in the default mode: minutes field, hold settings disabled with a note (U-044)", () => {
+    const view = settingsBody(opened(fakeResponse()), h)
+    const text = textOf(view)
+    expect(text).toContain("Answer Claude's own prompt (recommended)")
+    expect(text).toContain("Hold the tool call before Claude asks (classic)")
+    expect(text).toContain("Then the inbox stops answering")
+    expect(text.split("Not used while the inbox answers Claude's own prompt.")).toHaveLength(4)
+    const tools = findAll(view, "input").filter((n) =>
+      String(attrOf(n, "id") ?? "").startsWith("setting-holds-tools-"),
+    )
+    expect(tools.length === 0 || tools.every((n) => attrOf(n, "disabled") === true)).toBe(true)
+    const budget = findAll(view, "input").find((n) => attrOf(n, "id") === "setting-holds-budgetMs")
+    expect(attrOf(budget as never, "disabled")).toBe(true)
+  })
+
+  test("Approvals in the classic mode: no minutes field, hold settings enabled", () => {
+    const r = fakeResponse()
+    const classic = {
+      ...r,
+      settings: { ...r.settings, "holds.via": "preToolUse" as const },
+    }
+    const view = settingsBody(opened(classic), h)
+    const text = textOf(view)
+    expect(text).not.toContain("Not used while the inbox answers Claude's own prompt.")
+    expect(text).not.toContain("Then the inbox stops answering")
+    const budget = findAll(view, "input").find((n) => attrOf(n, "id") === "setting-holds-budgetMs")
+    expect(attrOf(budget as never, "disabled")).not.toBe(true)
+  })
 
   test("shown under Storage", () => {
     const withDays = textOf(settingsBody(opened(fakeResponse()), h))

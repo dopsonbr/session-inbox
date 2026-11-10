@@ -1,6 +1,6 @@
 /**
- * Claude's PermissionRequest hook (D-068..D-071): observe mode (default, always on) and the
- * experimental decide mode (`holds.via: "permissionRequest"`).
+ * Claude's PermissionRequest hook (D-068..D-071): observe mode (classic holds, or holds off) and the
+ * decide mode (`holds.via: "permissionRequest"`, the default since D-074).
  */
 import { describe, expect, test } from "bun:test"
 import { existsSync, mkdtempSync, readFileSync } from "node:fs"
@@ -8,7 +8,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { allowAlwaysPermissions, canonicalJson } from "../src/domain/permissionRequest.ts"
 import type { ApprovalRow, ItemRow, NotificationRow } from "../src/store.ts"
-import { envelope, type Harness, makeHarness } from "./fakes.ts"
+import { envelope, type Harness, makeClassicHarness, makeHarness } from "./fakes.ts"
 import { type Fixture, loadFixtures, replay } from "./replay.ts"
 
 const synthetic = new Map(loadFixtures("synthetic").map((f) => [f.name, f]))
@@ -71,9 +71,9 @@ describe("pure helpers", () => {
   })
 })
 
-describe("observe mode (default): Claude's prompt shows up at once, never held", () => {
+describe("observe mode (classic holds, or holds off): Claude's prompt shows up at once, never held", () => {
   test("item at once with the preview; the Notification 6 s later refreshes; PostToolUse resolves", async () => {
-    const h = makeHarness()
+    const h = makeClassicHarness()
     const r = await replay(h, fx("permission-request-observe", 3))
     expect(r.requestIds).toHaveLength(0)
     let { items, approvals, notifications } = rows(h)
@@ -112,8 +112,8 @@ describe("observe mode (default): Claude's prompt shows up at once, never held",
     expect(rows(h).events.some((e) => e.hook === "daemon:answered-in-claude")).toBe(true)
   })
 
-  test("default mode is unchanged: PreToolUse still holds, PermissionRequest never returns a request", async () => {
-    const h = makeHarness()
+  test("classic mode is unchanged: PreToolUse still holds, PermissionRequest never returns a request", async () => {
+    const h = makeClassicHarness()
     const held = await h.engine.ingest("PreToolUse", preBash("t1", "rm -rf build"))
     expect(held.requestId).not.toBeNull()
     const pr = await h.engine.ingest("PermissionRequest", request("Read", { file_path: "/etc/x" }))
@@ -122,12 +122,12 @@ describe("observe mode (default): Claude's prompt shows up at once, never held",
   })
 
   test("after our own hold lapsed into Claude's prompt: no second item", async () => {
-    const h = makeHarness()
+    const h = makeClassicHarness()
     await h.engine.ingest("PreToolUse", preBash("t1", "rm -rf build"))
     h.clock.advance(120_001)
     h.engine.tick()
     await h.engine.ingest("PermissionRequest", request("Bash", bashInput("rm -rf build")))
-    expect(shape(h)).toEqual([["permission", "expired"]])
+    expect(shape(h)).toEqual([["permission", "open"]])
   })
 
   test("observer channel: the PreToolUse item for the same call is refreshed, with the preview", async () => {
@@ -147,7 +147,7 @@ describe("observe mode (default): Claude's prompt shows up at once, never held",
   })
 
   test("AskUserQuestion with the question item open: nothing new", async () => {
-    const h = makeHarness()
+    const h = makeClassicHarness()
     const input = { questions: [{ question: "A?", options: [{ label: "x" }, { label: "y" }] }] }
     await h.engine.ingest(
       "PreToolUse",
@@ -160,7 +160,7 @@ describe("observe mode (default): Claude's prompt shows up at once, never held",
   })
 
   test("muted project: stored, nothing opened", async () => {
-    const h = makeHarness()
+    const h = makeClassicHarness()
     await h.engine.ingest("SessionStart", ev("SessionStart", { source: "startup" }))
     const project = h.engine.snapshot().projects[0]
     h.engine.mute(project?.id ?? "", true)
@@ -171,7 +171,7 @@ describe("observe mode (default): Claude's prompt shows up at once, never held",
   })
 
   test("other calls' activity doesn't resolve it; Stop does", async () => {
-    const h = makeHarness()
+    const h = makeClassicHarness()
     await h.engine.ingest("PermissionRequest", request("Read", { file_path: "/etc/a" }))
     await h.engine.ingest("PreToolUse", preBash("t2", "ls"))
     await h.engine.ingest("PostToolUse", postBash("t2", "ls"))
@@ -181,7 +181,7 @@ describe("observe mode (default): Claude's prompt shows up at once, never held",
   })
 })
 
-describe("decide mode (holds.via = permissionRequest)", () => {
+describe("decide mode (holds.via = permissionRequest, the default since D-074)", () => {
   const live = (h: Harness) => h.engine.snapshot().items.find((i) => i.live)
   const decideReq = async (h: Harness, id: string, command: string, extra = {}) => {
     await h.engine.ingest("PreToolUse", preBash(id, command))
@@ -225,7 +225,10 @@ describe("decide mode (holds.via = permissionRequest)", () => {
     const h = makeHarness({ settings: DECIDE })
     const r = await decideReq(h, "t1", "rm -rf build")
     h.engine.decide(live(h)?.id ?? "", "deny", null)
-    expect(await h.engine.waitDecision(r.requestId ?? "", 0)).toEqual({ decision: "deny" })
+    expect(await h.engine.waitDecision(r.requestId ?? "", 0)).toEqual({
+      decision: "deny",
+      reason: "Denied by the user in Session Inbox.",
+    })
   })
 
   test("allow-always with suggestions echoes them and writes nothing itself", async () => {
@@ -357,7 +360,7 @@ describe("decide mode (holds.via = permissionRequest)", () => {
   })
 
   test("a PreToolUse hook's poll closing changes nothing (it may re-poll)", async () => {
-    const h = makeHarness()
+    const h = makeClassicHarness()
     const r = await h.engine.ingest("PreToolUse", preBash("t1", "rm -rf build"))
     const ctrl = new AbortController()
     const waiting = h.engine.waitDecision(r.requestId ?? "", 30, ctrl.signal)
@@ -461,5 +464,29 @@ describe("decide mode (holds.via = permissionRequest)", () => {
     const r = await decideReq(h, "t1", "rm -rf build")
     expect(r.requestId).toBeNull()
     expect(h.engine.snapshot().items.map((i) => [i.state, i.live])).toEqual([["open", false]])
+  })
+})
+
+describe("the default since D-074 (no settings at all)", () => {
+  test("decide fixture replays with the default settings", async () => {
+    const h = makeHarness()
+    const r = await replay(h, fx("permission-request-decide"))
+    expect(r.requestIds).toHaveLength(1)
+    expect(rows(h).items.map((i) => [i.kind, i.state])).toEqual([["permission", "resolved"]])
+    expect(rows(h).approvals[0]?.decision).toBe("allow")
+  })
+
+  test("PreToolUse holds nothing; Claude's prompts are answered; defaults say so", async () => {
+    const h = makeHarness()
+    const pre = await h.engine.ingest("PreToolUse", preBash("t1", "rm -rf build"))
+    expect(pre.requestId).toBeNull()
+    const pr = await h.engine.ingest(
+      "PermissionRequest",
+      request("Bash", bashInput("rm -rf build")),
+    )
+    expect(pr.requestId).not.toBeNull()
+    expect(pr.holdMs).toBe(600_000)
+    expect(h.engine.userSettings().settings["holds.via"]).toBe("permissionRequest")
+    expect(h.engine.userSettings().defaults["holds.via"]).toBe("permissionRequest")
   })
 })

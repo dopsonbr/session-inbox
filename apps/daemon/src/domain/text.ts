@@ -38,6 +38,30 @@ export const firstLine = (s: string | null | undefined, n = 100): string | null 
   return line.length > n ? `${line.slice(0, n - 1)}…` : line
 }
 
+/**
+ * A card summary from Claude's last message (D-077): the first line with text once leading
+ * `#`s, list and quote markers and emphasis markers are stripped ("## Results" → "Results"),
+ * one line, capped like `firstLine`.
+ */
+export const summaryLine = (s: string | null | undefined, n = 100): string | null => {
+  if (!s) return null
+  for (const raw of s.split("\n")) {
+    const line = raw
+      .trim()
+      .replace(/^(?:>\s*)+/, "")
+      .replace(/^#{1,6}(?:\s+|$)/, "")
+      .replace(/^(?:[-*+]|\d{1,3}[.)])\s+/, "")
+      .replace(/(\*\*|__)/g, "")
+      .replace(/(^|\s)[*_]([^*_\s][^*_]*?)[*_](?=$|\s|[.,:;!?)])/g, "$1$2")
+      .replace(/^[*_]+|[*_]+$/g, "")
+      .replace(/^#+\s*$/, "")
+      .trim()
+    if (/^[-*_=\s]*$/.test(line)) continue // rules and empty lines
+    return line.length > n ? `${line.slice(0, n - 1)}…` : line
+  }
+  return null
+}
+
 const short = (s: string, n = 80) => {
   const one = s.replace(/\s+/g, " ").trim()
   return one.length > n ? `${one.slice(0, n - 1)}…` : one
@@ -284,6 +308,53 @@ const blocksOf = (entry: Record<string, unknown>): Block[] | string | null => {
   const c = (entry.message as { content?: unknown } | undefined)?.content
   if (typeof c === "string") return c
   return Array.isArray(c) ? (c as Block[]) : null
+}
+
+type ToolBlock = {
+  type?: unknown
+  id?: unknown
+  name?: unknown
+  input?: unknown
+  tool_use_id?: unknown
+}
+
+/** tool_use_ids that have a `tool_result` in the tail (ran, failed, or were denied). */
+export const toolResultIds = (tail: string | null): Set<string> => {
+  const out = new Set<string>()
+  if (!tail) return out
+  for (const e of tailEntries(tail)) {
+    const b = blocksOf(e)
+    if (!Array.isArray(b)) continue
+    for (const x of b as ToolBlock[])
+      if (x.type === "tool_result" && typeof x.tool_use_id === "string") out.add(x.tool_use_id)
+  }
+  return out
+}
+
+/**
+ * The `tool_use` blocks in the tail for `name` whose input equals `input` (`same` compares,
+ * e.g. by canonical JSON), newest first, with whether each already has a `tool_result` and the
+ * entry's `timestamp` (epoch ms) when it has one (D-075, D-076).
+ */
+export const toolUsesIn = (
+  tail: string | null,
+  name: string,
+  same: (input: unknown) => boolean,
+): Array<{ id: string; hasResult: boolean; at: number | null }> => {
+  if (!tail) return []
+  const entries = tailEntries(tail)
+  const results = toolResultIds(tail)
+  const out: Array<{ id: string; hasResult: boolean; at: number | null }> = []
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const e = entries[i] as Record<string, unknown>
+    const b = blocksOf(e)
+    if (!Array.isArray(b)) continue
+    const ts = typeof e.timestamp === "string" ? Date.parse(e.timestamp) : Number.NaN
+    for (const x of [...(b as ToolBlock[])].reverse())
+      if (x.type === "tool_use" && x.name === name && typeof x.id === "string" && same(x.input))
+        out.push({ id: x.id, hasResult: results.has(x.id), at: Number.isFinite(ts) ? ts : null })
+  }
+  return out
 }
 
 /**

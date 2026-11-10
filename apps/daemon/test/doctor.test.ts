@@ -33,7 +33,12 @@ const facts = (over: Partial<DoctorFacts> = {}): DoctorFacts => ({
   },
   firstHookAt: 1,
   lastHookAt: 10_000_000 - 60_000,
-  holds: { enabled: true, tools: ["Bash", "Edit"] },
+  holds: {
+    enabled: true,
+    tools: ["Bash", "Edit"],
+    via: "permissionRequest",
+    requestBudgetMs: 600_000,
+  },
   otherChannel: null,
   auth: { found: true, loggedIn: true, method: "claude.ai", checkedAt: 1 },
   shell: {
@@ -82,8 +87,21 @@ describe("buildReport", () => {
       facts({ hooks: { ...hooks, registered: HOOK_EVENTS.slice(1) }, installSource: null }),
     )
     expect(byId(partial, "hooks")?.status).toBe("warn")
-    expect(byId(partial, "hooks")?.detail).toContain("SessionStart is missing")
+    expect(byId(partial, "hooks")?.detail).toContain("Missing: SessionStart")
     expect(byId(partial, "hooks")?.fix?.value).toBe("bun scripts/install.ts --yes")
+    // An install from before PermissionRequest existed is told so, by name.
+    const older = buildReport(
+      facts({
+        hooks: { ...hooks, registered: HOOK_EVENTS.filter((e) => e !== "PermissionRequest") },
+      }),
+    )
+    expect(byId(older, "hooks")).toMatchObject({
+      status: "warn",
+      fix: { value: REINSTALL_COMMAND },
+    })
+    expect(byId(older, "hooks")?.detail).toContain(
+      "installed before the PermissionRequest hook was added; reinstall or update to add it",
+    )
     const bin = buildReport(facts({ hooks: { ...hooks, binary: "missing" } }))
     expect(byId(bin, "hooks")?.status).toBe("fail")
     expect(installCommand({ installSource: "source", channel: "beta" })).toBe(
@@ -99,9 +117,47 @@ describe("buildReport", () => {
   })
 
   test("holds: observer, other channel", () => {
-    const r = buildReport(facts({ holds: { enabled: false, tools: [] }, otherChannel: "beta" }))
+    const r = buildReport(
+      facts({
+        holds: { ...facts().holds, enabled: false, tools: [] },
+        otherChannel: "beta",
+      }),
+    )
     expect(byId(r, "holds")?.status).toBe("info")
     expect(byId(r, "holds")?.detail).toContain("beta channel is also installed")
+  })
+
+  test("holds: the active mode, and a warning when prompt mode has no hook to answer through", () => {
+    const answer = byId(buildReport(facts()), "holds")
+    expect(answer?.status).toBe("ok")
+    expect(answer?.detail).toContain("answers Claude's own permission prompts")
+    expect(answer?.detail).toContain("up to 10 min")
+    const classic = byId(
+      buildReport(facts({ holds: { ...facts().holds, via: "preToolUse" } })),
+      "holds",
+    )
+    expect(classic?.detail).toContain(
+      "holds tool calls before Claude asks (classic): Bash and Edit",
+    )
+    const hooks = facts().hooks
+    const noHook = buildReport(
+      facts({
+        hooks: { ...hooks, registered: HOOK_EVENTS.filter((e) => e !== "PermissionRequest") },
+      }),
+    )
+    expect(byId(noHook, "holds")).toMatchObject({
+      status: "warn",
+      fix: { kind: "copy", value: REINSTALL_COMMAND },
+    })
+    expect(byId(noHook, "holds")?.detail).toContain("nothing can be answered from the inbox")
+    // Classic mode doesn't need the hook.
+    const classicNoHook = buildReport(
+      facts({
+        holds: { ...facts().holds, via: "preToolUse" },
+        hooks: { ...hooks, registered: HOOK_EVENTS.filter((e) => e !== "PermissionRequest") },
+      }),
+    )
+    expect(byId(classicNoHook, "holds")?.status).toBe("ok")
   })
 
   test("claude-cli: missing, logged out, unknown", () => {

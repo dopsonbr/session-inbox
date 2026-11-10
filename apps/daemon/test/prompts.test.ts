@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { matchPrompt, type PromptCandidate, promptTool, sameTool } from "../src/domain/prompts.ts"
-import { envelope, makeHarness } from "./fakes.ts"
+import { envelope, makeClassicHarness as makeHarness } from "./fakes.ts"
 
 const base = { session_id: "bbbbbbbb-0000-4000-8000-0000000000p1", cwd: "/work/x" }
 
@@ -102,7 +102,7 @@ describe("permission-prompt Notification against held items (D-067)", () => {
     h.engine.tick()
     h.clock.advance(6_000)
     await h.engine.ingest("Notification", prompt("Bash"))
-    expect(shape(h)).toEqual([["permission", "expired"]])
+    expect(shape(h)).toEqual([["permission", "open"]])
   })
 
   test("same tool, lapsed long ago with nothing since: still Claude's prompt for it", async () => {
@@ -112,7 +112,7 @@ describe("permission-prompt Notification against held items (D-067)", () => {
     h.engine.tick()
     h.clock.advance(10 * 60_000)
     await h.engine.ingest("Notification", prompt("Bash"))
-    expect(shape(h)).toEqual([["permission", "expired"]])
+    expect(shape(h)).toEqual([["permission", "open"]])
   })
 
   test("same tool, lapsed and the session moved on: a new prompt", async () => {
@@ -128,7 +128,7 @@ describe("permission-prompt Notification against held items (D-067)", () => {
     h.clock.advance(60_000)
     await h.engine.ingest("Notification", prompt("Bash"))
     expect(shape(h)).toEqual([
-      ["permission", "expired"],
+      ["permission", "resolved"],
       ["permission", "open"],
     ])
   })
