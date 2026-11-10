@@ -46,7 +46,7 @@ The first Rust build takes a few minutes. Without `--app` you get the daemon, th
 
 Built, covered by tests, a smoke test and a real-launchd update test, and run against real Claude desktop sessions.
 
-**[v0.2.0](https://github.com/dopsonbr/session-inbox/releases/tag/v0.2.0) is published.** The one-liner above was run against it into a throwaway home on the Mac that built it, and an installed copy's update check finds it. A full install on a second Mac is the next check.
+**[v0.3.0](https://github.com/dopsonbr/session-inbox/releases/tag/v0.3.0) is the current release** (History and search, a UX pass, shortcuts you can change). The one-liner above was run against a release into a throwaway home on the Mac that built it, and an installed copy's update check finds new releases. A full install on a second Mac is the next check.
 
 Two independent reviews of the whole product found 21 problems, all fixed: a request survives a daemon restart or update (the hook retries for up to 15 seconds), Always allow adds only a rule scoped to the call and says which, the inbox page loads only with the token, shortcuts no longer act behind a dialog, and uninstall can't touch the other channel's install. The suites and the smoke test pass.
 

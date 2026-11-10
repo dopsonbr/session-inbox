@@ -9,9 +9,9 @@ section: Reference
 
 What changed in each release, newest first. Versions are tagged on [GitHub Releases](https://github.com/dopsonbr/session-inbox/releases), where you can download them.
 
-## Unreleased
+## 0.3.0
 
-On `main`, not in a release yet.
+Published 2026-11-10: [v0.3.0 on GitHub](https://github.com/dopsonbr/session-inbox/releases/tag/v0.3.0). An install of 0.2.0 updates to it by itself, or with **Update now**.
 
 - **Shortcuts you can change.** A **Shortcuts** group in Settings lets you change or turn off every shortcut, including the system-wide one that opens the inbox.
 - **Fewer steps.** After you answer or decide, the next item is selected. <kbd>J</kbd> and <kbd>K</kbd> move through the list, <kbd>E</kbd> or a **Done** button clears a review item, and <kbd>?</kbd> lists the shortcuts.
