@@ -69,9 +69,15 @@ const bytes = (n: number): string =>
 const list = (xs: ReadonlyArray<string>) =>
   xs.length <= 1 ? (xs[0] ?? "") : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`
 
+/** The installed CLI carries no payload to install from, so a release install is repaired by
+ * running the installer again (found in the docs truth pass: `session-inbox install --yes`
+ * from `<home>/bin` answers "no payload"). */
+export const REINSTALL_COMMAND =
+  "curl -fsSL https://raw.githubusercontent.com/dopsonbr/session-inbox/main/install.sh | sh"
+
 export const installCommand = (f: Pick<DoctorFacts, "installSource" | "channel">): string =>
   f.installSource === "release"
-    ? "session-inbox install --yes"
+    ? REINSTALL_COMMAND
     : `bun scripts/install.ts --yes${f.channel === "beta" ? " --channel beta" : ""}`
 
 const check = (
@@ -181,12 +187,14 @@ const cliCheck = (f: DoctorFacts): DoctorCheck => {
   const without =
     "Without a logged-in claude, replies to sessions that are waiting for a new prompt and generated session titles don't work; approvals, questions and notifications still do."
   if (f.auth.found === false)
-    return check("claude-cli", title, "warn", `claude isn't on this Mac's PATH. ${without}`, fix)
+    return check("claude-cli", title, "info", `claude isn't on this Mac's PATH. ${without}`, fix)
   if (f.auth.loggedIn === false)
     return check(
       "claude-cli",
       title,
-      "warn",
+      // Optional: plenty of people only use the desktop app. A fact with a fix, not a warning
+      // that would badge the Setup entry for good (D-070).
+      "info",
       `claude is installed but not logged in. ${without}`,
       fix,
     )

@@ -10,6 +10,7 @@ import {
   HOOK_EVENTS,
   inspectHooks,
   installCommand,
+  REINSTALL_COMMAND,
 } from "../src/doctor.ts"
 import { envelope, makeHarness } from "./fakes.ts"
 
@@ -74,7 +75,7 @@ describe("buildReport", () => {
     const none = buildReport(facts({ hooks: { ...hooks, settings: "missing", registered: [] } }))
     expect(byId(none, "hooks")).toMatchObject({
       status: "fail",
-      fix: { kind: "copy", value: "session-inbox install --yes" },
+      fix: { kind: "copy", value: REINSTALL_COMMAND },
     })
     expect(none.ok).toBe(false)
     const partial = buildReport(
@@ -108,14 +109,16 @@ describe("buildReport", () => {
       buildReport(facts({ auth: { ...facts().auth, found: false } })),
       "claude-cli",
     )
-    expect(missing).toMatchObject({ status: "warn", fix: { kind: "copy", value: "claude" } })
+    // Optional capability: a fact with a fix, never counted as needing attention (D-070).
+    expect(missing).toMatchObject({ status: "info", fix: { kind: "copy", value: "claude" } })
     expect(missing?.detail).toContain("replies to sessions")
     const out = byId(
       buildReport(facts({ auth: { ...facts().auth, loggedIn: false } })),
       "claude-cli",
     )
-    expect(out?.status).toBe("warn")
+    expect(out?.status).toBe("info")
     expect(out?.detail).toContain("not logged in")
+    expect(buildReport(facts({ auth: { ...facts().auth, loggedIn: false } })).attention).toBe(0)
     const unknown = byId(
       buildReport(facts({ auth: { found: null, loggedIn: null, method: null, checkedAt: 0 } })),
       "claude-cli",
