@@ -1,0 +1,56 @@
+<figure class="flow-figure">
+<svg class="flow flow-wide" viewBox="0 0 900 250" role="img" aria-label="Flow: a Claude session fires a hook; inbox-hook forwards it to inboxd; inboxd tells the menu-bar app, which posts a notification to you; your decision travels back through inboxd and inbox-hook to the Claude session.">
+<defs>
+<marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path class="arrow-head" d="M0 0L10 5L0 10z"/></marker>
+<marker id="ahb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path class="arrow-head-back" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="node n-working" x="5" y="30" width="150" height="70" rx="10"/>
+<text class="t-title" x="80" y="60" text-anchor="middle">Claude session</text>
+<text class="t-sub" x="80" y="80" text-anchor="middle">desktop app or CLI</text>
+<rect class="node" x="190" y="30" width="150" height="70" rx="10"/>
+<text class="t-title" x="265" y="60" text-anchor="middle">inbox-hook</text>
+<text class="t-sub" x="265" y="80" text-anchor="middle">forwards hook events</text>
+<rect class="node" x="375" y="30" width="150" height="70" rx="10"/>
+<text class="t-title" x="450" y="60" text-anchor="middle">inboxd</text>
+<text class="t-sub" x="450" y="80" text-anchor="middle">decides, keeps state</text>
+<rect class="node n-needs" x="560" y="30" width="150" height="70" rx="10"/>
+<text class="t-title" x="635" y="60" text-anchor="middle">Menu-bar app</text>
+<text class="t-sub" x="635" y="80" text-anchor="middle">badge + notification</text>
+<rect class="node n-ready" x="745" y="30" width="150" height="70" rx="10"/>
+<text class="t-title" x="820" y="60" text-anchor="middle">You</text>
+<text class="t-sub" x="820" y="80" text-anchor="middle">allow, deny, answer</text>
+<path class="line" d="M155 65H188" marker-end="url(#ah)"/>
+<path class="line" d="M340 65H373" marker-end="url(#ah)"/>
+<path class="line" d="M525 65H558" marker-end="url(#ah)"/>
+<path class="line" d="M710 65H743" marker-end="url(#ah)"/>
+<path class="line line-back" d="M820 100V175H80V102" marker-end="url(#ahb)"/>
+<text class="t-label" x="450" y="205" text-anchor="middle">Your decision goes back the same way, to the call Claude is waiting on</text>
+</svg>
+<svg class="flow flow-tall" viewBox="0 0 320 500" role="img" aria-label="Flow: a Claude session fires a hook; inbox-hook forwards it to inboxd; inboxd tells the menu-bar app, which posts a notification to you; your decision travels back through inboxd and inbox-hook to the Claude session.">
+<defs>
+<marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path class="arrow-head" d="M0 0L10 5L0 10z"/></marker>
+<marker id="ahb2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path class="arrow-head-back" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="node n-working" x="80" y="10" width="230" height="64" rx="10"/>
+<text class="t-title" x="195" y="38" text-anchor="middle">Claude session</text>
+<text class="t-sub" x="195" y="57" text-anchor="middle">desktop app or CLI</text>
+<rect class="node" x="80" y="114" width="230" height="64" rx="10"/>
+<text class="t-title" x="195" y="142" text-anchor="middle">inbox-hook</text>
+<text class="t-sub" x="195" y="161" text-anchor="middle">forwards hook events</text>
+<rect class="node" x="80" y="218" width="230" height="64" rx="10"/>
+<text class="t-title" x="195" y="246" text-anchor="middle">inboxd</text>
+<text class="t-sub" x="195" y="265" text-anchor="middle">decides, keeps state</text>
+<rect class="node n-needs" x="80" y="322" width="230" height="64" rx="10"/>
+<text class="t-title" x="195" y="350" text-anchor="middle">Menu-bar app</text>
+<text class="t-sub" x="195" y="369" text-anchor="middle">badge + notification</text>
+<rect class="node n-ready" x="80" y="426" width="230" height="64" rx="10"/>
+<text class="t-title" x="195" y="454" text-anchor="middle">You</text>
+<text class="t-sub" x="195" y="473" text-anchor="middle">allow, deny, answer</text>
+<path class="line" d="M195 74V112" marker-end="url(#ah2)"/>
+<path class="line" d="M195 178V216" marker-end="url(#ah2)"/>
+<path class="line" d="M195 282V320" marker-end="url(#ah2)"/>
+<path class="line" d="M195 386V424" marker-end="url(#ah2)"/>
+<path class="line line-back" d="M80 458H40V42H78" marker-end="url(#ahb2)"/>
+<text class="t-label" x="24" y="250" text-anchor="middle" transform="rotate(-90 24 250)">your decision goes back</text>
+</svg>
+</figure>
