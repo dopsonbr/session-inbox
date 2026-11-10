@@ -9,6 +9,7 @@ import {
 import { Schema } from "effect"
 import { defineMessageUnion } from "foldkit/message"
 import { ActionKind, QueueTab } from "./model.ts"
+import { SettingsMessage } from "./settings.ts"
 import { Toast } from "./toast.ts"
 
 export const SnoozeAction = Schema.Literals([
@@ -77,6 +78,7 @@ export const Message = defineMessageUnion({
   GotJumpDialogMessage: { message: Dialog.Message },
   GotJumpComboboxMessage: { message: Combobox.Message },
   GotToastMessage: { message: Toast.Message },
+  GotSettingsMessage: { message: SettingsMessage },
 
   CompletedMarkRead: {},
   CompletedSetHash: {},

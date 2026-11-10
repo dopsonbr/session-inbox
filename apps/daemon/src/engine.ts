@@ -32,7 +32,11 @@ import {
   StopPayload,
   SubagentPayload,
   type TimelineEntry,
+  USER_SETTING_KEYS,
   UserPromptSubmitPayload,
+  type UserSettingKey,
+  type UserSettings,
+  type UserSettingsPatch,
 } from "@session-inbox/contracts"
 import { Result, Schema } from "effect"
 import {
@@ -65,7 +69,7 @@ import type {
   NotifierShape,
   OpenerShape,
 } from "./services.ts"
-import type { Settings } from "./settings.ts"
+import { DEFAULT_SETTINGS, type Settings } from "./settings.ts"
 import {
   type AgentRow,
   type ApprovalRow,
@@ -84,6 +88,7 @@ import {
   toSession,
 } from "./store.ts"
 import { StreamHub } from "./stream.ts"
+import { normalizeSetting, pickUserSettings } from "./userSettings.ts"
 
 export interface EngineDeps {
   readonly db: Database
@@ -96,6 +101,8 @@ export interface EngineDeps {
   /** Usually ~/.claude; injectable so tests never read the real one. */
   readonly claudeConfigDir: string
   readonly settings: Settings
+  /** What a reset key goes back to: code defaults + install defaults (D-045). */
+  readonly settingDefaults?: Settings
 }
 
 /** Thrown by intents; the HTTP layer maps it to a status + ApiError. */
@@ -1390,6 +1397,59 @@ export class Engine {
       }
       return { ok: true, project: toProject(this.store.project(projectId) as never) }
     })
+  }
+
+  /** The Settings pane's view of the running settings (C-016). */
+  userSettings(): { settings: UserSettings; defaults: UserSettings } {
+    return {
+      settings: pickUserSettings(this.settings),
+      defaults: pickUserSettings(this.deps.settingDefaults ?? DEFAULT_SETTINGS),
+    }
+  }
+
+  /**
+   * PUT /v1/settings: persist rows, apply to the running engine, append `daemon:settings`
+   * (D-045). `null` deletes the row (back to the default). Turning holds off releases
+   * live holds with `ask`, as muting does, so no session stays frozen.
+   */
+  updateSettings(patch: UserSettingsPatch) {
+    const defaults = this.deps.settingDefaults ?? DEFAULT_SETTINGS
+    const next: Array<[UserSettingKey, unknown, boolean]> = []
+    for (const key of USER_SETTING_KEYS) {
+      const raw = patch[key]
+      if (raw === undefined) continue
+      next.push(
+        raw === null ? [key, defaults[key], true] : [key, normalizeSetting(key, raw), false],
+      )
+    }
+    if (next.length === 0) return this.userSettings()
+    const live = this.settings as unknown as Record<string, unknown>
+    this.tx((c) => {
+      const changed: Record<string, unknown> = {}
+      for (const [key, value, reset] of next) {
+        if (reset) this.store.run("DELETE FROM settings WHERE key = ?", key)
+        else
+          this.store.run(
+            "INSERT INTO settings (key, value_json) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json",
+            key,
+            JSON.stringify(value),
+          )
+        live[key] = value
+        changed[key] = value
+      }
+      this.appendEvent(c, {
+        sessionId: null,
+        hook: "daemon:settings",
+        payload: { changed, reset: next.filter(([, , r]) => r).map(([k]) => k) },
+      })
+      if (this.settings["holds.enabled"] === false)
+        for (const a of this.store.all<ApprovalRow>("SELECT * FROM approvals WHERE live = 1")) {
+          this.expireHold(c, a)
+          const item = this.store.item(a.item_id)
+          if (item) this.setSessionState(c, item.session_id, "waiting")
+        }
+    })
+    return this.userSettings()
   }
 
   // -------------------------------------------------------------------------

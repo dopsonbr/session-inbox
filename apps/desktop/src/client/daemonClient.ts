@@ -11,9 +11,11 @@ import type {
   MuteRequest,
   OpenResponse,
   ReplyRequest,
+  SettingsResponse,
   Snapshot,
   SnoozeRequest,
   StreamMessage,
+  UserSettingsPatch,
 } from "@session-inbox/contracts"
 import { Context, Data, type Effect, type Stream } from "effect"
 
@@ -36,6 +38,9 @@ export type DaemonClientShape = Readonly<{
   read: (itemId: string) => Effect.Effect<void, DaemonError>
   open: (itemId: string) => Effect.Effect<OpenResponse, DaemonError>
   mute: (projectId: string, body: MuteRequest) => Effect.Effect<void, DaemonError>
+  getSettings: Effect.Effect<SettingsResponse, DaemonError>
+  /** Only the changed keys; `null` resets one. The daemon answers with what it applied. */
+  putSettings: (patch: UserSettingsPatch) => Effect.Effect<SettingsResponse, DaemonError>
 }>
 
 export class DaemonClient extends Context.Service<DaemonClient, DaemonClientShape>()(

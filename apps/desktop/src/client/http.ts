@@ -9,6 +9,7 @@ import {
   ItemDetail,
   OpenResponse,
   Routes,
+  SettingsResponse,
   Snapshot,
   StreamMessage,
 } from "@session-inbox/contracts"
@@ -144,6 +145,8 @@ export const makeHttpClient = (config: HttpClientConfig): DaemonClientShape => {
     read: (itemId) => Effect.asVoid(request("POST", Routes.read(itemId), {})),
     open: (itemId) => decoded(OpenResponse)(request("POST", Routes.openInClaude(itemId), {})),
     mute: (projectId, body) => Effect.asVoid(request("POST", Routes.projectMute(projectId), body)),
+    getSettings: decoded(SettingsResponse)(request("GET", Routes.settings)),
+    putSettings: (patch) => decoded(SettingsResponse)(request("PUT", Routes.settings, patch)),
   }
 }
 

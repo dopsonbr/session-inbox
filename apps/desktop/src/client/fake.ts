@@ -16,6 +16,7 @@ import type {
 } from "@session-inbox/contracts"
 import { Effect, Queue, Stream } from "effect"
 import { DaemonClient, type DaemonClientShape, DaemonError } from "./daemonClient.ts"
+import { makeFakeSettings } from "./fakeSettings.ts"
 import { type Fixtures, makeFixtures } from "./fixtures.ts"
 
 type Delta = Extract<StreamMessage, { _tag: "delta" }>
@@ -369,6 +370,8 @@ export const makeFakeClient = (options: FakeOptions = {}): FakeDaemon => {
           emitDelta({ projects: [projectId] })
         }
       }),
+
+    ...makeFakeSettings(),
   }
 
   return {

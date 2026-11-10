@@ -121,21 +121,26 @@ Everything lives in `~/Library/Application Support/SessionInbox/`:
 | `connection.json`, `token` | HTTP port and bearer token for the app (mode 0600) |
 | `inboxd.log` | Daemon log (launchd stdout and stderr) |
 
-Settings are rows in the `settings` table, read when the daemon starts:
+Change settings in the app: the gear button in the header, or ⌘,. Each control saves on its own and the daemon applies it at once, no restart. The pane covers:
 
-| Key | Default | Meaning |
-| --- | --- | --- |
-| `holds.tools` | Bash, Write, Edit, MultiEdit, NotebookEdit, WebFetch | Tools that may be held for approval |
-| `holds.budgetMs` | `120000` | How long a held hook waits before falling back to Claude's prompt |
-| `holds.safeBashPrefixes` | `ls`, `git status`, … | Bash commands never held |
-| `questions.answerMode` | `updatedInput` | How answers reach a waiting `AskUserQuestion` (`denyWithReason` is the fallback) |
-| `notifications.fallback` | `true` | Use `osascript` notifications when the menu-bar app isn't running |
-| `notifications.reviewGroupMs` | `30000` | Window for grouping "ready to review" notifications |
-| `titles.generate` | `true` | Ask Claude for a short session title |
+| Pane (group) | Key | Default | Meaning |
+| --- | --- | --- | --- |
+| Approvals | `holds.enabled` | `true` | Hold tool calls for approval in the inbox. Off: observe and notify only (an install beside another may default to off, H-016) |
+| Approvals | `holds.tools` | Bash, Write, Edit, MultiEdit, NotebookEdit, WebFetch | Tools that may be held. AskUserQuestion always comes to the inbox |
+| Approvals | `holds.budgetMs` | `120000` | How long a held call waits before Claude's own prompt appears (15–120 s; the hook gives up at 120 s) |
+| Approvals | `holds.safeBashPrefixes` | `ls`, `git status`, … | Bash commands never held |
+| Notifications | `notifications.fallback` | `true` | Use `osascript` notifications when the menu-bar app isn't running |
+| Notifications | `notifications.reviewGroupMs` | `30000` | Window for grouping "ready to review" notifications (0–600 s) |
+| Sessions | `titles.generate` | `true` | Ask Claude for a short session title |
+| Sessions | (muted projects) | | Unmute a project muted from an item's menu |
+
+Turning holds off releases any call being held, so Claude shows its own prompt. The same API is `GET`/`PUT /v1/settings` (partial body; `null` resets a key).
+
+Settings are rows in the `settings` table (value as JSON). Rows win over the install's defaults (`SESSION_INBOX_SETTINGS` in the launchd plist), which win over the code defaults. Keys the pane doesn't show, such as `questions.answerMode` (`updatedInput`; `denyWithReason` is the fallback), can still be set by hand; the daemon reads rows only at startup, so restart it afterwards:
 
 ```bash
 sqlite3 ~/Library/Application\ Support/SessionInbox/inbox.db \
-  "insert or replace into settings values ('titles.generate', 'false')"
+  "insert or replace into settings values ('questions.answerMode', '\"denyWithReason\"')"
 launchctl kickstart -k gui/$(id -u)/com.sessioninbox.inboxd
 ```
 

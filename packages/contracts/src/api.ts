@@ -3,7 +3,7 @@
  * Route table lives in DECISIONS.md / the implementation doc; paths are exported
  * here so client and server can't drift.
  */
-import { Schema } from "effect"
+import { Schema, Struct } from "effect"
 import {
   Agent,
   Approval,
@@ -38,6 +38,7 @@ export const Routes = {
   openInClaude: (id: string) => `/v1/items/${id}/open`,
   notificationActed: (id: string) => `/v1/notifications/${id}/acted`,
   projectMute: (id: string) => `/v1/projects/${id}/mute`,
+  settings: "/v1/settings",
   health: "/v1/health",
 } as const
 
@@ -105,6 +106,59 @@ export type NotificationAction = typeof NotificationAction.Type
 
 export const NotificationActedRequest = Schema.Struct({ action: NotificationAction })
 export type NotificationActedRequest = typeof NotificationActedRequest.Type
+
+// ---------------------------------------------------------------------------
+// Settings pane (C-016). Only the user-facing keys; internal ones (questions.*,
+// items.*, outbox.*) stay in the settings table. Durations are milliseconds.
+// ---------------------------------------------------------------------------
+
+/** Tools whose PreToolUse may be held. AskUserQuestion is always routed through the inbox. */
+export const HOLDABLE_TOOLS = [
+  "Bash",
+  "Write",
+  "Edit",
+  "MultiEdit",
+  "NotebookEdit",
+  "WebFetch",
+] as const
+export const HoldableTool = Schema.Literals(HOLDABLE_TOOLS)
+export type HoldableTool = typeof HoldableTool.Type
+
+export const UserSettings = Schema.Struct({
+  "holds.enabled": Schema.Boolean,
+  "holds.tools": Schema.Array(HoldableTool),
+  "holds.budgetMs": Schema.Finite,
+  "holds.safeBashPrefixes": Schema.Array(Schema.String),
+  "notifications.fallback": Schema.Boolean,
+  "notifications.reviewGroupMs": Schema.Finite,
+  "titles.generate": Schema.Boolean,
+})
+export type UserSettings = typeof UserSettings.Type
+export type UserSettingKey = keyof UserSettings
+export const USER_SETTING_KEYS = Object.keys(UserSettings.fields) as ReadonlyArray<UserSettingKey>
+
+/** Ranges the daemon clamps to. A hold can't outlast the hook's own 120 s budget (H-003). */
+export const SETTING_LIMITS = {
+  "holds.budgetMs": { min: 15_000, max: 120_000 },
+  "notifications.reviewGroupMs": { min: 0, max: 600_000 },
+} as const satisfies Partial<Record<UserSettingKey, { min: number; max: number }>>
+
+/** PUT body: any subset of UserSettings; `null` resets that key to its default. */
+export const UserSettingsPatch = UserSettings.mapFields(Struct.map(Schema.NullOr)).mapFields(
+  Struct.map(Schema.optionalKey),
+)
+export type UserSettingsPatch = typeof UserSettingsPatch.Type
+
+export const SettingsResponse = Schema.Struct({
+  settings: UserSettings,
+  /** What each key goes back to on reset: code defaults, then the install's own (H-016). */
+  defaults: UserSettings,
+  /** This daemon's install channel ("ga" | "beta"). */
+  channel: Schema.String,
+  /** Another channel installed on this machine, whose daemon may also hold hooks (H-016). */
+  otherChannel: Schema.NullOr(Schema.String),
+})
+export type SettingsResponse = typeof SettingsResponse.Type
 
 /** Every mutating call returns the item as it now stands (or 409 with an ApiError). */
 export const ActionResponse = Schema.Struct({ ok: Schema.Boolean, item: Schema.NullOr(Item) })

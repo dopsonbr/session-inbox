@@ -47,6 +47,7 @@ import {
   sessionNodeId,
   visibleTreeNodes,
 } from "./selectors.ts"
+import { initSettings, updateSettings } from "./settings.ts"
 import { Toast, type ToastPayload } from "./toast.ts"
 
 export type UpdateReturn = Update.Return<Model, Message, DaemonClient>
@@ -94,6 +95,7 @@ export const initialModel = (flags: Flags): Model => ({
   jumpCombobox: freshJumpCombobox(),
   snoozeMenu: Menu.init({ id: "snooze-menu" }),
   toasts: Toast.init({ id: "toasts", defaultDuration: "4 seconds" }),
+  settings: initSettings(),
 })
 
 export const init = (flags: Flags): UpdateReturn => {
@@ -864,6 +866,16 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         (child) => Message.GotToastMessage({ message: child }),
       )
       return { model: lifted.model, commands: lifted.commands }
+    },
+
+    GotSettingsMessage: ({ message: settingsMessage }) => {
+      const next = updateSettings(model.settings, settingsMessage)
+      return {
+        model: modifyFields(model, { settings: () => next.model }),
+        commands: Command.mapMessages(next.commands, (child) =>
+          Message.GotSettingsMessage({ message: child }),
+        ),
+      }
     },
 
     CompletedMarkRead: () => ({ model }),
