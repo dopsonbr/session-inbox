@@ -248,6 +248,8 @@ entries with your section's prefix (G, C, D, H, U, S, P) and the next free numbe
 - S-019 — Startup hardening: a taken global shortcut, failed login-item registration or missing app-data dir are logged and launch continues. Without an `.app` bundle (`cargo run`), notifications are skipped and status is `unknown`, because `UNUserNotificationCenter` raises there. Exec'ing `Contents/MacOS/session-inbox-shell` directly and `open -n -a … --env` both give the bundle identity. The tray adds "<Product> <version>" (disabled) and "Check for Updates…" (main window at `#/update`).
 - S-020 — The app asks launchd to start an offline daemon with `launchctl kickstart`, without `-k`. Found on a real reinstall: the app noticed the daemon was away for a moment, and its `kickstart -k` killed the daemon the installer had just started (launchd logged a second run, exit 130). Without `-k` a running job is left alone.
 - S-021 — The tray menu gains "Settings…" (`#/settings`) and "Setup Check…" (`#/setup`), grouped with "Check for Updates…"; status and version lines move below them. Why: the three things a person looks for in a menu-bar app's menu were only reachable from inside the window.
+- S-022 — At startup the app rewrites its login item when one exists, is still enabled, and names a different executable. Found on the real GA install: the login item registered once by a copy run from the build folder still pointed there after the app was installed into `~/Applications`, so the next login would have launched the stale copy. The register-once marker (S-005) stays: a user who removed the login item is not re-enrolled.
+
 
 ## Phase 0 spike findings
 

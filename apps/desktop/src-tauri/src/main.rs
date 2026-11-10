@@ -136,6 +136,13 @@ fn set_badge(app: &AppHandle, count: u32) {
     }
 }
 
+/// A login item written by a copy of the app that lived somewhere else (a build folder, an
+/// older path) would launch that stale copy at login. True when the LaunchAgent plist doesn't
+/// name this executable (S-022).
+fn login_item_is_stale(plist: &str, exe: &str) -> bool {
+    !plist.contains(exe)
+}
+
 /// Ask launchd to start the daemon agent if it isn't running. Never spawns it as a child,
 /// and never kills one that is already up: without `-k` a running job is left alone, so an
 /// installer or updater that has just restarted the daemon isn't restarted again (S-020).
@@ -286,6 +293,15 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 }
                 let _ = std::fs::create_dir_all(&dir);
                 let _ = std::fs::write(&marker, "");
+            } else if let (Ok(true), Ok(exe), Ok(home)) = (h.autolaunch().is_enabled(), std::env::current_exe(), h.path().home_dir()) {
+                // Still enabled, but written by a copy that lived elsewhere: point it here (S-022).
+                let plist = home.join("Library/LaunchAgents").join(format!("{}.plist", h.package_info().name));
+                let stale = std::fs::read_to_string(&plist).map(|t| login_item_is_stale(&t, &exe.to_string_lossy())).unwrap_or(false);
+                if stale {
+                    if let Err(e) = h.autolaunch().enable() {
+                        eprintln!("login item not updated: {e}");
+                    }
+                }
             }
         }
         Ok(_) => {}
@@ -334,7 +350,15 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{deep_link_hash, deep_link_hash_for};
+    use super::{deep_link_hash, deep_link_hash_for, login_item_is_stale};
+
+    #[test]
+    fn a_login_item_for_another_copy_is_stale() {
+        let here = "/Users/me/Applications/Session Inbox.app/Contents/MacOS/session-inbox-shell";
+        let plist = |exe: &str| format!("<array><string>{exe}</string></array>");
+        assert!(!login_item_is_stale(&plist(here), here));
+        assert!(login_item_is_stale(&plist("/repo/target/release/bundle/macos/Session Inbox.app/Contents/MacOS/session-inbox-shell"), here));
+    }
 
     #[test]
     fn maps_deep_links_to_routes() {
