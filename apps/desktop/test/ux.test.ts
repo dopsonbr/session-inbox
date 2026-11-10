@@ -398,9 +398,9 @@ describe("a decided approval reads as decided (U-064, UX-016, UX-027)", () => {
 describe("titles (U-066, UX-018)", () => {
   test("a permission says what it wants; finished items are past tense", () => {
     const edit = detailOf(showing("i-pv-edit"))
-    expect(titleFor(edit)).toBe("Claude wants to edit src/delivery/window.ts +6 −2")
+    expect(titleFor(edit)).toBe("Claude wants to edit src/delivery/window.ts")
     expect(titleFor({ ...edit, item: { ...edit.item, queue: "done" } })).toBe(
-      "Claude asked to edit src/delivery/window.ts +6 −2",
+      "Claude asked to edit src/delivery/window.ts",
     )
     expect(titleFor({ ...edit, item: { ...edit.item, summary: null } })).toBe(
       "Claude wants to use Edit",

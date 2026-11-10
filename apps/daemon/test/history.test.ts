@@ -239,6 +239,26 @@ describe("history (C-027)", () => {
     expect(summary(h.engine.history({ q: "deploy" }))).toEqual([["permission", "in-claude"]])
   })
 
+  test("a denial's note is in the detail and searchable; a plain denial has none (C-028)", async () => {
+    const h = makeClassicHarness()
+    const bash = (id: string, command: string) =>
+      a("PreToolUse", { tool_name: "Bash", tool_use_id: id, tool_input: { command } })
+    await h.engine.ingest("PreToolUse", bash("n1", "bun run migrate"))
+    const noted = openId(h, "permission")
+    h.engine.reply(noted, "r1", "run it against staging first")
+    await h.engine.ingest("PreToolUse", bash("n2", "rm -rf build"))
+    const plain = openId(h, "permission")
+    h.engine.decide(plain, "deny", "d1")
+
+    expect(h.engine.itemDetail(noted).approval?.reason).toBe(
+      "The user replied: run it against staging first",
+    )
+    expect(h.engine.itemDetail(plain).approval?.reason).toBeUndefined()
+    const found = h.engine.history({ q: "staging" })
+    expect(summary(found)).toEqual([["permission", "denied"]])
+    expect(found.entries[0]?.match?.where).toBe("reason")
+  })
+
   test("pruned items leave history", async () => {
     const h = await seed()
     h.clock.advance(15 * 24 * 3600_000)

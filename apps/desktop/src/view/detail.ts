@@ -68,7 +68,7 @@ const WANTS_TO = "Wants to "
 
 /**
  * The detail's h1 (U-066). A permission says what is asked, from the daemon's summary ("Claude
- * wants to edit src/window.ts +2 −1"); a finished item is in the past tense.
+ * wants to edit src/window.ts"); a finished item is in the past tense.
  */
 export const titleFor = (detail: ItemDetail): string => {
   const { item, questions, approval } = detail
@@ -83,7 +83,8 @@ export const titleFor = (detail: ItemDetail): string => {
   if (item.kind === "permission") {
     const lead = isDone ? "Claude asked to " : "Claude wants to "
     if (item.summary?.startsWith(WANTS_TO) === true) {
-      const asked = item.summary.slice(WANTS_TO.length)
+      // The +N −M count stays on the queue row and above the diff; in a title it only wraps.
+      const asked = item.summary.slice(WANTS_TO.length).replace(/ \+\d+ [−-]\d+$/, "")
       return `${lead}${asked.charAt(0).toLowerCase()}${asked.slice(1)}`
     }
     return approval === null || approval.tool === "Bash"
@@ -860,7 +861,21 @@ export const approvalCard = (model: Model, detail: ItemDetail, approval: Approva
           [h.code([], [command])],
         ),
       ...(isDecided
-        ? [h.p([h.Class("text-[13px] text-muted-foreground")], [decisionLine(approval)])]
+        ? [
+            h.p([h.Class("text-[13px] text-muted-foreground")], [decisionLine(approval)]),
+            // What went back to Claude with a denial, when the user wrote something (C-028).
+            ...(approval.reason === undefined
+              ? []
+              : [
+                  h.p(
+                    [h.Class("text-[13px] text-muted-foreground")],
+                    [
+                      "Sent with the denial: ",
+                      h.span([h.Class("text-foreground")], [approval.reason]),
+                    ],
+                  ),
+                ]),
+          ]
         : isWaitingInClaude
           ? waitingInClaudeFooter(model, h)
           : decisionFooter(model, detail, approval, isSending, h)),

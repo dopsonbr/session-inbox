@@ -2657,7 +2657,13 @@ export class Engine {
   /** The approval as the card sees it, with what Always allow would do (C-026). */
   private approvalView(a: ApprovalRow, sessionId: string) {
     const plan = this.alwaysAllowPlan(a, sessionId)
-    return plan ? { ...toApproval(a), alwaysAllow: plan.words } : toApproval(a)
+    // Only a reason the user wrote; the stock one says nothing they don't know (C-028).
+    const noted = a.decision === "deny" && a.reason && a.reason !== DENIED_IN_INBOX
+    return {
+      ...toApproval(a),
+      ...(plan ? { alwaysAllow: plan.words } : {}),
+      ...(noted ? { reason: a.reason as string } : {}),
+    }
   }
 
   itemDetail(itemId: string): ItemDetail {

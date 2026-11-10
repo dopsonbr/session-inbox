@@ -194,6 +194,11 @@ export const Approval = Schema.Struct({
    * offered for this call: the UI then shows no such button (C-026).
    */
   alwaysAllow: Schema.optional(Schema.String),
+  /**
+   * For a denied call: the reason that went back to Claude with the denial, as Claude got it
+   * (e.g. "The user replied: run it against staging first"). Absent when none was sent (C-028).
+   */
+  reason: Schema.optional(Schema.String),
 })
 export type Approval = typeof Approval.Type
 
