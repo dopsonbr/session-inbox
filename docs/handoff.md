@@ -42,7 +42,7 @@ Status as of 2026-11-09. Read with [DECISIONS.md](../DECISIONS.md) (G-024 to G-0
 - **Answering in Claude first while the inbox item is live.** The item should disappear within a second or two, detected from the transcript or the tool's result (D-070, D-076). Not seen live. What the still-waiting hook process does when you answer in Claude first (killed, or left to run to its timeout) is also unobserved.
 - **Terminal `claude` sessions.** Everything live used the desktop app's Code tab. Whether `PermissionRequest` and the rest behave the same in a terminal session is unchecked.
 - **The app's own banners and their Allow / Deny / Answer / Open buttons, and a click through.** Nobody could click **Allow** while it was built, and the shell used for the checks has neither Screen Recording nor Accessibility permission (P-016). Everything native was checked through `/usr/bin/log` and the daemon's API. Also unseen: whether the Alerts style keeps the buttons on screen.
-- **A first install from a real GitHub Release.** None exists yet. The one-liner currently answers "no published release found".
+- **A first install from a real GitHub Release.** None exists yet. The one-liner currently answers "no release has been published yet".
 - **Opening a CLI session** (`claude://resume?session=…`). Desktop sessions are verified; CLI ones aren't.
 - **A real `Notification` hook payload.** Notification hooks can't be triggered with `claude -p` (P-010), so no real fixture exists.
 - **Gatekeeper on a tarball copied between Macs.** The app is ad-hoc signed, not notarized (S-007). The installer clears the quarantine flag on what it copies (H-033).
