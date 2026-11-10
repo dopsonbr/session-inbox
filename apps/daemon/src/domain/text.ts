@@ -48,11 +48,20 @@ const field = (input: unknown, key: string): string | null => {
   return typeof v === "string" ? v : null
 }
 
+/** How a file path is shown: project-relative where the caller knows the roots (D-064). */
+export type ShowPath = (path: string) => string
+const asIs: ShowPath = (p) => p
+
+const filePath = (input: unknown, show: ShowPath): string | null => {
+  const f = field(input, "file_path") ?? field(input, "notebook_path")
+  return f ? show(f) : null
+}
+
 /** "Wants to run bun test", "Wants to edit src/x.ts". */
-export const permissionSummary = (tool: string, input: unknown): string => {
+export const permissionSummary = (tool: string, input: unknown, show: ShowPath = asIs): string => {
   const cmd = field(input, "command")
   if (tool === "Bash" && cmd) return `Wants to run ${short(cmd)}`
-  const file = field(input, "file_path") ?? field(input, "notebook_path")
+  const file = filePath(input, show)
   if (
     file &&
     (tool === "Write" || tool === "Edit" || tool === "MultiEdit" || tool === "NotebookEdit")
@@ -64,9 +73,9 @@ export const permissionSummary = (tool: string, input: unknown): string => {
 }
 
 /** One timeline line for a PostToolUse. */
-export const toolLine = (tool: string, input: unknown): string => {
+export const toolLine = (tool: string, input: unknown, show: ShowPath = asIs): string => {
   const cmd = field(input, "command")
-  const file = field(input, "file_path") ?? field(input, "notebook_path")
+  const file = filePath(input, show)
   switch (tool) {
     case "Bash":
       return cmd ? `Ran ${short(cmd)}` : "Ran a command"
@@ -133,6 +142,114 @@ export const readTail = (
   } finally {
     if (fd !== null) closeSync(fd)
   }
+}
+
+/** The first `bytes` of a file as UTF-8, or null when it can't be read. */
+export const readHead = (path: string | null | undefined, bytes: number): string | null => {
+  if (!path) return null
+  let fd: number | null = null
+  try {
+    fd = openSync(path, "r")
+    const len = Math.min(fstatSync(fd).size, bytes)
+    const buf = Buffer.alloc(len)
+    readSync(fd, buf, 0, len, 0)
+    return buf.toString("utf8")
+  } catch {
+    return null
+  } finally {
+    if (fd !== null) closeSync(fd)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Titles from the transcript (D-059) and cleaned prompt titles (D-060)
+// ---------------------------------------------------------------------------
+
+export const TITLE_HEAD_BYTES = 16 * 1024
+export const UNTITLED = "Untitled session"
+
+/**
+ * The session title Claude itself wrote into the transcript, or null. Liberal on purpose:
+ * `{"type":"custom-title","customTitle":…}` (the desktop app's own title, P-015) wins, then any
+ * other `*title` type with a string `*itle` field (`ai-title`/`aiTitle`), then a
+ * `{"type":"summary","summary":…}`. The latest line of the best kind wins.
+ */
+export const transcriptTitle = (text: string | null): string | null => {
+  if (!text) return null
+  let best: { rank: number; title: string } | null = null
+  for (const line of text.split("\n")) {
+    if (!line.includes('"type"') || !(line.includes('itle"') || line.includes('"summary"')))
+      continue
+    let o: Record<string, unknown>
+    try {
+      const v = JSON.parse(line) as unknown
+      if (!v || typeof v !== "object" || Array.isArray(v)) continue
+      o = v as Record<string, unknown>
+    } catch {
+      continue
+    }
+    const type = typeof o.type === "string" ? o.type.toLowerCase() : ""
+    let rank = 0
+    let title: unknown = null
+    if (type === "custom-title") {
+      rank = 3
+      title = o.customTitle
+    }
+    if (typeof title !== "string" && type.endsWith("title")) {
+      rank = type === "custom-title" ? 3 : 2
+      const k = Object.keys(o).find(
+        (k) => k !== "type" && /itle$/.test(k) && typeof o[k] === "string",
+      )
+      title = k ? o[k] : null
+    }
+    if (type === "summary") {
+      rank = 1
+      title = o.summary
+    }
+    if (typeof title !== "string") continue
+    const t = title.replace(/\s+/g, " ").trim()
+    if (!t) continue
+    if (!best || rank >= best.rank) best = { rank, title: t }
+  }
+  return best?.title ?? null
+}
+
+const BACKGROUND = /^Background \(from the session that started this one\):/i
+const LEADING_TAG = /^<([A-Za-z][\w:-]*)(?:\s[^>]*)?\/?>/
+
+/**
+ * The part of a prompt worth titling a session after (D-060): leading `<tag>…</tag>` blocks
+ * (system reminders, task notifications) stripped, a leading "Background (from the session
+ * that started this one):" paragraph dropped in favour of what follows `Task:` or the first
+ * blank line, whitespace collapsed. Null when nothing readable is left.
+ */
+export const cleanPromptText = (prompt: string): string | null => {
+  let s = prompt.trim()
+  for (let guard = 0; guard < 20; guard++) {
+    const m = LEADING_TAG.exec(s)
+    if (m) {
+      const tag = m[1] as string
+      if (m[0].endsWith("/>")) {
+        s = s.slice(m[0].length).trim()
+        continue
+      }
+      const close = s.indexOf(`</${tag}>`, m[0].length)
+      s = close < 0 ? "" : s.slice(close + tag.length + 3).trim()
+      continue
+    }
+    if (BACKGROUND.test(s)) {
+      const task = /(?:^|\n)\s*Task:\s*/i.exec(s)
+      if (task) s = s.slice(task.index + task[0].length).trim()
+      else {
+        const gap = /\n\s*\n/.exec(s)
+        s = gap ? s.slice(gap.index + gap[0].length).trim() : ""
+      }
+      continue
+    }
+    break
+  }
+  const one = s.replace(/\s+/g, " ").trim()
+  return /[\p{L}\p{N}]/u.test(one) ? one : null
 }
 
 /** Transcript entries of a tail, oldest first; unparsable lines (the cut first one) skipped. */

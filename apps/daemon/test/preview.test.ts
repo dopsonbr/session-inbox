@@ -274,7 +274,7 @@ describe("approval preview: other tools", () => {
     )
     expect(r.requestId).not.toBeNull()
     const item = h.engine.snapshot().items[0]
-    expect(item?.summary).toBe(`Wants to edit ${FILE}`)
+    expect(item?.summary).toBe("Wants to edit src/a.ts") // project-relative (D-064)
     expect(h.engine.itemDetail(item?.id ?? "").approval?.preview).toBeUndefined()
   })
 

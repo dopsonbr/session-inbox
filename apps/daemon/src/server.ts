@@ -16,12 +16,14 @@ import {
   ReplyRequest,
   SCHEMA_VERSION,
   type SettingsResponse,
+  ShellStatus,
   SnoozeRequest,
   UpdateApplyRequest,
   type UpdateStatus,
 } from "@session-inbox/contracts"
 import { BUILD, VERSION } from "@session-inbox/contracts/version"
 import { Result, Schema } from "effect"
+import type { Doctor } from "./doctor.ts"
 import { ApiFailure, type Engine } from "./engine.ts"
 import type { ClientKind } from "./stream.ts"
 import { decodeSettingsPatch } from "./userSettings.ts"
@@ -80,6 +82,8 @@ export interface ServerContext {
   port: number
   /** A second installed channel (H-016), checked per request; absent = none. */
   readonly otherChannel?: () => string | null
+  /** Setup check (C-021); absent in tests that don't need it. */
+  readonly doctor?: Doctor
 }
 
 const settingsResponse = (ctx: ServerContext): SettingsResponse => ({
@@ -266,6 +270,17 @@ export const uiHandler =
           const body = await decodeBody(UpdateApplyRequest, req)
           return json(u.apply(body.version))
         }
+      }
+
+      // Setup check (C-021) and what the menu-bar app reports about itself (C-022).
+      if (path === "/v1/doctor" && m === "GET") {
+        if (!ctx.doctor) throw new ApiFailure(404, "not_found", "no setup check here")
+        return json(await ctx.doctor.report())
+      }
+      if (path === "/v1/doctor/notify" && m === "POST") return json(e.testNotification())
+      if (path === "/v1/shell/status" && m === "POST") {
+        e.reportShellStatus(await decodeBody(ShellStatus, req))
+        return json({ ok: true })
       }
 
       const notif = /^\/v1\/notifications\/([^/]+)\/acted$/.exec(path)

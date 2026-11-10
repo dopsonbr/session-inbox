@@ -23,6 +23,7 @@ export const FAKE_SETTING_DEFAULTS: UserSettings = {
   "titles.generate": true,
   "updates.check": true,
   "updates.auto": true,
+  "storage.retentionDays": 14,
 }
 
 const tidy = (key: string, value: unknown): unknown => {

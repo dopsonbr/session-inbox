@@ -8,7 +8,7 @@ import { basename, dirname, join, resolve } from "node:path"
 import { INTERNAL_ENV } from "@session-inbox/contracts/paths"
 import { Context, Layer } from "effect"
 import type { ReadResult } from "./domain/preview.ts"
-import { cleanGeneratedTitle, readTail, TITLE_INSTRUCTION } from "./domain/text.ts"
+import { cleanGeneratedTitle, readHead, readTail, TITLE_INSTRUCTION } from "./domain/text.ts"
 
 export interface ClockShape {
   readonly now: () => number
@@ -27,7 +27,24 @@ export interface GitShape {
 }
 export const Git = Context.Service<GitShape>("inboxd/Git")
 
+/**
+ * What the `claude` CLI can do here (D-061). `found`: on PATH (or the override exists);
+ * `loggedIn`: from `claude auth status`. null = couldn't tell.
+ */
+export interface ClaudeAuth {
+  readonly found: boolean | null
+  readonly loggedIn: boolean | null
+  readonly method: string | null
+  readonly checkedAt: number
+}
+export const UNKNOWN_AUTH: ClaudeAuth = { found: null, loggedIn: null, method: null, checkedAt: 0 }
+
 export interface ClaudeCliShape {
+  /**
+   * Cached probe (10 min): `claude auth status` with INTERNAL_ENV, 10 s timeout. Never
+   * rejects; unknown on any error.
+   */
+  readonly authStatus: () => Promise<ClaudeAuth>
   /** 3–6 word title, or null. Must never be ingested (INTERNAL_ENV, hooks disabled). */
   readonly title: (prompt: string) => Promise<string | null>
   /** `claude --resume <id> -p <body>` in cwd. Rejects with a message on failure. */
@@ -86,6 +103,8 @@ export interface FilesShape {
   readonly read: (path: string, maxBytes: number) => ReadResult
   /** The last `bytes` of a file (a transcript), or null. */
   readonly tail: (path: string, bytes: number) => string | null
+  /** The first `bytes` of a file, or null. */
+  readonly head: (path: string, bytes: number) => string | null
 }
 export const Files = Context.Service<FilesShape>("inboxd/Files")
 
@@ -154,8 +173,63 @@ export const LiveGit: GitShape = {
   },
 }
 
+export const AUTH_CACHE_MS = 10 * 60_000
+const AUTH_TIMEOUT_MS = 10_000
+
+/** `claude auth status` output: the JSON object with a boolean `loggedIn`, else null. */
+export const parseAuthStatus = (
+  stdout: string,
+): { loggedIn: boolean; method: string | null } | null => {
+  const start = stdout.indexOf("{")
+  const end = stdout.lastIndexOf("}")
+  if (start < 0 || end <= start) return null
+  try {
+    const o = JSON.parse(stdout.slice(start, end + 1)) as Record<string, unknown>
+    if (typeof o.loggedIn !== "boolean") return null
+    return { loggedIn: o.loggedIn, method: typeof o.authMethod === "string" ? o.authMethod : null }
+  } catch {
+    return null
+  }
+}
+
+const binFound = (bin: string): boolean =>
+  bin.includes("/") ? existsSync(bin) : Bun.which(bin) !== null
+
 export const makeLiveClaudeCli = (claudeBin = process.env.SESSION_INBOX_CLAUDE ?? "claude") => {
+  let cached: ClaudeAuth | null = null
+  let probing: Promise<ClaudeAuth> | null = null
+  const probe = async (): Promise<ClaudeAuth> => {
+    const checkedAt = Date.now()
+    if (!binFound(claudeBin)) return { found: false, loggedIn: null, method: null, checkedAt }
+    try {
+      const r = await run([claudeBin, "auth", "status"], {
+        env: { [INTERNAL_ENV]: "1" },
+        timeoutMs: AUTH_TIMEOUT_MS,
+      })
+      const parsed = parseAuthStatus(r.stdout)
+      return {
+        found: true,
+        loggedIn: parsed?.loggedIn ?? null,
+        method: parsed?.method ?? null,
+        checkedAt,
+      }
+    } catch {
+      return { found: true, loggedIn: null, method: null, checkedAt }
+    }
+  }
   const shape: ClaudeCliShape = {
+    authStatus: () => {
+      if (cached && Date.now() - cached.checkedAt < AUTH_CACHE_MS) return Promise.resolve(cached)
+      if (!probing)
+        probing = probe()
+          .catch((): ClaudeAuth => ({ ...UNKNOWN_AUTH, checkedAt: Date.now() }))
+          .then((a) => {
+            cached = a
+            probing = null
+            return a
+          })
+      return probing
+    },
     title: async (prompt) => {
       const r = await run(
         [
@@ -346,6 +420,7 @@ export const LiveFiles: FilesShape = {
     }
   },
   tail: (path, bytes) => readTail(path, bytes),
+  head: (path, bytes) => readHead(path, bytes),
 }
 
 const line = (level: string, msg: string, data?: unknown) => {

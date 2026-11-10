@@ -27,6 +27,8 @@ export class StreamHub {
   info: { version?: string; build?: string } = {}
   /** Live-only messages sent to each new client after hello/replay (update status, C-013). */
   greeting: (() => StreamMessage | null) | null = null
+  /** Sent to each new UI client after the greeting: the current setup-check attention (C-021). */
+  doctorGreeting: (() => StreamMessage | null) | null = null
 
   constructor(startSeq: number) {
     this.floor = startSeq
@@ -42,7 +44,7 @@ export class StreamHub {
   }
 
   publish(msg: StreamMessage): void {
-    if (msg._tag === "notify") {
+    if (msg._tag === "notify" || msg._tag === "unnotify") {
       const frame = sseFrame(msg, false)
       for (const c of this.clients) if (c.kind === "shell") this.safeSend(c, frame)
       return
@@ -51,6 +53,12 @@ export class StreamHub {
       // Live-only, every client: each (re)connect gets the current status as a greeting.
       const frame = sseFrame(msg, false)
       for (const c of this.clients) this.safeSend(c, frame)
+      return
+    }
+    if (msg._tag === "doctor") {
+      // Live-only, pages only: "refetch the setup check" (C-021).
+      const frame = sseFrame(msg, false)
+      for (const c of this.clients) if (c.kind === "ui") this.safeSend(c, frame)
       return
     }
     this.ring.push(msg)
@@ -80,6 +88,8 @@ export class StreamHub {
     }
     const greeting = this.greeting?.()
     if (greeting) client.send(sseFrame(greeting, false))
+    const doctor = client.kind === "ui" ? this.doctorGreeting?.() : null
+    if (doctor) client.send(sseFrame(doctor, false))
     const wasShell = this.shellConnected
     this.clients.add(client)
     if (client.kind === "shell" && !wasShell) this.onShellChange?.(true)

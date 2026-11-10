@@ -154,6 +154,8 @@ export const UserSettings = Schema.Struct({
   "titles.generate": Schema.Boolean,
   "updates.check": Schema.Boolean,
   "updates.auto": Schema.Boolean,
+  /** Days of history kept: older events and finished items are pruned daily (D-063). */
+  "storage.retentionDays": Schema.Finite,
 })
 export type UserSettings = typeof UserSettings.Type
 export type UserSettingKey = keyof UserSettings
@@ -163,6 +165,7 @@ export const USER_SETTING_KEYS = Object.keys(UserSettings.fields) as ReadonlyArr
 export const SETTING_LIMITS = {
   "holds.budgetMs": { min: 15_000, max: 120_000 },
   "notifications.reviewGroupMs": { min: 0, max: 600_000 },
+  "storage.retentionDays": { min: 1, max: 365 },
 } as const satisfies Partial<Record<UserSettingKey, { min: number; max: number }>>
 
 /** PUT body: any subset of UserSettings; `null` resets that key to its default. */
