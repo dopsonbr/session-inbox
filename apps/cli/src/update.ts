@@ -10,14 +10,16 @@
 import {
   closeSync,
   existsSync,
+  fstatSync,
   mkdirSync,
   openSync,
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   writeSync,
 } from "node:fs"
-import { join } from "node:path"
+import { basename, join } from "node:path"
 import { CHANNELS, type Channel } from "@session-inbox/contracts/paths"
 import { VERSION } from "@session-inbox/contracts/version"
 import { appPath, defaultSettingsPath } from "./common.ts"
@@ -36,6 +38,7 @@ import {
   type InstallRecord,
   mirrorEnv,
   readInstallRecord,
+  readUpdateState,
   updateLogPath,
   updatesDir,
   writeUpdateState,
@@ -101,8 +104,35 @@ const download = async (url: string, file: string, fetchImpl: typeof fetch) => {
   await Bun.write(file, res)
 }
 
-/** One updater per home at a time: `<home>/updates/.lock` holds the pid. */
-const takeLock = (home: string): (() => void) => {
+/** Is file descriptor `fd` the file at `path` (same device and inode)? */
+export const fdIsFile = (fd: number, path: string): boolean => {
+  try {
+    const a = fstatSync(fd)
+    const b = statSync(path)
+    return a.isFile() && a.dev === b.dev && a.ino === b.ino
+  } catch {
+    return false
+  }
+}
+
+/** Is `pid` a running `session-inbox` (compiled CLI)? A reused pid of anything else is not. */
+export const isUpdaterPid = (pid: number): boolean => {
+  if (!(pid > 0) || pid === process.pid) return false
+  try {
+    process.kill(pid, 0)
+  } catch {
+    return false
+  }
+  const p = Bun.spawnSync(["/bin/ps", "-o", "comm=", "-p", String(pid)], { stderr: "ignore" })
+  const comm = p.stdout.toString().trim()
+  return p.exitCode === 0 && basename(comm) === "session-inbox"
+}
+
+/**
+ * One updater per home at a time: `<home>/updates/.lock` holds the pid. A lock whose pid is
+ * gone, or now belongs to some other program, is stale.
+ */
+export const takeLock = (home: string): (() => void) => {
   const dir = updatesDir(home)
   mkdirSync(dir, { recursive: true })
   const lock = join(dir, ".lock")
@@ -113,12 +143,11 @@ const takeLock = (home: string): (() => void) => {
       closeSync(fd)
       return () => rmSync(lock, { force: true })
     } catch {
-      const pid = Number(readFileSync(lock, "utf8").trim())
-      let alive = false
+      let pid = 0
       try {
-        alive = pid > 0 && pid !== process.pid && process.kill(pid, 0)
+        pid = Number(readFileSync(lock, "utf8").trim())
       } catch {}
-      if (alive) throw new Error(`another update is running (pid ${pid})`)
+      if (isUpdaterPid(pid)) throw new Error(`another update is running (pid ${pid})`)
       rmSync(lock, { force: true }) // stale
     }
   }
@@ -201,13 +230,15 @@ export const apply = async (
 
   const logFile = updateLogPath(home)
   mkdirSync(home, { recursive: true })
+  // The daemon points our stdout at update.log itself; echoing there would log every line twice.
+  const echo = !fdIsFile(1, logFile)
   const log = (line: string) => {
     try {
       const fd = openSync(logFile, "a")
       writeSync(fd, `${new Date().toISOString()} ${line}\n`)
       closeSync(fd)
     } catch {}
-    ctx.say(line)
+    if (echo) ctx.say(line)
   }
   const version = rel.version
   const state = (s: Parameters<typeof writeUpdateState>[2], error: string | null = null) =>
@@ -253,7 +284,12 @@ export const apply = async (
     const p = Bun.spawn(args, { stdin: "ignore", stdout: out, stderr: out, env: childEnv })
     const code = await p.exited
     closeSync(out)
-    if (code !== 0) throw new Error(`the ${version} installer exited ${code}; see ${logFile}`)
+    if (code !== 0) {
+      // The installer records why it failed (e.g. the command that loads the daemon by hand).
+      const s = readUpdateState(home)
+      const why = s?.state === "failed" && s.version === version && s.error ? `${s.error}; ` : ""
+      throw new Error(`the ${version} installer exited ${code}: ${why}see ${logFile}`)
+    }
 
     state("done")
     log(`updated to ${version}`)

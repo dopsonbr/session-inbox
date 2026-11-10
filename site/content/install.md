@@ -10,7 +10,7 @@ section: Get started
 Session Inbox installs with one command on Apple silicon Macs. You need macOS and either the Claude desktop app or the `claude` CLI. You don't need Bun or Rust. Intel Macs install [from source](#install-from-source).
 
 <!-- REMOVE AFTER FIRST RELEASE -->
-> **Note** The first release hasn't been published yet, so the one-line installer below currently stops with "no published release found". Until it is published, install from [a tarball](#install-from-a-tarball) built on another Mac, or [from source](#install-from-source).
+> **Note** The first release hasn't been published yet, so the one-line installer below currently stops with "no release has been published yet". Until it is published, install from [a tarball](#install-from-a-tarball) built on another Mac, or [from source](#install-from-source).
 >
 > Publishing is a step only the repository owner can do. From a clean checkout of `main`, this builds everything locally (about a minute) and creates the GitHub Release with `gh`:
 >

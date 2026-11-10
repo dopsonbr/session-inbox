@@ -23,13 +23,23 @@ if [ "$(uname -m)" != arm64 ] && [ "$(sysctl -n hw.optional.arm64 2>/dev/null ||
   die "release builds are Apple silicon only; on an Intel Mac install from source (see README: Install from source)."
 fi
 
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/session-inbox.XXXXXX")
+trap 'rm -rf "$tmp"' EXIT
+trap 'exit 1' INT TERM
+
 if [ -n "${SESSION_INBOX_VERSION:-}" ]; then
   tag="v${SESSION_INBOX_VERSION#v}"
 else
-  tag=$(curl -fsSL -H "User-Agent: session-inbox" "$RELEASES/latest" |
-    sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1) ||
-    die "couldn't reach $RELEASES/latest"
-  [ -n "$tag" ] || die "no published release found at $RELEASES/latest"
+  # Save the answer first: a pipe would hide curl's own failure behind the last command's status.
+  # GitHub answers 404 for /latest when a repo has no releases; 403/429 is a rate limit.
+  status=$(curl -sSL -H "User-Agent: session-inbox" -o "$tmp/latest.json" -w '%{http_code}' \
+    "$RELEASES/latest") || status=000
+  case "$status" in
+    200) tag=$(sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$tmp/latest.json" | head -n 1) ;;
+    404) tag="" ;;
+    *) die "couldn't reach GitHub at $RELEASES/latest (HTTP $status: an error or a rate limit); try again in a few minutes, or set SESSION_INBOX_VERSION=vX.Y.Z" ;;
+  esac
+  [ -n "$tag" ] || die "no release has been published yet at $RELEASES/latest"
 fi
 version="${tag#v}"
 name="session-inbox-$version-macos-arm64.tar.gz"
@@ -39,10 +49,6 @@ else
   base="https://github.com/$REPO/releases/download/$tag"
 fi
 base="${base%/}"
-
-tmp=$(mktemp -d "${TMPDIR:-/tmp}/session-inbox.XXXXXX")
-trap 'rm -rf "$tmp"' EXIT
-trap 'exit 1' INT TERM
 
 say "downloading Session Inbox $version"
 curl -fsSL -H "User-Agent: session-inbox" -o "$tmp/$name" "$base/$name" || die "download failed: $base/$name"

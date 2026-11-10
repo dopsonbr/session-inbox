@@ -2,15 +2,7 @@
  * Reverse install: hooks, launchd agent, PATH link, optionally the app; with `purge`
  * also the home dir (binaries, database, logs). DRY RUN unless `apply`.
  */
-import {
-  copyFileSync,
-  existsSync,
-  lstatSync,
-  readFileSync,
-  readlinkSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs"
+import { copyFileSync, existsSync, lstatSync, readFileSync, readlinkSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import { CHANNELS, type Channel } from "@session-inbox/contracts/paths"
 import { serialize, unmergeHooks } from "../../hook/src/settings.ts"
@@ -25,6 +17,8 @@ import {
   timestamp,
   unifiedDiff,
 } from "./common.ts"
+import { replaceUserFile } from "./fsx.ts"
+import { appRunning, loginItemIsFor, loginItemPath, quitApp } from "./install.ts"
 import { unloadAgent } from "./launchd.ts"
 import { installJsonPath, readInstallRecord } from "./state.ts"
 
@@ -49,6 +43,12 @@ export const uninstall = (o: UninstallOptions, say: Say): void => {
   const rec = readInstallRecord(o.home)
   const label = o.label || rec?.label || CHANNELS[o.channel].label
   const customLabel = label !== CHANNELS[o.channel].label
+  // `--channel beta` aimed at GA's home (or the reverse) would remove the wrong install.
+  if (rec && rec.channel !== o.channel)
+    throw new Error(
+      `${o.home} holds the ${rec.channel} install, not ${o.channel}; nothing changed. ` +
+        `Run it with --channel ${rec.channel}, or leave out --home to use the ${o.channel} home.`,
+    )
   say(apply ? "UNINSTALL (applying changes)" : "DRY RUN (nothing will change; pass --yes to apply)")
   // Keep the other channels' hooks, unless --home points this run at one of them.
   const keep = otherHomes(o.channel).filter((h) => h !== o.home)
@@ -72,7 +72,7 @@ export const uninstall = (o: UninstallOptions, say: Say): void => {
       else {
         const bak = `${o.settingsPath}.bak-${timestamp()}`
         copyFileSync(o.settingsPath, bak)
-        writeFileSync(o.settingsPath, after)
+        replaceUserFile(o.settingsPath, after)
         say(`backed up to ${bak}; updated ${o.settingsPath}`)
       }
     }
@@ -96,11 +96,21 @@ export const uninstall = (o: UninstallOptions, say: Say): void => {
 
   if (!customLabel && (o.app || rec?.app)) {
     const app = rec?.appPath ?? appPath(title)
-    if (!apply) say(`would quit and remove ${app}`)
-    else {
-      Bun.spawnSync(["/usr/bin/osascript", "-e", `quit app "${title}"`], { stderr: "ignore" })
+    // Its login item, only when it launches this very bundle (never someone else's plist).
+    const loginItem = loginItemPath(title)
+    const ownLoginItem = loginItemIsFor(loginItem, app)
+    if (!apply) {
+      say(`would quit and remove ${app}`)
+      if (ownLoginItem) say(`would remove its login item ${loginItem}`)
+    } else {
+      // By exact bundle path, so another copy of the app elsewhere keeps running.
+      if (appRunning(app)) quitApp(app)
       rmSync(app, { recursive: true, force: true })
       say(`removed ${app}`)
+      if (ownLoginItem) {
+        rmSync(loginItem, { force: true })
+        say(`removed its login item ${loginItem}`)
+      }
     }
   }
 

@@ -6,10 +6,12 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import {
+  closeSync,
   existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readdirSync,
   readFileSync,
   readlinkSync,
@@ -294,6 +296,111 @@ describe("install, then update from the fake release server", () => {
     expect((await cli("--version")).stdout).toContain("0.2.0")
     expect(readFileSync(settings, "utf8")).toBe(hooksAfterInstall)
   }, 120_000)
+
+  test("with stdout pointed at update.log (as the daemon does), each line lands there once", async () => {
+    const logFile = join(home, "update.log")
+    rmSync(logFile, { force: true })
+    writeFileSync(logFile, "")
+    const fd = openSync(logFile, "a")
+    const p = Bun.spawn([join(home, "bin", "session-inbox"), "update", "--yes", "--to", "0.3.0"], {
+      cwd: root,
+      env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", HOME: fakeHome },
+      stdin: "ignore",
+      stdout: fd,
+      stderr: fd,
+    })
+    const code = await p.exited
+    closeSync(fd)
+    expect(code).toBe(0)
+    const log = readFileSync(logFile, "utf8")
+    expect(log.split("\n").filter((l) => l.endsWith("updated to 0.3.0"))).toHaveLength(1)
+    expect(log.split("\n").filter((l) => l.endsWith("checksum ok"))).toHaveLength(1)
+  }, 120_000)
+})
+
+describe("two channels side by side", () => {
+  // Both channels at their default homes under a temp HOME; no launchd, no real app.
+  const user = join(root, "two")
+  const support = join(user, "Library/Application Support")
+  const gaHome = join(support, "SessionInbox")
+  const betaHome = join(support, "SessionInbox-beta")
+  const userSettings = join(user, ".claude/settings.json")
+  const gaApp = join(user, "Applications/Session Inbox.app")
+  const betaApp = join(user, "Applications/Session Inbox Beta.app")
+  const loginItem = (title: string) => join(user, "Library/LaunchAgents", `${title}.plist`)
+  const as = (cmd: string[]) => run(cmd, { HOME: user })
+  const gaCli = (...args: string[]) => as([join(gaHome, "bin", "session-inbox"), ...args])
+  const hookCount = (h: string) =>
+    readFileSync(userSettings, "utf8").split(`${h}/bin/inbox-hook`).length - 1
+  const fakeApp = (bundle: string, home: string, title: string) => {
+    mkdirSync(join(bundle, "Contents/MacOS"), { recursive: true })
+    writeFileSync(join(bundle, "Contents/MacOS/session-inbox-shell"), "")
+    const rec = json(join(home, "install.json"))
+    writeFileSync(
+      join(home, "install.json"),
+      JSON.stringify({ ...rec, app: true, appPath: bundle }),
+    )
+    mkdirSync(join(user, "Library/LaunchAgents"), { recursive: true })
+    const f = loginItem(title)
+    writeFileSync(
+      f,
+      JSON.stringify({
+        Label: title,
+        ProgramArguments: [join(bundle, "Contents/MacOS/session-inbox-shell")],
+      }),
+    )
+    Bun.spawnSync(["/usr/bin/plutil", "-convert", "xml1", f])
+  }
+
+  test("GA's CLI uninstalling beta leaves every GA hook, record, app and home alone", async () => {
+    const payloadCli = join(r020.payload, "bin", "session-inbox")
+    const base = ["install", "--from", r020.payload, "--yes", "--no-launchd", "--no-app"]
+    expect((await as([payloadCli, ...base])).code).toBe(0)
+    expect((await as([payloadCli, ...base, "--channel", "beta"])).code).toBe(0)
+    fakeApp(gaApp, gaHome, "Session Inbox")
+    fakeApp(betaApp, betaHome, "Session Inbox Beta")
+    expect(hookCount(gaHome)).toBe(10)
+    expect(hookCount(betaHome)).toBe(10)
+    const gaRecord = readFileSync(join(gaHome, "install.json"), "utf8")
+
+    const dry = await gaCli("uninstall", "--channel", "beta", "--no-launchd")
+    expect(dry.code).toBe(0)
+    expect(dry.stdout).toContain(`would quit and remove ${betaApp}`)
+    expect(dry.stdout).not.toContain(gaApp)
+
+    const u = await gaCli("uninstall", "--channel", "beta", "--yes", "--no-launchd")
+    expect(u.stderr).toBe("")
+    expect(u.code).toBe(0)
+    expect(hookCount(gaHome)).toBe(10)
+    expect(hookCount(betaHome)).toBe(0)
+    expect(readFileSync(join(gaHome, "install.json"), "utf8")).toBe(gaRecord)
+    expect(existsSync(gaApp)).toBe(true)
+    expect(existsSync(loginItem("Session Inbox"))).toBe(true)
+    expect(existsSync(join(gaHome, "bin", "inboxd"))).toBe(true)
+    // Beta's own pieces are gone: app, its login item, record, PATH link. Its data stays.
+    expect(existsSync(betaApp)).toBe(false)
+    expect(existsSync(loginItem("Session Inbox Beta"))).toBe(false)
+    expect(existsSync(join(betaHome, "install.json"))).toBe(false)
+    expect(existsSync(join(user, ".local/bin/session-inbox-beta"))).toBe(false)
+    expect(existsSync(join(user, ".local/bin/session-inbox"))).toBe(true)
+    expect(existsSync(join(betaHome, "bin", "inboxd"))).toBe(true)
+
+    // status/doctor --channel beta look at beta, not at the GA binary's own home.
+    // (beta is now uninstalled; GA's own home would report a version and hooks.)
+    const s = await gaCli("status", "--channel", "beta")
+    expect(s.stdout).toContain("Session Inbox Beta (beta)\n  not installed")
+  }, 120_000)
+
+  test("--purge refuses a home whose install.json is the other channel's", async () => {
+    const before = readFileSync(userSettings, "utf8")
+    const u = await gaCli("uninstall", "--channel", "beta", "--home", gaHome, "--purge", "--yes")
+    expect(u.code).not.toBe(0)
+    expect(u.stderr).toContain("holds the ga install, not beta")
+    expect(existsSync(join(gaHome, "install.json"))).toBe(true)
+    expect(existsSync(join(gaHome, "bin", "inboxd"))).toBe(true)
+    expect(existsSync(gaApp)).toBe(true)
+    expect(readFileSync(userSettings, "utf8")).toBe(before)
+  }, 60_000)
 })
 
 describe("install.sh", () => {
@@ -317,7 +424,10 @@ describe("install.sh", () => {
       releasesUrl: `${base}/releases`,
       assetUrl: `${base}/download/v0.3.0`,
     })
-    expect(r.stdout).toContain("session-inbox doctor")
+    // ~/.local/bin isn't on this PATH (nor on a fresh Mac's): print the full path, and how to add it.
+    expect(r.stdout).toContain(`"${join(shHome, ".local/bin/session-inbox")}" doctor`)
+    expect(r.stdout).not.toMatch(/: session-inbox doctor/)
+    expect(r.stdout).toContain(`echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc`)
     expect(JSON.stringify(json(join(shHome, ".claude/settings.json")))).toContain(
       `${ghome}/bin/inbox-hook`,
     )
@@ -340,6 +450,46 @@ describe("install.sh", () => {
     expect(existsSync(link)).toBe(false)
     expect(JSON.stringify(json(join(shHome, ".claude/settings.json")))).not.toContain("inbox-hook")
   }, 120_000)
+
+  test("tells a GitHub error or rate limit apart from no release at all", async () => {
+    let answer: () => Response = () => new Response("", { status: 404 })
+    const api = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => answer() })
+    const shHome = join(root, "shhome3")
+    mkdirSync(shHome, { recursive: true })
+    const sh = () =>
+      run(["/bin/sh", join(repo, "install.sh"), "--no-launchd"], {
+        HOME: shHome,
+        SESSION_INBOX_RELEASES_URL: `http://127.0.0.1:${api.port}/releases`,
+      })
+    try {
+      answer = () => Response.json({ message: "API rate limit exceeded" }, { status: 403 })
+      const limited = await sh()
+      expect(limited.code).toBe(1)
+      expect(limited.stderr).toContain("couldn't reach GitHub")
+      expect(limited.stderr).toContain("403")
+      expect(limited.stderr).toContain("SESSION_INBOX_VERSION=vX.Y.Z")
+      expect(limited.stderr).not.toContain("no release")
+
+      // A repo with no releases: GitHub answers 404 for /latest.
+      answer = () => Response.json({ message: "Not Found" }, { status: 404 })
+      const none = await sh()
+      expect(none.code).toBe(1)
+      expect(none.stderr).toContain("no release has been published yet")
+
+      answer = () => Response.json({ name: "no tag here" })
+      const tagless = await sh()
+      expect(tagless.code).toBe(1)
+      expect(tagless.stderr).toContain("no release has been published yet")
+
+      api.stop(true)
+      const down = await sh()
+      expect(down.code).toBe(1)
+      expect(down.stderr).toContain("couldn't reach GitHub")
+      expect(readdirSync(shHome)).toEqual([])
+    } finally {
+      api.stop(true)
+    }
+  }, 60_000)
 
   test("refuses a checksum mismatch before installing anything", async () => {
     const shHome = join(root, "shhome2")
