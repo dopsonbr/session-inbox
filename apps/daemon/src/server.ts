@@ -16,6 +16,8 @@ import {
   ReplyRequest,
   SCHEMA_VERSION,
   SnoozeRequest,
+  UpdateApplyRequest,
+  type UpdateStatus,
 } from "@session-inbox/contracts"
 import { Result, Schema } from "effect"
 import { ApiFailure, type Engine } from "./engine.ts"
@@ -83,6 +85,24 @@ export const health = (ctx: ServerContext): Health => ({
   shellConnected: ctx.engine.hub.shellConnected,
   channel: ctx.channel,
   build: BUILD,
+})
+
+const unsupportedStatus = (): UpdateStatus => ({
+  state: "unsupported",
+  current: VERSION,
+  build: BUILD,
+  latest: null,
+  available: false,
+  notesUrl: null,
+  publishedAt: null,
+  checkedAt: null,
+  error: null,
+  auto: false,
+  source: null,
+  target: null,
+  progress: null,
+  justUpdatedFrom: null,
+  updatedAt: null,
 })
 
 // ---------------------------------------------------------------------------
@@ -227,6 +247,18 @@ export const uiHandler =
 
       if (path === "/v1/snapshot" && m === "GET") return json(e.snapshot())
       if (path === "/v1/stream" && m === "GET") return streamResponse(ctx, req, url)
+
+      // Updates (C-013, D-035): the manager decides; these only report and ask.
+      if (path.startsWith("/v1/update")) {
+        const u = e.updates
+        if (path === "/v1/update" && m === "GET") return json(u ? u.status() : unsupportedStatus())
+        if (!u) throw new ApiFailure(409, "conflict", "updates aren't supported by this install")
+        if (path === "/v1/update/check" && m === "POST") return json(await u.checkNow())
+        if (path === "/v1/update/apply" && m === "POST") {
+          const body = await decodeBody(UpdateApplyRequest, req)
+          return json(u.apply(body.version))
+        }
+      }
 
       const notif = /^\/v1\/notifications\/([^/]+)\/acted$/.exec(path)
       if (notif && m === "POST") {

@@ -3,8 +3,8 @@
  * can swap in fakes (test/fakes.ts). Shapes are plain Promise-returning
  * functions: the engine core is synchronous and calls out only at its edges.
  */
-import { existsSync } from "node:fs"
-import { basename, dirname, resolve } from "node:path"
+import { closeSync, existsSync, openSync, readFileSync } from "node:fs"
+import { basename, dirname, join, resolve } from "node:path"
 import { INTERNAL_ENV } from "@session-inbox/contracts/paths"
 import { Context, Layer } from "effect"
 import { cleanGeneratedTitle, TITLE_INSTRUCTION } from "./domain/text.ts"
@@ -45,6 +45,37 @@ export interface OpenerShape {
   readonly copy: (text: string) => Promise<void>
 }
 export const Opener = Context.Service<OpenerShape>("inboxd/Opener")
+
+/** One `session-inbox update --check --json` answer. */
+export interface UpdateCheckResult {
+  readonly current: string
+  readonly latest: string | null
+  readonly available: boolean
+  readonly notesUrl: string | null
+  readonly publishedAt: string | null
+  readonly source: "release" | "source" | null
+  readonly error: string | null
+}
+/** `<home>/update-state.json`, rewritten atomically by the CLI while it updates. */
+export interface UpdateStateFile {
+  readonly version: string
+  readonly state: "downloading" | "verifying" | "installing" | "done" | "failed"
+  readonly error: string | null
+  readonly at: number
+}
+export interface UpdaterShape {
+  /** The CLI exists (`<home>/bin/session-inbox`, or SESSION_INBOX_CLI). */
+  readonly supported: () => boolean
+  /** Runs the check (30 s timeout). Rejects with a message on any failure. */
+  readonly check: () => Promise<UpdateCheckResult>
+  /**
+   * Spawns `update --yes --to <version>` detached (own session/process group) and
+   * resolves once it started. `onExit` fires if it exits while this daemon lives.
+   */
+  readonly apply: (version: string, onExit?: (code: number | null) => void) => Promise<void>
+  readonly readState: () => UpdateStateFile | null
+}
+export const Updater = Context.Service<UpdaterShape>("inboxd/Updater")
 
 export interface LoggerShape {
   readonly info: (msg: string, data?: unknown) => void
@@ -162,6 +193,132 @@ export const LiveOpener: OpenerShape = {
     await proc.stdin.end()
     await proc.exited
   },
+}
+
+const str = (v: unknown): string | null => (typeof v === "string" && v !== "" ? v : null)
+
+/** The last stdout line that is a JSON object with the check fields; throws otherwise. */
+export const parseCheckOutput = (stdout: string): UpdateCheckResult => {
+  const lines = stdout
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith("{"))
+  for (const l of lines.reverse()) {
+    let v: unknown
+    try {
+      v = JSON.parse(l)
+    } catch {
+      continue
+    }
+    if (!v || typeof v !== "object") continue
+    const o = v as Record<string, unknown>
+    if (typeof o.current !== "string" || typeof o.available !== "boolean") continue
+    const latest = str(o.latest)
+    return {
+      current: o.current,
+      latest,
+      available: o.available && latest !== null,
+      notesUrl: str(o.notesUrl),
+      publishedAt: str(o.publishedAt),
+      source: o.source === "release" || o.source === "source" ? o.source : null,
+      error: str(o.error),
+    }
+  }
+  throw new Error(`unrecognised output: ${stdout.trim().slice(0, 200) || "(empty)"}`)
+}
+
+const UPDATE_STATES = new Set(["downloading", "verifying", "installing", "done", "failed"])
+
+export const parseStateFile = (text: string): UpdateStateFile | null => {
+  try {
+    const o = JSON.parse(text) as Record<string, unknown> | null
+    if (!o || typeof o !== "object") return null
+    if (typeof o.version !== "string" || typeof o.state !== "string") return null
+    if (!UPDATE_STATES.has(o.state)) return null
+    return {
+      version: o.version,
+      state: o.state as UpdateStateFile["state"],
+      error: str(o.error),
+      at: typeof o.at === "number" ? o.at : 0,
+    }
+  } catch {
+    return null
+  }
+}
+
+export const CHECK_TIMEOUT_MS = 30_000
+
+/**
+ * The updater over `<home>/bin/session-inbox` (override: SESSION_INBOX_CLI). The CLI
+ * downloads, installs and restarts; the daemon only decides when (D-035).
+ */
+export const makeLiveUpdater = (opts: {
+  home: string
+  channel?: string
+  cliPath?: string
+  timeoutMs?: number
+}): UpdaterShape => {
+  const cli =
+    opts.cliPath ?? process.env.SESSION_INBOX_CLI ?? join(opts.home, "bin", "session-inbox")
+  const env: Record<string, string> = {
+    SESSION_INBOX_HOME: opts.home,
+    ...(opts.channel ? { SESSION_INBOX_CHANNEL: opts.channel } : {}),
+  }
+  const stateFile = join(opts.home, "update-state.json")
+  return {
+    supported: () => existsSync(cli),
+    check: async () => {
+      const timeoutMs = opts.timeoutMs ?? CHECK_TIMEOUT_MS
+      const started = Date.now()
+      let timer: ReturnType<typeof setTimeout> | undefined
+      // The race also covers a grandchild that keeps stdout open after the kill.
+      const r = await Promise.race([
+        run([cli, "update", "--check", "--json"], { env, timeoutMs }),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error(`update check timed out after ${timeoutMs / 1000} s`)),
+            timeoutMs + 1000,
+          )
+        }),
+      ]).finally(() => clearTimeout(timer))
+      if (r.code !== 0) {
+        const timedOut = Date.now() - started >= timeoutMs
+        throw new Error(
+          timedOut
+            ? `update check timed out after ${Math.round(timeoutMs / 1000)} s`
+            : `update check exited ${r.code}: ${(r.stderr || r.stdout).trim().slice(0, 200)}`,
+        )
+      }
+      return parseCheckOutput(r.stdout)
+    },
+    apply: async (version, onExit) => {
+      const fd = openSync(join(opts.home, "update.log"), "a")
+      try {
+        // detached = setsid(): launchd stopping the daemon's process group spares it.
+        const proc = Bun.spawn([cli, "update", "--yes", "--to", version], {
+          env: { ...process.env, ...env },
+          stdin: "ignore",
+          stdout: fd,
+          stderr: fd,
+          detached: true,
+        })
+        proc.unref()
+        proc.exited.then(
+          (code) => onExit?.(code),
+          () => onExit?.(null),
+        )
+      } finally {
+        closeSync(fd)
+      }
+    },
+    readState: () => {
+      try {
+        return existsSync(stateFile) ? parseStateFile(readFileSync(stateFile, "utf8")) : null
+      } catch {
+        return null
+      }
+    },
+  }
 }
 
 const line = (level: string, msg: string, data?: unknown) => {
