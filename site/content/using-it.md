@@ -112,7 +112,7 @@ A reply shows as pending, then delivered once the session's next activity confir
 
 ## Snooze, dismiss and mute
 
-A **Ready to review** or **Stopped with errors** item has a **Done** button (or press <kbd>e</kbd>): it clears the item once you've looked. In [History](#history) it shows as **Dismissed**.
+A **Ready to review** or **Stopped with errors** item has a **Done** button (or press <kbd>E</kbd>): it clears the item once you've looked. In [History](#history) it shows as **Dismissed**.
 
 Each open item has a **Snooze** menu for putting it aside:
 
@@ -155,14 +155,16 @@ If Claude is paused on a held call (classic mode), **Open in Claude** releases i
 
 ## Keyboard shortcuts
 
+These are the defaults. Each one can be changed or turned off under **Shortcuts** in [Settings](settings.md#shortcuts), except the arrow keys in the session tree.
+
 | Keys | Action |
 | --- | --- |
 | <kbd>⌘</kbd><kbd>⇧</kbd><kbd>I</kbd> | Open the inbox window from anywhere |
 | <kbd>⌘</kbd><kbd>K</kbd> | Jump to a session or project by name |
 | <kbd>⌘</kbd><kbd>↵</kbd> | Send answers, allow once, or send the reply: whichever is the main action of the selected item. While you're typing it works only from the reply box or a question's **Other** field. |
 | <kbd>⌘</kbd><kbd>⌫</kbd> | Deny the permission request on screen. Ignored while you're typing, so it still deletes text. |
-| <kbd>j</kbd> <kbd>k</kbd> | Next and previous item in the list on screen: the queue, the sessions under **Working**, or the entries in History |
-| <kbd>e</kbd> | **Done**: clear the selected review or failed item |
+| <kbd>J</kbd> <kbd>K</kbd> | Next and previous item in the list on screen: the queue, the sessions under **Working**, or the entries in History |
+| <kbd>E</kbd> | **Done**: clear the selected review or failed item |
 | <kbd>?</kbd> | Show the list of shortcuts. **Shortcuts** at the bottom of the left side opens it too. |
 | <kbd>↑</kbd> <kbd>↓</kbd> | Move through the session tree |
 | <kbd>⌘</kbd><kbd>,</kbd> | Open [Settings](settings.md) |

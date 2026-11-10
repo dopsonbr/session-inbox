@@ -7,7 +7,7 @@ section: Guides
 
 # Settings
 
-Open the Settings pane from the inbox window with <kbd>⌘</kbd><kbd>,</kbd>, with the gear button in the header, or with **Settings…** in the menu-bar menu. It is a dialog with five groups: **Approvals**, **Notifications**, **Sessions**, **Storage** and **Updates**. The title is **Settings**, with a **Beta** badge on the beta install, and under it: "Changes apply as you make them." There is no Save button.
+Open the Settings pane from the inbox window with <kbd>⌘</kbd><kbd>,</kbd>, with the gear button in the header, or with **Settings…** in the menu-bar menu. It is a dialog with six groups: **Approvals**, **Notifications**, **Sessions**, **Storage**, **Updates** and **Shortcuts**. The title is **Settings**, with a **Beta** badge on the beta install, and under it: "Changes apply as you make them." There is no Save button.
 
 Each control saves on its own, and the daemon applies the change at once: you don't restart anything, and Claude sessions that are already running pick it up on their next event. Switches save when you click them. Number boxes save when you press <kbd>Enter</kbd> or click away. A row shows "Saving…" and then "Saved", or the daemon's error if it refused the value.
 
@@ -58,6 +58,34 @@ If another install is on the same Mac, the first row adds a note: only one insta
 | **Install updates automatically** | on | Only while no tool call is held and nothing is being sent. Otherwise you get an **Update now** button. (The daemon also waits for 30 seconds without any session activity.) |
 
 See [Updating](updating.md) for what each switch does in practice.
+
+## Shortcuts
+
+Every shortcut the app defines can be changed or turned off here. Each row shows the current key press with **Change**, **Clear** and, once it differs from the default, **Reset**.
+
+| Shortcut | Default |
+| --- | --- |
+| **Open the inbox from any app** | <kbd>⌘</kbd><kbd>⇧</kbd><kbd>I</kbd> (<kbd>⌘</kbd><kbd>⌥</kbd><kbd>⇧</kbd><kbd>I</kbd> on the beta install) |
+| **Jump to a session** | <kbd>⌘</kbd><kbd>K</kbd> |
+| **Main action: Allow once, Send answers or Send reply** | <kbd>⌘</kbd><kbd>↵</kbd> |
+| **Deny** | <kbd>⌘</kbd><kbd>⌫</kbd> |
+| **Next item in the list** | <kbd>J</kbd> |
+| **Previous item in the list** | <kbd>K</kbd> |
+| **Done: clear a review or failed item** | <kbd>E</kbd> |
+| **Open Settings** | <kbd>⌘</kbd><kbd>,</kbd> |
+| **Show the shortcut list** | <kbd>?</kbd> |
+
+Choose **Change** (the row reads "Press the new shortcut…"), then press the keys you want. <kbd>Esc</kbd> or **Cancel** leaves it as it was. **Clear** turns a shortcut off. The button hints, the shortcut list (<kbd>?</kbd>) and every open window follow the change at once.
+
+Some key presses are refused, with the reason shown under the row:
+
+- A shortcut in the inbox window can't use <kbd>⌥</kbd>, because on a Mac it changes the character a key types. Use <kbd>⌘</kbd>, <kbd>⌃</kbd> or a plain key.
+- <kbd>↵</kbd>, <kbd>⌫</kbd>, the arrow keys and the like need <kbd>⌘</kbd> or <kbd>⌃</kbd> with them, since on their own they are needed for typing and moving around.
+- **Open the inbox from any app** works in every app, so it needs <kbd>⌘</kbd>, <kbd>⌃</kbd> or <kbd>⌥</kbd> and a letter, a digit or <kbd>F1</kbd> to <kbd>F12</kbd>. If another app already owns the key press, macOS gives it to that app and the menu-bar app's one does nothing.
+
+If you give two actions the same key press, both rows say "Also set for … Only the first one listed will work." Shortcuts without <kbd>⌘</kbd> or <kbd>⌃</kbd> do nothing while you type in a field.
+
+<kbd>↑</kbd> <kbd>↓</kbd> in the session tree, <kbd>Tab</kbd> and <kbd>Esc</kbd> can't be changed.
 
 ## Settings the pane doesn't show
 

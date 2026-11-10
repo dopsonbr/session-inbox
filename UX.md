@@ -14,29 +14,29 @@ The audience is a power user who runs several Claude Code sessions at once. Dens
 
 ## Scorecard
 
-| Feature | 2026-11-10 baseline (`79a7376`) | 2026-11-10 after fixes (`3b2144c`) | Why it is where it is now |
-| --- | --- | --- | --- |
-| Notification banners and their buttons | not graded | not graded | No person has seen them yet (see the docs' "Not yet verified by a person" list). One click by design. |
-| Menu-bar popover | 6 | 8 | Rows now say what is asked, and a waiting tool call has **Allow** and **Deny** on its row. No preview and no Always allow there; items to review aren't listed. |
-| Inbox window layout (tree, queue, detail) | 7 | 8 | The boxed context strip is one line of facts, so the action sits about 70px higher. |
-| Session tree | 7 | 8 | Arrow keys, counts, nested agents. Blue now only means "working". |
-| Queue tabs and list | 6 | 8 | One row of tabs, `j` / `k` through the list, and the next item is selected after an answer. |
-| Answering questions | 8 | 8 | The Other field is laid out the same for every question and the footer says what really happens. No number keys for options. |
-| Approving a tool call (diff, command, fetch) | 8 | 9 | The title says what is asked, Deny takes a note, and a decided card is one clean line. |
-| Always allow | 8 | 8 | Says exactly which rule is added and where, now at 11px. |
-| Ready to review and Stopped with errors | 5 | 8 | A **Done** button and `e`. The item you just cleared doesn't say "Dismissed" until you look in History. |
-| Replies | 6 | 6 | Unchanged. Works where the `claude` CLI is logged in, and says why when it can't send. |
-| Snooze, dismiss, mute | 5 | 6 | Done left the menu for review and failed items, and the menu is gone from finished ones. Dismiss (questions, permissions) and Mute are still found only by opening Snooze. |
-| Jump to session (⌘K) | 8 | 8 | Fast, shows project and state. |
-| Open in Claude | 9 | 9 | One click from every item; lands on the exact session. |
-| Settings | 6 | 8 | Says changes apply at once, shows classic-only settings only in classic mode, and drops "ga". |
-| Setup check | 8 | 8 | Each line says what is wrong and offers the fix. |
-| Update banner and Update now | not graded | not graded | Not exercised in either pass. |
-| History and search | not there | 8 | Finished items by day with how each ended, word search with a "Matched in…" line, kind chips, `j` / `k`. No key to focus the search field, no project or date filter, and the first entry isn't selected for you. |
-| Keyboard | 5 | 8 | `j` / `k`, `e`, `?` and a shortcut list joined ⌘↵, ⌘⌫, ⌘K and ⌘,. Still no key for Snooze, Always allow or a question's options. |
-| Type, icons and radius | 5 | 8 | Six text sizes from 11 to 22px (was eight, down to 9.75px); icons 12, 14 and 16px (was 10 to 13px). |
-| Dark mode | 8 | 8 | Matches light closely, History included. |
-| Accessibility basics | 7 | 8 | Every control named, no text under 11px, no target under 24px, no pair under 4.5:1 on the main view. |
+| Feature | 2026-11-10 baseline (`79a7376`) | 2026-11-10 after fixes (`3b2144c`) | 2026-11-10 with shortcut settings (`0.3.0`) | Why it is where it is now |
+| --- | --- | --- | --- | --- |
+| Notification banners and their buttons | not graded | not graded | not graded | No person has seen them yet (see the docs' "Not yet verified by a person" list). One click by design. |
+| Menu-bar popover | 6 | 8 | 8 | Rows now say what is asked, and a waiting tool call has **Allow** and **Deny** on its row. No preview and no Always allow there; items to review aren't listed. |
+| Inbox window layout (tree, queue, detail) | 7 | 8 | 8 | The boxed context strip is one line of facts, so the action sits about 70px higher. |
+| Session tree | 7 | 8 | 8 | Arrow keys, counts, nested agents. Blue now only means "working". |
+| Queue tabs and list | 6 | 8 | 8 | One row of tabs, `j` / `k` through the list, and the next item is selected after an answer. |
+| Answering questions | 8 | 8 | 8 | The Other field is laid out the same for every question and the footer says what really happens. No number keys for options. |
+| Approving a tool call (diff, command, fetch) | 8 | 9 | 9 | The title says what is asked, Deny takes a note, and a decided card is one clean line. |
+| Always allow | 8 | 8 | 8 | Says exactly which rule is added and where, now at 11px. |
+| Ready to review and Stopped with errors | 5 | 8 | 8 | A **Done** button and `e`. The item you just cleared doesn't say "Dismissed" until you look in History. |
+| Replies | 6 | 6 | 6 | Unchanged. Works where the `claude` CLI is logged in, and says why when it can't send. |
+| Snooze, dismiss, mute | 5 | 6 | 6 | Done left the menu for review and failed items, and the menu is gone from finished ones. Dismiss (questions, permissions) and Mute are still found only by opening Snooze. |
+| Jump to session (⌘K) | 8 | 8 | 8 | Fast, shows project and state. |
+| Open in Claude | 9 | 9 | 9 | One click from every item; lands on the exact session. |
+| Settings | 6 | 8 | 8 | Says changes apply at once, shows classic-only settings only in classic mode, and has a Shortcuts group with press-to-record. After recording, focus lands on Close instead of staying on the row. |
+| Setup check | 8 | 8 | 8 | Each line says what is wrong and offers the fix. |
+| Update banner and Update now | not graded | not graded | not graded | Not exercised in either pass. |
+| History and search | not there | 8 | 8 | Finished items by day with how each ended, word search with a "Matched in…" line, kind chips, `j` / `k`. No key to focus the search field, no project or date filter, and the first entry isn't selected for you. |
+| Keyboard | 5 | 8 | 9 | Every shortcut can be changed or turned off in Settings, and the hints and the `?` list follow. Still no key for Snooze, Always allow or a question's options. |
+| Type, icons and radius | 5 | 8 | 8 | Six text sizes from 11 to 22px (was eight, down to 9.75px); icons 12, 14 and 16px (was 10 to 13px). |
+| Dark mode | 8 | 8 | 8 | Matches light closely, History included. |
+| Accessibility basics | 7 | 8 | 8 | Every control named, no text under 11px, no target under 24px, no pair under 4.5:1 on the main view. |
 
 ## Step log
 
@@ -62,6 +62,7 @@ Starting point unless stated: the inbox window is open on **Needs you** with the
 | 16 | Turn approvals in the inbox off | 2 | 2 | 2 | ⌘, then the checkbox. |
 | 17 | See why notifications aren't arriving | 1 | 1 | 1 | Setup check. |
 | 18 | See the note you sent with a denial | not possible | 2 | 2 | History, the row: "Sent with the denial: …". |
+| 19 | Change a shortcut | not possible | not possible | 3 | 3 since the shortcut settings (`0.3.0`): Settings, **Change** on the row, press the keys. |
 
 ## Findings
 
@@ -102,6 +103,8 @@ Starting point unless stated: the inbox window is open on **Needs you** with the
 
 - **UX-030** (fixed 2026-11-10, U-073) No in-app list of shortcuts.
 - **UX-031** (open) No keys for Always allow, Snooze or picking a question's option by number.
+- **UX-064** (fixed 2026-11-10, G-034, C-029, D-098, U-078 to U-083, S-024 to S-026) Shortcuts were fixed in code; each can now be changed or turned off in Settings, including the system-wide one.
+- **UX-065** (open) After recording a shortcut, keyboard focus moves to the dialog's Close button, not back to the row.
 - **UX-032** (open) No key puts the cursor in History's search field (`/` is the usual one).
 
 ### Found in the second pass
@@ -127,6 +130,7 @@ Starting point unless stated: the inbox window is open on **Needs you** with the
 
 ## Changes
 
+- 2026-11-10 — Shortcut settings (G-034): a Shortcuts group in Settings with press-to-record, Clear and Reset, clash warnings, and the menu-bar app re-registering its system-wide key. Checked on the real daemon: after changing Next to N, J did nothing, N moved, and N still worked after a reload. The system-wide key changing in the running app is unverified (nobody could press keys). Closes UX-064; opens UX-065.
 - 2026-11-10 — Second pass on `3b2144c`, re-measured on the real daemon: scores and step counts above. Still open: UX-010 (partly), UX-031, UX-032, UX-055 to UX-059, UX-062, UX-063.
 - 2026-11-10 — A denial's note shows on the finished item; permission titles drop the diff count (C-028, U-077); "in the project folder" and "Session activity" wording. Closes UX-053, UX-054, UX-060, UX-061.
 - 2026-11-10 — The review's fixes (U-059 to U-076): auto-advance, `j` / `k`, **Done** and `e`, popover rows with what is asked plus **Allow** and **Deny**, deny with a note, clean decided cards, titles, an 11px type floor, pixel-sized icons, one row of tabs, a one-line context strip, Settings clean-up, a shortcut list on `?`, a sticky History header. Closes UX-001 to UX-005, UX-011 to UX-027, UX-030, UX-040, UX-050 to UX-052.
