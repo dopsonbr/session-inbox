@@ -15,6 +15,7 @@ import {
   MuteRequest,
   NotificationActedRequest,
   ReplyRequest,
+  Routes,
   SCHEMA_VERSION,
   type SettingsResponse,
   ShellStatus,
@@ -26,6 +27,7 @@ import { BUILD, VERSION } from "@session-inbox/contracts/version"
 import { Result, Schema } from "effect"
 import type { Doctor } from "./doctor.ts"
 import { ApiFailure, type Engine } from "./engine.ts"
+import { parseHistoryQuery } from "./history.ts"
 import type { ClientKind } from "./stream.ts"
 import { decodeSettingsPatch } from "./userSettings.ts"
 
@@ -318,6 +320,11 @@ export const uiHandler =
       const e = ctx.engine
 
       if (path === "/v1/snapshot" && m === "GET") return json(e.snapshot())
+      if (path === Routes.historyPath && m === "GET") {
+        const q = parseHistoryQuery(url.searchParams)
+        if (!q.ok) throw new ApiFailure(400, "bad_request", q.error)
+        return json(e.history(q.query))
+      }
       if (path === "/v1/stream" && m === "GET") return streamResponse(ctx, req, url)
 
       // Updates (C-013, D-035): the manager decides; these only report and ask.

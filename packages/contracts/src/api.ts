@@ -120,7 +120,8 @@ export const HISTORY_LIMIT_MAX = 200
  * How a finished item ended; the daemon decides, the UI words it.
  * `in-claude`: a question or permission that was settled in Claude, not here.
  * `moved-on`: a review or failed item the session carried on from without a reply.
- * `expired`: a held tool call nobody answered in time (Claude's own prompt took over).
+ * `expired`: a held tool call released without an answer, because the turn or the session
+ * ended first. (One that merely ran out of time waits in Claude and ends as `in-claude`.)
  */
 export const HistoryOutcome = Schema.Literals([
   "allowed",

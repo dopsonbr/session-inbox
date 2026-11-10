@@ -14,6 +14,8 @@ import {
   type AttentionKind,
   type Decision,
   decodeHookPayload,
+  type HistoryPage,
+  type HistoryQuery,
   type HookDecision,
   type HookEnv,
   HookEnvelope,
@@ -90,6 +92,7 @@ import {
   transcriptTitle,
   UNTITLED,
 } from "./domain/text.ts"
+import { historyPage } from "./history.ts"
 import { type PruneCounts, pruneHistory, reclaimSpace } from "./retention.ts"
 import {
   type ClaudeAuth,
@@ -2618,6 +2621,15 @@ export class Engine {
     }
   }
 
+  /** Finished items, newest first, with how each ended (C-027, D-096). Read-only. */
+  history(query: HistoryQuery): HistoryPage {
+    return historyPage(this.store, query, this.retentionDays())
+  }
+
+  private retentionDays(): number {
+    return Math.min(365, Math.max(1, this.settings["storage.retentionDays"] || 14))
+  }
+
   /**
    * Claude often writes its message to the transcript only after the PreToolUse hook has
    * fired, so the context read at hold time comes back empty (found live, D-066). Read it
@@ -3318,7 +3330,7 @@ export class Engine {
   prune(startup: boolean): PruneCounts | null {
     const now = this.now()
     this.nextPruneAt = now + PRUNE_EVERY_MS
-    const days = Math.min(365, Math.max(1, this.settings["storage.retentionDays"] || 14))
+    const days = this.retentionDays()
     const cutoff = now - days * 24 * 3600_000
     let counts: PruneCounts | null = null
     try {
