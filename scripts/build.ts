@@ -1,14 +1,24 @@
-/** Compile inbox-hook and inboxd into dist/, and build the UI into dist/ui. Usage: bun scripts/build.ts */
-import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs"
+/**
+ * Compile inbox-hook, inboxd and the session-inbox CLI, and build the UI.
+ *   bun scripts/build.ts                 → dist/<binaries>, dist/ui
+ * `build({ binDir, uiDir, version })` is what scripts/release.ts and scripts/install.ts use.
+ */
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs"
 import { join } from "node:path"
 
 const root = join(import.meta.dir, "..")
 const dist = join(root, "dist")
 
+export const BINARIES = ["inbox-hook", "inboxd", "session-inbox"] as const
+
 const targets = [
   { name: "inbox-hook", entry: "apps/hook/src/main.ts", flags: ["--minify", "--bytecode"] },
   { name: "inboxd", entry: "apps/daemon/src/main.ts", flags: ["--minify"] },
+  { name: "session-inbox", entry: "apps/cli/src/main.ts", flags: ["--minify"] },
 ]
+
+/** The version in the root VERSION file. */
+export const fileVersion = (): string => readFileSync(join(root, "VERSION"), "utf8").trim()
 
 /** "<short sha>[-dirty]" of the checkout, so two installed channels can be told apart. */
 export const buildStamp = (): string => {
@@ -20,16 +30,29 @@ export const buildStamp = (): string => {
   return git("status", "--porcelain") ? `${sha}-dirty` : sha
 }
 
-export const build = async (): Promise<string[]> => {
-  mkdirSync(dist, { recursive: true })
-  const define = ["--define", `SESSION_INBOX_BUILD=${JSON.stringify(buildStamp())}`]
+export type BuildOptions = {
+  binDir?: string
+  uiDir?: string
+  version?: string
+  stamp?: string
+  /** Echo bun's output (default true); tests pass false to keep logs short. */
+  verbose?: boolean
+}
+
+export const build = async (opts: BuildOptions = {}): Promise<string[]> => {
+  const binDir = opts.binDir ?? dist
+  const uiDir = opts.uiDir ?? join(dist, "ui")
+  const io = opts.verbose === false ? "ignore" : "inherit"
+  mkdirSync(binDir, { recursive: true })
+  const define = [
+    "--define",
+    `SESSION_INBOX_BUILD=${JSON.stringify(opts.stamp ?? buildStamp())}`,
+    "--define",
+    `SESSION_INBOX_VERSION=${JSON.stringify(opts.version ?? fileVersion())}`,
+  ]
   const built: string[] = []
   for (const t of targets) {
-    if (!existsSync(join(root, t.entry))) {
-      console.warn(`warning: ${t.entry} not found; skipping ${t.name}`)
-      continue
-    }
-    const outfile = join(dist, t.name)
+    const outfile = join(binDir, t.name)
     const p = Bun.spawnSync(
       [
         "bun",
@@ -41,7 +64,7 @@ export const build = async (): Promise<string[]> => {
         "--outfile",
         outfile,
       ],
-      { cwd: root, stdout: "inherit", stderr: "inherit" },
+      { cwd: root, stdout: io, stderr: "inherit" },
     )
     if (p.exitCode !== 0) throw new Error(`build failed: ${t.name}`)
     built.push(outfile)
@@ -50,13 +73,13 @@ export const build = async (): Promise<string[]> => {
   if (existsSync(join(root, "apps/desktop/package.json"))) {
     const p = Bun.spawnSync(["bun", "run", "build"], {
       cwd: join(root, "apps/desktop"),
-      stdout: "inherit",
+      stdout: io,
       stderr: "inherit",
     })
     if (p.exitCode !== 0) throw new Error("build failed: ui")
-    rmSync(join(dist, "ui"), { recursive: true, force: true })
-    cpSync(join(root, "apps/desktop/dist"), join(dist, "ui"), { recursive: true })
-    built.push(join(dist, "ui"))
+    rmSync(uiDir, { recursive: true, force: true })
+    cpSync(join(root, "apps/desktop/dist"), uiDir, { recursive: true })
+    built.push(uiDir)
   }
   return built
 }

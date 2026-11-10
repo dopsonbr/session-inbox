@@ -114,7 +114,8 @@ describe("install / uninstall scripts", () => {
             "--no-launchd",
             ...flags,
           ],
-          { cwd: root },
+          // HOME too, so nothing derived from it (~/.local/bin, ~/Applications) is the real one.
+          { cwd: root, env: { ...process.env, HOME: join(dir, "user") } },
         )
 
       const dry = run("install.ts")
@@ -122,10 +123,11 @@ describe("install / uninstall scripts", () => {
       expect(readFileSync(settings, "utf8")).toBe(original)
       expect(dry.stdout.toString()).toContain("would change")
 
+      // --yes builds a payload (three compiled binaries and the UI): the slow step, done once.
       expect(run("install.ts", "--yes").exitCode).toBe(0)
       const installed = readFileSync(settings, "utf8")
       expect(installed).toContain("inbox-hook")
-      expect(run("install.ts", "--yes").stdout.toString()).toContain("no change")
+      expect(run("install.ts").stdout.toString()).toContain("no change")
       expect(readFileSync(settings, "utf8")).toBe(installed)
 
       expect(run("uninstall.ts", "--yes").exitCode).toBe(0)
@@ -133,5 +135,5 @@ describe("install / uninstall scripts", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
-  })
+  }, 180_000)
 })

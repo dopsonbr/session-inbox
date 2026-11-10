@@ -1,16 +1,23 @@
+/** Small helpers shared by install, uninstall, status and update. */
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
-import type { Settings } from "../apps/hook/src/settings.ts"
-import { CHANNELS, type Channel, isChannel } from "../packages/contracts/src/paths.ts"
+import { CHANNELS, type Channel, isChannel } from "@session-inbox/contracts/paths"
+import type { Settings } from "../../hook/src/settings.ts"
 
-export const defaultSettingsPath = () => join(process.env.HOME ?? "", ".claude", "settings.json")
+/** Everything derived from the user's home goes through `homedir()`, which honours $HOME. */
+export const defaultSettingsPath = () => join(homedir(), ".claude", "settings.json")
 export const plistPath = (label: string) =>
-  join(process.env.HOME ?? "", "Library", "LaunchAgents", `${label}.plist`)
+  join(homedir(), "Library", "LaunchAgents", `${label}.plist`)
+export const appPath = (title: string) => join(homedir(), "Applications", `${title}.app`)
+export const localBin = () => join(homedir(), ".local", "bin")
+/** The PATH symlink name for a channel: `session-inbox` (GA) or `session-inbox-beta`. */
+export const pathLinkName = (channel: Channel) =>
+  channel === "ga" ? "session-inbox" : `session-inbox-${channel}`
 
 export const parseChannel = (v: string | undefined): Channel => {
   const c = v ?? "ga"
-  if (!isChannel(c)) throw new Error(`--channel must be ga or beta, not ${c}`)
+  if (!isChannel(c)) throw new UsageError(`--channel must be ga or beta, not ${c}`)
   return c
 }
 /** The other channels' default homes: their hooks are left alone (H-014). */
@@ -44,7 +51,7 @@ export const unifiedDiff = (a: string, b: string, label: string): string => {
     writeFileSync(join(dir, "a"), a)
     writeFileSync(join(dir, "b"), b)
     const p = Bun.spawnSync([
-      "diff",
+      "/usr/bin/diff",
       "-u",
       "-L",
       `${label} (current)`,
@@ -60,3 +67,8 @@ export const unifiedDiff = (a: string, b: string, label: string): string => {
 }
 
 export const timestamp = () => new Date().toISOString().replace(/[:.]/g, "-")
+
+/** A bad command line: main prints the message and exits 2. */
+export class UsageError extends Error {}
+
+export type Say = (line: string) => void
