@@ -142,6 +142,8 @@ entries with your section's prefix (G, C, D, H, U, S, P) and the next free numbe
 - D-077 — Review and failed summaries use `summaryLine`: the first line of Claude's last message that has text after stripping leading `#`s, quote and list markers and emphasis markers, one line, ≤ 100 chars. "## Results" read badly on cards.
 - D-078 — A plain Deny from the inbox carries "Denied by the user in Session Inbox." as the PermissionRequest `message` and the PreToolUse `permissionDecisionReason`, so Claude knows who said no; replies keep "The user replied: …" and AskUserQuestion's denyWithReason keeps its own text.
 
+- D-079 — A session title sent on a hook payload (`session_title`, seen live on the desktop app's UserPromptSubmit) is taken from any event and skips the transcript read. Found while turning the live run into `fixtures/recorded/desktop-permission-request.jsonl` (real PermissionRequest, permission_prompt Notification and PostToolUse payloads, scrubbed), which now replays in the default mode.
+
 
 ## Hook & Ops
 

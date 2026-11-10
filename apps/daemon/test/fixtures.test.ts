@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import type { ApprovalRow, ItemRow, NotificationRow } from "../src/store.ts"
-import { FakeGit, type Harness, makeClassicHarness as makeHarness } from "./fakes.ts"
+import {
+  FakeGit,
+  type Harness,
+  makeHarness as makeDefaultHarness,
+  makeClassicHarness as makeHarness,
+} from "./fakes.ts"
 import { type Fixture, loadFixtures, replay } from "./replay.ts"
 
 const rows = (h: Harness) => ({
@@ -192,14 +197,34 @@ describe("recorded fixture replay (fixtures/recorded, from the spike)", () => {
           branch: "wt1",
         },
       })
-      const h = makeHarness({ git })
+      // The spike recordings predate PermissionRequest and replay in classic mode; the
+      // desktop recording was made in the default mode and replays in it.
+      const h =
+        f.name === "desktop-permission-request" ? makeDefaultHarness({ git }) : makeHarness({ git })
       await replay(h, f)
       const { events, notifications } = rows(h)
       expect(events.filter((e) => e.decode_error !== null)).toEqual([])
       expect(events.length).toBeGreaterThanOrEqual(f.steps.filter((s) => s.kind === "hook").length)
-      expect(notifications).toHaveLength(0) // none of the recorded sessions asked anything
       const snap = h.engine.snapshot()
       expect(snap.sessions.length).toBeGreaterThan(0)
+      if (f.name === "desktop-permission-request") {
+        // Recorded live on 2026-11-09 (P-022): a desktop Code-tab session whose Read, question,
+        // Edit and Bash prompts were answered from the inbox. Replayed without the answers, each
+        // request must open at once and then leave "needs you" on the real signals that
+        // followed: the call's own PostToolUse, or Stop for the denied Bash.
+        const kinds = snap.items.map((i) => i.kind).sort()
+        expect(kinds).toEqual(["permission", "permission", "permission", "question", "review"])
+        expect(snap.items.filter((i) => i.queue === "needs-you")).toEqual([])
+        expect(snap.items.find((i) => i.kind === "review")?.queue).toBe("review")
+        expect(snap.counts.needsYou).toBe(0)
+        // One notification per request (the 6 s permission_prompt Notifications add none).
+        expect(notifications.length).toBeGreaterThanOrEqual(4)
+        const summaries = snap.items.map((i) => i.summary ?? "")
+        expect(summaries.some((t) => t.includes("notes.md"))).toBe(true)
+        expect(summaries.some((t) => t.includes("rm /tmp/si-live/proj/scratch.tmp"))).toBe(true)
+        return
+      }
+      expect(notifications).toHaveLength(0) // none of the spike's recorded sessions asked anything
       if (f.name === "worktree") {
         expect(snap.projects[0]?.rootPath).toBe("/private/tmp/si-spike-a")
         expect(snap.sessions[0]?.worktree).toBe("/private/tmp/si-spike-a-wt")

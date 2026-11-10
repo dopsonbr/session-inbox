@@ -787,7 +787,12 @@ export class Engine {
     if (ACTIVITY.has(event)) this.supersedeStale(c, sid, event === "UserPromptSubmit")
 
     // Claude's own title, from the transcript, beats prompt-derived and generated ones (D-059).
-    if (TITLE_EVENTS.has(event))
+    // The desktop app also sends it on the hook payload itself (`session_title`, seen live on
+    // UserPromptSubmit): take it from any event, and skip the transcript read when it is there.
+    const payloadTitle =
+      typeof p.session_title === "string" && p.session_title.trim() !== "" ? p.session_title : null
+    if (payloadTitle !== null) this.setClaudeTitle(c, sid, payloadTitle, "payload")
+    else if (TITLE_EVENTS.has(event))
       this.syncTranscriptTitle(c, sid, p.transcript_path ?? session.transcript_path)
 
     let requestId: string | null = null
@@ -934,13 +939,23 @@ export class Engine {
       this.deps.log.warn("transcript title read failed", e)
       return
     }
-    const t = title ? provisionalTitle(title) : null
+    if (title) this.setClaudeTitle(c, sessionId, title, "transcript")
+  }
+
+  /** Claude's own title for the session, whichever way it reached us (D-059, D-079). */
+  private setClaudeTitle(
+    c: Changes,
+    sessionId: string,
+    title: string,
+    source: "transcript" | "payload",
+  ) {
+    const t = provisionalTitle(title)
     const s = this.store.session(sessionId)
     if (!t || !s || (s.title === t && s.title_source === "claude")) return
     this.appendEvent(c, {
       sessionId,
       hook: "daemon:title",
-      payload: { title: t, source: "transcript" },
+      payload: { title: t, source },
     })
     this.store.run(
       "UPDATE sessions SET title = ?, title_source = 'claude' WHERE id = ?",
