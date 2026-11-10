@@ -320,7 +320,66 @@ describe("with fake daemon", () => {
         new URL(req.url).pathname === "/v1/hooks/PermissionRequest"
           ? Response.json({ seq: 1, requestId: "pr2", holdMs: 600_000 })
           : new Response("boom", { status: 500 })
-      expect(await pr(cmd)).toEqual({ stdout: "", code: 0 })
+      const t = performance.now()
+      expect(await pr(cmd, { SESSION_INBOX_RETRY_SECONDS: "1" })).toEqual({ stdout: "", code: 0 })
+      // It retried (about once a second) before giving up.
+      expect(requests.filter((r) => r.path.startsWith("/v1/hooks/decision/")).length).toBe(2)
+      expect(performance.now() - t).toBeLessThan(4000)
+    }),
+  )
+
+  // The daemon restarts while a request is live (H-050): the hook re-polls the same id.
+  const restartDaemon = (afterMs: number | null) => {
+    server?.stop(true)
+    server = null
+    if (afterMs !== null)
+      setTimeout(() => {
+        rmSync(join(home, "inboxd.sock"), { force: true })
+        startDaemon()
+      }, afterMs)
+  }
+  let polls = 0
+  const droppingOnce =
+    (restartAfterMs: number | null) =>
+    (req: Request): Response | Promise<Response> => {
+      const path = new URL(req.url).pathname
+      if (path === "/v1/hooks/PermissionRequest")
+        return Response.json({ seq: 1, requestId: "pr3", holdMs: 600_000 })
+      polls++
+      // The first poll's connection is dropped mid-wait: the daemon went away.
+      if (polls === 1) return new Promise<Response>(() => restartDaemon(restartAfterMs))
+      return Response.json({ decision: "allow" })
+    }
+
+  test(
+    "a dropped poll is retried with the same request id; the decision still prints",
+    each(async (cmd) => {
+      polls = 0
+      handler = droppingOnce(1500)
+      const r = await pr(cmd)
+      expect(r.code).toBe(0)
+      expect(JSON.parse(r.stdout)).toEqual({
+        hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior: "allow" } },
+      })
+      const decisionPolls = requests.filter((x) => x.path.startsWith("/v1/hooks/decision/"))
+      expect(decisionPolls.length).toBe(2)
+      expect(decisionPolls.every((x) => x.path.startsWith("/v1/hooks/decision/pr3?"))).toBe(true)
+    }),
+  )
+
+  test(
+    "a daemon that stays down: exit 0, nothing printed, after the retry window",
+    each(async (cmd) => {
+      polls = 0
+      handler = droppingOnce(null)
+      const t = performance.now()
+      const r = await pr(cmd, { SESSION_INBOX_RETRY_SECONDS: "2" })
+      const took = performance.now() - t
+      expect(r).toEqual({ stdout: "", code: 0 })
+      expect(took).toBeGreaterThan(1900)
+      expect(took).toBeLessThan(6000)
+      rmSync(join(home, "inboxd.sock"), { force: true })
+      startDaemon()
     }),
   )
 

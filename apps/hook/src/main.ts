@@ -20,6 +20,11 @@ const MAX_WAIT_S = 110
 const DEFAULT_HOLD_S = 120
 /** Under the PermissionRequest hook's registered 3600 s timeout (settings.ts). */
 const MAX_REQUEST_HOLD_S = 3500
+/** A poll is aborted this long after its `wait` (the daemon answers at `wait`; H-050). */
+const POLL_SLACK_MS = 10_000
+/** Failed polls are retried this often, for up to RETRY_S of consecutive failures (H-050). */
+const RETRY_EVERY_MS = 1_000
+const RETRY_S = 15
 
 const call = (socket: string, path: string, init: RequestInit, timeoutMs: number) =>
   fetch(`http://localhost${path}`, {
@@ -81,32 +86,65 @@ export const encodeDecision = (event: string, d: Decision): string | null => {
   })
 }
 
-/** Long-poll for a decision. Returns stdout text, or null to stay silent. */
+/** One poll: the daemon's answer, or null when it failed (refused, timed out, non-2xx, bad body). */
+const pollOnce = async (
+  socket: string,
+  requestId: string,
+  wait: number,
+): Promise<{ decision?: string } | null> => {
+  try {
+    const res = await call(
+      socket,
+      `/v1/hooks/decision/${encodeURIComponent(requestId)}?wait=${wait}`,
+      { method: "GET" },
+      wait * 1000 + POLL_SLACK_MS,
+    )
+    if (!res.ok) return null
+    const body = (await res.json()) as { decision?: string } | null
+    return body && typeof body === "object" ? body : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Long-poll for a decision. Returns stdout text, or null to stay silent. A failed poll is not
+ * the end (H-050): the daemon may be restarting, or this process may have stalled. Re-poll the
+ * same request every second while failures are consecutive for up to `retrySeconds`, never past
+ * the budget; only then give up silently. `pending` just loops, as before.
+ */
 const awaitDecision = async (
   socket: string,
   event: string,
   requestId: string,
   holdSeconds: number,
+  retrySeconds: number,
 ): Promise<string | null> => {
   const deadline = Date.now() + holdSeconds * 1000
+  let failingSince: number | null = null
   while (true) {
     const remaining = Math.ceil((deadline - Date.now()) / 1000)
     if (remaining <= 0) {
+      // Still failing at the budget's end: the daemon is gone, stay silent (H-002).
+      if (failingSince !== null) return null
       return encodeDecision(event, {
         decision: "ask",
         reason: "Session Inbox: no answer in time; asking in Claude",
       })
     }
     const wait = Math.min(MAX_WAIT_S, remaining)
-    const res = await call(
-      socket,
-      `/v1/hooks/decision/${encodeURIComponent(requestId)}?wait=${wait}`,
-      { method: "GET" },
-      wait * 1000 + 3000,
-    )
-    if (!res.ok) return null
-    const body = (await res.json()) as Partial<Decision> | { decision?: string } | null
-    const d = body?.decision
+    const body = await pollOnce(socket, requestId, wait)
+    if (body === null) {
+      const now = Date.now()
+      failingSince ??= now
+      if (now - failingSince >= retrySeconds * 1000) return null
+      const pause = Math.min(RETRY_EVERY_MS, deadline - now)
+      if (pause <= 0) return null
+      await Bun.sleep(pause)
+      continue
+    }
+    failingSince = null
+    const d = body.decision
     if (d === "allow" || d === "deny" || d === "ask") {
       return encodeDecision(event, body as Decision)
     }
@@ -176,7 +214,9 @@ export const run = async (
       ? Math.min(MAX_REQUEST_HOLD_S, Math.ceil(ingest.holdMs / 1000) + 5)
       : DEFAULT_HOLD_S
   const hold = env.SESSION_INBOX_HOLD_SECONDS && holdEnv > 0 ? holdEnv : daemonHold
-  return awaitDecision(p.socket, event, ingest.requestId, hold)
+  const retryEnv = Number(env.SESSION_INBOX_RETRY_SECONDS)
+  const retry = env.SESSION_INBOX_RETRY_SECONDS && retryEnv >= 0 ? retryEnv : RETRY_S
+  return awaitDecision(p.socket, event, ingest.requestId, hold, retry)
 }
 
 const main = async () => {
