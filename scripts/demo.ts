@@ -351,6 +351,44 @@ await post(s8, "simple-offline-pos", "PreToolUse", {
   tool_input: { command: "npm run dev", description: "Start the dev server" },
 })
 
+// 9 · A turn that ended on an API error → Stopped with errors.
+const s11 = "bbbbbbbb-0000-4000-8000-00000000000b"
+await session(s11, "simple-offline-pos", "Flaky checkout test", "cli")
+await tool(s11, "simple-offline-pos", "Bash", { command: "bun test checkout" })
+await hook(
+  s11,
+  "simple-offline-pos",
+  "Stop",
+  { last_assistant_message: 'API Error: 529 {"type":"error","error":{"type":"overloaded_error"}}' },
+  "cli",
+)
+
+// 10 · A finished turn put off for later → the Snoozed tab.
+const s9 = "99999999-0000-4000-8000-000000000009"
+await session(s9, "agent-kit", "Tidy the README examples")
+await tool(s9, "agent-kit", "Edit", { file_path: "README.md" })
+await hook(s9, "agent-kit", "Stop", {
+  last_assistant_message: "Rewrote the three README examples to use the new tree API.",
+})
+await api("POST", `/v1/items/${await openItem(s9, "review")}/snooze`, {
+  until: Date.now() + 2 * 3600_000,
+})
+
+// 11 · A permission request no hook waits on: after 20 seconds the daemon hands it to
+// Claude's own prompt (D-080), and the item reads "Waiting in Claude".
+const s10 = "aaaaaaaa-0000-4000-8000-00000000000a"
+await session(s10, "order-up-api", "Clean up old feature flags")
+const branchDelete = { command: "git branch -D feature/old-flags" }
+await post(s10, "order-up-api", "PreToolUse", {
+  tool_name: "Bash",
+  tool_use_id: "g1",
+  tool_input: branchDelete,
+})
+await post(s10, "order-up-api", "PermissionRequest", {
+  tool_name: "Bash",
+  tool_input: branchDelete,
+})
+
 // 7 · Older, finished sessions for History: each ended, then moved back in time below.
 const past: Array<[sid: string, project: string, daysAgo: number]> = []
 const pastSession = async (n: number, project: string, prompt: string, daysAgo: number) => {

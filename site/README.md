@@ -52,9 +52,9 @@ The file goes in `assets/screenshots/`. The numbers are the image's width and he
 [[screenshot inbox-light.png,inbox-dark.png 1440x900 Alt text.]]
 ```
 
-If the file isn't there yet, the page shows a placeholder and the build lists the missing file. Slots in use: `inbox-light.png` and `inbox-dark.png` (Home, 1440×900), `popover.png` (Using it, 380×520), `approval-diff.png` (Using it, 1440×900), `settings.png` (Settings, 1440×900) and `setup.png` (Troubleshooting, 1440×900). The files are twice that size in pixels, for high-density screens.
+If the file isn't there yet, the page shows a placeholder and the build lists the missing file. Slots in use: `inbox-light.png` and `inbox-dark.png` (Home, Tour, 1440×900), `popover.png` (Using it, 380×520), `approval-diff.png` (Using it, Tour, 1440×900), `history.png` (Using it, Tour, 1440×900), `settings.png` (Settings, Tour, 1440×900), `setup.png` (Troubleshooting, Tour, 1440×900), and the `tour-*.png` files on the Tour page (1440×900 for the window, 480×600 for the popover, and crops of one element). The files are twice that size in pixels, for high-density screens.
 
-The screenshots are generated, not taken by hand. Build the UI once, then run the script. It starts the seeded demo daemon (`scripts/demo.ts`) and renders each view in headless Chrome (Chrome, Chromium or Edge in `/Applications`, no screen-recording permission), writing the six files to `assets/screenshots/`:
+The screenshots are generated, not taken by hand. Build the UI once, then run the script. It starts the seeded demo daemon (`scripts/demo.ts`) and headless Chrome (Chrome, Chromium or Edge in `/Applications`, no screen-recording permission), and writes every file to `assets/screenshots/`:
 
 ```bash
 bun run --cwd apps/desktop build
@@ -64,7 +64,9 @@ bun run --cwd apps/desktop build
 bun scripts/screenshots.ts
 ```
 
-When a view changes, re-run it and re-check each slot's alt text.
+The script drives Chrome over the DevTools Protocol (its debugging port and Bun's WebSocket, no dependency), so a shot can click, type, press keys, open a menu or scroll before it is taken, and can be cropped to one element. Each shot is an entry in the `shots` list in `scripts/screenshots.ts`: a page address, the element that says the page is ready, the steps, and an optional crop. Name the files you want to redo to take only those, as in `bun scripts/screenshots.ts tour-jump history`. It takes about a minute, most of it waiting for the demo's unanswered request to turn into "Waiting in Claude".
+
+When a view changes, re-run it, look at the images, and re-check each slot's alt text and size.
 
 ### Keep it true
 
