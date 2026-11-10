@@ -179,7 +179,7 @@ const cliCheck = (f: DoctorFacts): DoctorCheck => {
   const title = "claude command-line tool"
   const fix: DoctorFix = { label: "Run claude once to log in", kind: "copy", value: "claude" }
   const without =
-    "Without it, replies to sessions that are waiting for a new prompt and generated session titles don't work; approvals, questions and notifications still do."
+    "Without a logged-in claude, replies to sessions that are waiting for a new prompt and generated session titles don't work; approvals, questions and notifications still do."
   if (f.auth.found === false)
     return check("claude-cli", title, "warn", `claude isn't on this Mac's PATH. ${without}`, fix)
   if (f.auth.loggedIn === false)
