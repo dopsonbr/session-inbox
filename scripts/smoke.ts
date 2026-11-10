@@ -25,9 +25,8 @@ const check = (cond: unknown, msg: string) => {
   report.push(`ok  ${msg}`)
 }
 
-const daemon = Bun.spawn(
-  ["bun", join(repo, "apps/daemon/src/main.ts"), "--home", home, "--port", "0"],
-  {
+const spawnDaemon = () =>
+  Bun.spawn(["bun", join(repo, "apps/daemon/src/main.ts"), "--home", home, "--port", "0"], {
     env: {
       ...process.env,
       CLAUDE_CONFIG_DIR: claudeDir, // never read the real ~/.claude
@@ -36,8 +35,8 @@ const daemon = Bun.spawn(
     },
     stdout: "ignore",
     stderr: "pipe",
-  },
-)
+  })
+let daemon = spawnDaemon()
 
 const waitFor = async <T>(
   fn: () => T | null | Promise<T | null>,
@@ -418,9 +417,11 @@ const main = async () => {
   await Bun.sleep(200) // let the long-poll start
   killed.kill("SIGTERM")
   await killed.exited
+  // Not at once: a dropped poll gets 5 s to come back (D-080), then the 1 s tick.
   await waitFor(
     async () => ((await items()).find((i) => i.id === n7item)?.state === "resolved" ? true : null),
     "abandoned request resolved",
+    10_000,
   )
   check(true, "the hook going away mid-wait resolved the item (answered in Claude)")
   await waitFor(
@@ -429,8 +430,57 @@ const main = async () => {
   )
   check(true, "unnotify sent to the shell for it")
 
+  // Scenario 8: the daemon restarts while a request is live (D-080, H-050): stopped
+  // gracefully, then killed outright. The real hook re-polls the same request id each time,
+  // and an Allow made on the new daemon still reaches it.
+  const n8 = notifyList().length
+  const restarted = runHook("PermissionRequest", {
+    tool_name: "Bash",
+    tool_input: { command: "make release" },
+  })
+  const n8note = await waitFor(() => notifyList()[n8] ?? null, "restart-case notify")
+  const n8item = n8note._tag === "notify" ? n8note.notification.itemId : ""
+  await Bun.sleep(300) // the long-poll is attached
   ctrl.abort()
   await reading
+  for (const signal of ["SIGTERM", "SIGKILL"] as const) {
+    const old = conn.pid
+    daemon.kill(signal)
+    await daemon.exited
+    daemon = spawnDaemon()
+    conn = await waitFor(() => {
+      const c = JSON.parse(readFileSync(join(home, "connection.json"), "utf8")) as Connection
+      return c.pid !== old ? c : null
+    }, "connection.json after restart")
+    await waitFor(
+      async () => (await fetch(`http://127.0.0.1:${conn.httpPort}/v1/health`)).ok,
+      "health after restart",
+    )
+    // The hook retries every second; give it time to attach again.
+    await Bun.sleep(1_500)
+    const it = (await items()).find((i) => i.id === n8item)
+    check(
+      it?.state === "open" && it.live,
+      `after ${signal}: the request is still live and open (not answered in Claude)`,
+    )
+  }
+  check(
+    (await api(`/v1/items/${n8item}/decision`, { idempotencyKey: "smoke-8", decision: "allow" }))
+      .ok,
+    "Allow on the restarted daemon accepted",
+  )
+  const r8 = await restarted
+  check(
+    r8.code === 0 &&
+      JSON.stringify(JSON.parse(r8.out || "{}")) ===
+        JSON.stringify({
+          hookSpecificOutput: {
+            hookEventName: "PermissionRequest",
+            decision: { behavior: "allow" },
+          },
+        }),
+    "the same inbox-hook re-polled across both restarts and printed the allow",
+  )
 }
 
 let code = 0
