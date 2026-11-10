@@ -72,6 +72,8 @@ entries with your section's prefix (G, C, D, H, U, S, P) and the next free numbe
 - C-023 — `ItemDetail` gains optional `lastMessage` (what Claude said last, in full, for review and failed items) and `replyUnavailable` (why a free-text reply can't be sent from here). A review item that only shows a one-line summary isn't reviewable, and a reply box that silently fails without a CLI login is worse than none. Additive.
 - C-024 — `UserSettings` gains `storage.retentionDays` (number, `SETTING_LIMITS` 1–365, default 14) so the Settings pane can show retention (D-063). A required key, so `FAKE_SETTING_DEFAULTS` in the UI's fake client got the one line it needs to typecheck.
 - C-025 — PermissionRequest contracts, additive: `HookEvent` gains `PermissionRequest`; `PermissionRequestPayload` = HookBase + `tool_name`, `tool_input`, optional `tool_use_id`, `permission_suggestions` (Unknown, so an unexpected shape never fails decoding), `mcp_server`; `HookIngestResponse.holdMs?`; `HookDecision.updatedPermissions?`; `Approval.via?: "permissionRequest"`. `UserSettings` gains required `holds.via` (`HOLDS_VIA`) and `holds.requestBudgetMs` (`SETTING_LIMITS` 15 s–55 min), as C-024 did; the fake client's defaults carry both.
+- C-026 — `Approval.alwaysAllow` (optional string): the rule Always allow would add and where, in words for the card; absent when Always allow isn't offered. Review finding: Always allow could write a bare tool name (every `Edit` in the project) while the card promised "the rule Claude suggests". The daemon now says exactly what will be written, and the UI shows the button only when it does. Additive.
+
 
 ## Daemon
 

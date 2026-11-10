@@ -188,6 +188,12 @@ export const Approval = Schema.Struct({
   context: Schema.optional(Schema.String),
   /** Set when the request came from Claude's PermissionRequest hook, not a held PreToolUse. */
   via: Schema.optional(Schema.Literals(["permissionRequest"])),
+  /**
+   * What "Always allow" would add, in words the card can show verbatim (the rule text and where
+   * it is saved, e.g. "Read(//tmp/proj/**) for this session"). Absent when Always allow isn't
+   * offered for this call: the UI then shows no such button (C-026).
+   */
+  alwaysAllow: Schema.optional(Schema.String),
 })
 export type Approval = typeof Approval.Type
 
