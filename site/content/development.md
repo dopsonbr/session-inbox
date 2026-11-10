@@ -15,12 +15,14 @@ Session Inbox is a Bun workspace. The daemon, the hook, the UI build and every s
 | --- | --- |
 | `apps/daemon` | `inboxd`: ingest, the attention-item state machine, holds, the reply outbox, notification policy, HTTP and SSE. |
 | `apps/hook` | `inbox-hook`: forward, long-poll, fail open. `record` mode writes fixtures, and the settings merge lives here. |
+| `apps/cli` | `session-inbox`: install, uninstall, update, status, doctor. The one install path: a source install and a release install both end in the same code. |
 | `apps/desktop/src` | The Foldkit and Effect UI: the main window and the `?view=compact` popover. |
 | `apps/desktop/src-tauri` | The Tauri v2 shell: tray, popover, notifications, deep links and launch at login. |
 | `packages/contracts` | Effect Schemas shared by the daemon and the UI. It's the only shared code. |
 | `fixtures/` | Recorded (real) and synthetic hook payloads that the tests replay. |
 | `ops/` | The launchd plist template and the Claude settings snippet. |
-| `scripts/` | Bun scripts: install, uninstall, build, build-shell, channels, smoke, demo, and this site's builder. |
+| `install.sh` | The `curl \| sh` bootstrap: download, verify, hand over to `session-inbox install`. The only shell script. |
+| `scripts/` | Bun scripts: install, uninstall, build, build-shell, channels, release, bump, verify-release, e2e-update, smoke, demo, and this site's builder. |
 | `site/` | This documentation site. |
 | `docs/` | The spec snapshot, mockups and the Phase 0 spike report. |
 
@@ -74,6 +76,22 @@ Test the Rust shell:
 cd apps/desktop/src-tauri && cargo test && cargo clippy -- -D warnings
 ```
 
+Build a release tarball and check it the way a user gets it. `--skip-app` leaves the menu-bar app out and is fast; without it the Rust build runs:
+
+```bash
+bun scripts/release.ts --skip-app
+```
+
+```bash
+bun scripts/verify-release.ts
+```
+
+Prove the update path under the real launchd with no GitHub. It builds two releases, installs the older one as an isolated job (`com.sessioninbox.inboxd.e2e` under `/tmp`), and checks that a held call blocks the automatic update, that the update applies after 30 seconds of quiet, that hooks keep failing open during the swap, and that a corrupted download is refused. It takes about a minute and isn't part of `bun test`:
+
+```bash
+bun scripts/e2e-update.ts
+```
+
 Before committing, run the tests, the typecheck and the lint. If you touched the daemon, the hook or the contracts, run the smoke test too.
 
 ## How it's tested
@@ -91,13 +109,23 @@ Tests and scripts must never touch your real machine state: `~/.claude/settings.
 
 ## Releases
 
-The version lives in the `VERSION` file at the repository root. A release is cut with:
+The version lives in the `VERSION` file at the repository root. The compiled binaries carry it, and so does the menu-bar app's bundle.
+
+`scripts/release.ts` builds a release: the hook, daemon and CLI binaries, the UI and the menu-bar app, packed as `dist/release/session-inbox-<version>-macos-arm64.tar.gz` with a `.sha256` file beside it. Release builds are Apple silicon only.
 
 ```bash
 bun scripts/release.ts
 ```
 
-Pushing the release tag runs the **Release** workflow on GitHub, which builds the app and publishes it, with checksums, as a GitHub release. The installer and the in-app updater both read from there. Write the release's notes in the [Changelog](changelog.md) as part of the change.
+Add `--publish` to also create the GitHub Release with `gh`, with the tarball, its checksum and `install.sh` attached. It refuses to run on a dirty tree or when the tag exists, locally or on `origin`. It publishes the version in `VERSION` as `v<version>` and doesn't bump it:
+
+```bash
+bun scripts/release.ts --publish
+```
+
+The other way is the **Release** workflow, run by hand from the repository's Actions tab with a patch, minor or major bump. It runs `scripts/bump.ts` to bump `VERSION` and commits it, runs the tests, typecheck, lint, smoke test and the Rust checks, builds with `scripts/release.ts`, verifies the result with `scripts/verify-release.ts --require-app`, then tags, pushes and publishes. Because it bumps first, a patch bump from `0.2.0` publishes `0.2.1`.
+
+CI runs the same checks on every push and pull request, plus a `package` job that builds the full release and verifies it. Nothing is uploaded from CI. The installer and the in-app updater both read releases from GitHub. Write the release's notes in the [Changelog](changelog.md) as part of the change.
 
 ## Recording a decision
 
@@ -113,7 +141,7 @@ The [Decisions](decisions.md) page on this site is generated from that file at b
 
 ## Working on this site
 
-The documentation is Markdown in `site/content`, built by `scripts/build-site.ts`. See `site/README.md` for how to add a page. Build it, check every link and preview it with:
+The documentation is Markdown in `site/content`, built by `scripts/build-site.ts`. **When behaviour changes, update the matching page in `site/content/` in the same change.** See `site/README.md` for how to add a page. Build it, check every link and preview it with:
 
 ```bash
 bun scripts/build-site.ts --check
