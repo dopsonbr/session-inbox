@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test"
-import type { ItemDetail, SettingsResponse } from "@session-inbox/contracts"
+import type { DoctorReport, ItemDetail, SettingsResponse } from "@session-inbox/contracts"
 import { Effect, Option } from "effect"
 import { withExtraSettings } from "../src/client/extraSettings.ts"
 import { fakeUpdateStatus, makeFakeClient } from "../src/client/fake.ts"
+import { fakeDoctorReport } from "../src/client/fakeDoctor.ts"
 import { makeHttpClient } from "../src/client/http.ts"
 import { Message } from "../src/message.ts"
 import type { Model } from "../src/model.ts"
@@ -14,7 +15,7 @@ import { navView } from "../src/view/nav.ts"
 import { queueView } from "../src/view/queue.ts"
 import { settingsBody } from "../src/view/settings.ts"
 import { versionView } from "../src/view/update.ts"
-import { findAll, h, textOf } from "./vnode.ts"
+import { attrOf, findAll, h, textOf } from "./vnode.ts"
 
 const NOW = 1_800_000_000_000
 const MIN = 60_000
@@ -264,6 +265,18 @@ describe("settings: retention days", () => {
       | undefined
     expect(Object.keys(resetSave?.args.patch ?? {})).toContain("holds.enabled")
     expect(Object.keys(resetSave?.args.patch ?? {})).not.toContain("storage.retentionDays")
+  })
+
+  test("the footer links to Setup once the daemon has a report", () => {
+    const model = opened(fakeResponse())
+    expect(textOf(settingsBody(model, h))).not.toContain("Setup check")
+    const withReport = update(
+      model,
+      Message.SucceededFetchDoctor({ report: fakeDoctorReport("attention", NOW) as DoctorReport }),
+    ).model
+    const body = settingsBody(withReport, h)
+    expect(textOf(body)).toContain("Setup check · 2 need attention")
+    expect(findAll(body, "a").map((a) => attrOf(a, "href"))).toContain("#/setup")
   })
 
   test("the fake daemon clamps days to 1–365", () => {
