@@ -9,9 +9,9 @@ section: Reference
 
 What changed in each release, newest first. Versions are tagged on [GitHub Releases](https://github.com/dopsonbr/session-inbox/releases), where you can download them.
 
-## Unreleased
+## 0.3.1
 
-On `main`, not in a release yet.
+Published 2026-11-10: [v0.3.1 on GitHub](https://github.com/dopsonbr/session-inbox/releases/tag/v0.3.1).
 
 - **A lapsed request says so again.** Fixed in the detail pane: a request that had passed to Claude's own prompt read "Decided here: Left to Claude's own prompt" in 0.3.0. It reads "Claude is asking in its own window. Answer there." with **Open in Claude**, as before.
 - **Told when a command hangs.** A tool call that has been running for more than 5 minutes (a hung command, a dev server started in the foreground) shows up in **Review** as "Running npm run dev for 12 min", with one notification. **Done** if it's meant to run, **Open in Claude** to stop it. Session Inbox now also registers Claude's `PostToolUseFailure` hook, so a command that failed or timed out isn't mistaken for one that is still running. See [Using it](using-it.md#when-a-command-hangs).
