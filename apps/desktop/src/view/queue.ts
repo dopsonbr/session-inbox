@@ -4,14 +4,17 @@ import type { Html, HtmlBuilder } from "foldkit/html"
 import { Message } from "../message.ts"
 import type { Model, QueueTab } from "../model.ts"
 import {
+  agentDisplayName,
   findAgent,
   findProject,
   findSession,
   formatAge,
+  formatAgo,
   formatClock,
   itemsInQueue,
   workingSessions,
 } from "../selectors.ts"
+import { inlineLineView } from "./markdown.ts"
 import { dot, Icon, itemBadge } from "./parts.ts"
 
 type H = HtmlBuilder<Message>
@@ -58,10 +61,7 @@ const breadcrumb = (snapshot: Snapshot, item: Item): string => {
       Option.map(project, (p) => p.name),
       () => "",
     ),
-    Option.getOrElse(
-      Option.map(agent, (a) => a.name),
-      () => "",
-    ),
+    Option.getOrElse(Option.map(agent, agentDisplayName), () => ""),
   ]
     .filter((part) => part !== "")
     .join(" › ")
@@ -127,7 +127,10 @@ const itemCard = (model: Model, snapshot: Snapshot, item: Item, h: H): Html => {
           ),
           item.summary === null
             ? h.empty
-            : h.div([h.Class("text-[13px] text-muted-foreground")], [item.summary]),
+            : h.div(
+                [h.Class("truncate text-[13px] text-muted-foreground")],
+                inlineLineView(h, item.summary),
+              ),
         ],
       ),
     ],
@@ -172,7 +175,7 @@ const sessionCard = (model: Model, snapshot: Snapshot, session: Session, h: H): 
               ),
               h.span(
                 [h.Class("ml-auto text-subtle-foreground")],
-                [`active ${formatAge(model.now, session.lastEventAt)}`],
+                [`active ${formatAgo(model.now, session.lastEventAt)}`],
               ),
             ],
           ),

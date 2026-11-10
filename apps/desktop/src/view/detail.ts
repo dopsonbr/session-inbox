@@ -8,10 +8,19 @@ import type {
 } from "@session-inbox/contracts"
 import { Option } from "effect"
 import { childAttributes, type Html, type HtmlBuilder } from "foldkit/html"
+import { COLLAPSED_LINES, collapsedSource, lineCount } from "../markdown.ts"
 import { Message, type SnoozeAction } from "../message.ts"
 import type { AnswerDraft, Form, Model } from "../model.ts"
-import { areAnswersComplete, findAgent, findSession, formatAge, formatClock } from "../selectors.ts"
+import {
+  agentDisplayName,
+  areAnswersComplete,
+  findAgent,
+  findSession,
+  formatAgo,
+  formatClock,
+} from "../selectors.ts"
 import { QuestionRadioGroup, SnoozeMenu } from "../update.ts"
+import { markdownView } from "./markdown.ts"
 import {
   Icon,
   itemBadge,
@@ -43,7 +52,7 @@ const agentName = (snapshot: Option.Option<Snapshot>, detail: ItemDetail): Optio
   Option.flatMap(snapshot, (s) =>
     Option.map(
       Option.filter(findAgent(s, detail.item.agentId), (a) => a.parentAgentId !== null),
-      (a) => a.name,
+      agentDisplayName,
     ),
   )
 
@@ -162,11 +171,11 @@ const detailHeader = (model: Model, detail: ItemDetail, h: H): Html => {
 
 // CONTEXT STRIP
 
-const contextStrip = (model: Model, detail: ItemDetail, h: H): Html => {
+export const contextStrip = (model: Model, detail: ItemDetail, h: H): Html => {
   const { session } = detail
-  const cell = (label: string, value: Html | string, mono = false) =>
+  const cell = (label: string, value: Html | string, title: string, mono = false) =>
     h.div(
-      [h.Class("bg-sidebar px-3 py-2.5")],
+      [h.Class("min-w-0 bg-sidebar px-3 py-2.5")],
       [
         h.dt(
           [h.Class("text-[11px] font-semibold uppercase tracking-[0.06em] text-subtle-foreground")],
@@ -177,27 +186,81 @@ const contextStrip = (model: Model, detail: ItemDetail, h: H): Html => {
             h.Class(
               `m-0 mt-0.5 truncate text-[14px] font-medium ${mono ? "font-mono text-[13px]" : ""}`,
             ),
+            h.Title(title),
           ],
           [value],
         ),
       ],
     )
+  const branch = session.worktree ?? session.branch ?? "—"
+  // Always four cells: 4 across, or 2×2 when the pane is narrow (`.context-strip`, U-040).
   return h.dl(
+    [h.Class("context-strip m-0 gap-px overflow-hidden rounded-xl border border-border bg-border")],
     [
-      h.Class(
-        "m-0 grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-px overflow-hidden rounded-xl border border-border bg-border",
-      ),
-    ],
-    [
-      cell("Runs on", runtimeLabel(session)),
-      session.worktree !== null
-        ? cell("Worktree", session.worktree, true)
-        : cell("Branch", session.branch ?? "—", true),
+      cell("Runs on", runtimeLabel(session), runtimeLabel(session)),
+      cell(session.worktree !== null ? "Worktree" : "Branch", branch, branch, true),
       cell(
         "Session",
         h.span([h.Class(toneText[sessionTone(session)])], [sessionStateLabel(session)]),
+        sessionStateLabel(session),
       ),
-      cell("Last activity", `${formatAge(model.now, session.lastEventAt)} ago`),
+      cell(
+        "Last activity",
+        formatAgo(model.now, session.lastEventAt),
+        formatClock(session.lastEventAt),
+      ),
+    ],
+  )
+}
+
+// CLAUDE'S LAST MESSAGE (C-023, U-033)
+
+export const lastMessageView = (model: Model, detail: ItemDetail, h: H): Html => {
+  const message = detail.lastMessage
+  if (message === undefined || message.trim() === "") {
+    return h.empty
+  }
+  const collapsed = collapsedSource(message)
+  const isExpanded = model.isLastMessageExpanded
+  const shown = collapsed === null || isExpanded ? message : collapsed
+  const bodyId = `last-message-${detail.item.id}`
+  return h.section(
+    [
+      h.AriaLabelledBy(`${bodyId}-title`),
+      h.Class("flex min-w-0 flex-col gap-2 rounded-xl border border-border bg-background p-4"),
+    ],
+    [
+      h.h2(
+        [
+          h.Id(`${bodyId}-title`),
+          h.Class("text-[11px] font-semibold uppercase tracking-[0.06em] text-subtle-foreground"),
+        ],
+        ["Claude's last message"],
+      ),
+      h.div(
+        [h.Id(bodyId), h.Class(`md ${collapsed !== null && !isExpanded ? "md-faded" : ""}`)],
+        markdownView(h, shown),
+      ),
+      collapsed === null
+        ? h.empty
+        : h.button(
+            [
+              h.Type("button"),
+              h.Class("btn self-start"),
+              h.DataAttribute("variant", "ghost"),
+              h.DataAttribute("size", "sm"),
+              h.AriaExpanded(isExpanded),
+              h.AriaControls(bodyId),
+              h.OnClick(Message.ToggledLastMessageExpanded()),
+            ],
+            [
+              isExpanded
+                ? "Show less"
+                : lineCount(message) > COLLAPSED_LINES
+                  ? `Show all ${lineCount(message)} lines`
+                  : "Show all",
+            ],
+          ),
     ],
   )
 }
@@ -514,8 +577,37 @@ const approvalCard = (model: Model, detail: ItemDetail, approval: Approval, h: H
 
 // SHORT REPLY
 
-const replyForm = (model: Model, detail: ItemDetail, form: Form, h: H): Html => {
+/** The daemon says a reply can't be sent from here (C-023): say so instead of a reply box. */
+const replyUnavailableView = (model: Model, reason: string, h: H): Html => {
+  const isOpening = model.submission._tag === "Sending" && model.submission.action === "open"
+  return h.section(
+    [
+      h.AriaLabel("Reply to Claude"),
+      h.Class("flex flex-col gap-2.5 rounded-xl border border-border p-4"),
+    ],
+    [
+      h.p([h.Class("text-[13px] text-foreground")], [reason]),
+      h.button(
+        [
+          h.Type("button"),
+          h.Class("btn self-start"),
+          h.DataAttribute("size", "lg"),
+          h.Disabled(isOpening),
+          h.OnClick(Message.ClickedOpenInClaude()),
+        ],
+        [Icon.external(h), "Open in Claude"],
+      ),
+    ],
+  )
+}
+
+export const replyForm = (model: Model, detail: ItemDetail, form: Form, h: H): Html => {
+  if (detail.replyUnavailable !== undefined) {
+    return replyUnavailableView(model, detail.replyUnavailable, h)
+  }
   const isSending = model.submission._tag === "Sending" && model.submission.action === "reply"
+  const replyErrorId = `reply-${detail.item.id}-error`
+  const replyError = Option.getOrUndefined(model.maybeReplyError)
   return h.form(
     [
       h.AriaLabel("Reply to Claude"),
@@ -539,7 +631,13 @@ const replyForm = (model: Model, detail: ItemDetail, form: Form, h: H): Html => 
               [h.Class("flex flex-col gap-1.5")],
               [
                 h.label([...label, h.Class("text-[14px] font-semibold")], ["Short reply"]),
-                h.textarea([...textarea, h.Class("textarea min-h-20 text-[13px]")]),
+                h.textarea([
+                  ...textarea,
+                  h.Class("textarea min-h-20 text-[13px]"),
+                  ...(replyError === undefined
+                    ? []
+                    : [h.AriaInvalid(true), h.AriaErrorMessage(replyErrorId)]),
+                ]),
                 h.p(
                   [...description, h.Class("text-xs text-subtle-foreground")],
                   [
@@ -551,6 +649,16 @@ const replyForm = (model: Model, detail: ItemDetail, form: Form, h: H): Html => 
         },
         h,
       ),
+      replyError === undefined
+        ? h.empty
+        : h.p(
+            [
+              h.Id(replyErrorId),
+              h.Role("alert"),
+              h.Class("rounded-md bg-failed-tint px-2.5 py-1.5 text-[13px] text-failed"),
+            ],
+            [replyError],
+          ),
       h.div(
         [h.Class("flex justify-end")],
         [
@@ -615,7 +723,7 @@ const deliveryView = (model: Model, detail: ItemDetail, h: H): Html => {
                 h.span([h.Class("min-w-0 flex-1 truncate text-muted-foreground")], [entry.body]),
                 h.span(
                   [h.Class("shrink-0 text-xs text-subtle-foreground")],
-                  [formatAge(model.now, entry.createdAt)],
+                  [formatAgo(model.now, entry.createdAt)],
                 ),
                 entry.lastError === null
                   ? h.empty
@@ -736,6 +844,7 @@ const loadedView = (model: Model, detail: ItemDetail, h: H): ReadonlyArray<Html>
   return [
     detailHeader(model, detail, h),
     contextStrip(model, detail, h),
+    lastMessageView(model, detail, h),
     action,
     deliveryView(model, detail, h),
     activityView(model, detail, h),

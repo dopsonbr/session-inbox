@@ -1,5 +1,5 @@
 import { Checkbox, Dialog } from "@foldkit/ui"
-import { HOLDABLE_TOOLS, type Project, type UserSettingKey } from "@session-inbox/contracts"
+import { HOLDABLE_TOOLS, type Project } from "@session-inbox/contracts"
 import { Option } from "effect"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { Message } from "../message.ts"
@@ -8,15 +8,17 @@ import {
   isDefault,
   type Loaded,
   msToSeconds,
+  presentFields,
   RESET_ALL,
-  SETTINGS_FIELDS,
   SETTINGS_GROUPS,
   type SettingsField,
   type SettingsGroupId,
   SettingsMessage,
   type SettingsModel,
+  settingValue,
 } from "../settings.ts"
 import { Icon, kbd } from "./parts.ts"
+import { attentionLabel } from "./setup.ts"
 
 // SETTINGS DIALOG (U-026): renders SETTINGS_FIELDS; every control saves on its own.
 
@@ -32,6 +34,9 @@ const formatValue = (field: SettingsField, value: unknown): string => {
   }
   if (field.kind === "seconds") {
     return `${msToSeconds(value as number)} s`
+  }
+  if (field.kind === "days") {
+    return value === 1 ? "1 day" : `${String(value)} days`
   }
   const list = value as ReadonlyArray<string>
   return list.length === 0 ? "none" : list.join(", ")
@@ -65,7 +70,7 @@ const helpLine = (loaded: Loaded, field: SettingsField, h: H): Html =>
         : h.span(
             [],
             [
-              ` Default: ${formatValue(field, loaded.saved.defaults[field.key])}. `,
+              ` Default: ${formatValue(field, settingValue(loaded.saved.defaults, field.key))}. `,
               h.button(
                 [
                   h.Type("button"),
@@ -92,7 +97,7 @@ const checkBox = (h: H, isChecked: boolean): Html =>
   )
 
 const toggleRow = (loaded: Loaded, field: SettingsField, isDisabled: boolean, h: H): Html => {
-  const isChecked = loaded.shown[field.key] === true
+  const isChecked = settingValue(loaded.shown, field.key) === true
   return Checkbox.view(
     {
       id: idFor(field.key),
@@ -134,7 +139,8 @@ const enterCommits = (key: string, h: H) =>
       : Option.none(),
   )
 
-const secondsRow = (
+/** Seconds (stored as ms) or whole days: "Wait for an answer [45] seconds". */
+const numberRow = (
   settings: SettingsModel,
   loaded: Loaded,
   field: SettingsField,
@@ -143,8 +149,11 @@ const secondsRow = (
 ): Html => {
   const id = idFor(field.key)
   const draft = settings.drafts[field.key]
-  const value = draft ?? msToSeconds(loaded.shown[field.key] as number)
+  const current = settingValue(loaded.shown, field.key) as number
+  const value = draft ?? (field.kind === "seconds" ? msToSeconds(current) : String(current))
   const failed = settings.status[field.key]?._tag === "Failed"
+  const unit =
+    field.kind === "seconds" ? "seconds" : current === 1 && draft === undefined ? "day" : "days"
   return h.div(
     [h.Class("flex flex-col gap-1")],
     [
@@ -155,7 +164,7 @@ const secondsRow = (
           h.input([
             h.Id(id),
             h.Type("text"),
-            h.InputMode("decimal"),
+            h.InputMode(field.kind === "seconds" ? "decimal" : "numeric"),
             h.Class("input h-8 w-24 text-[13px]"),
             h.Value(value),
             h.Disabled(isDisabled),
@@ -167,7 +176,7 @@ const secondsRow = (
             h.OnBlur(send(SettingsMessage.CommittedDraft({ key: field.key }))),
             enterCommits(field.key, h),
           ]),
-          h.span([h.Class("text-[13px] text-muted-foreground")], ["seconds"]),
+          h.span([h.Class("text-[13px] text-muted-foreground")], [unit]),
         ],
       ),
       helpLine(loaded, field, h),
@@ -232,7 +241,7 @@ const listRow = (
   h: H,
 ): Html => {
   const id = idFor(field.key)
-  const list = loaded.shown[field.key] as ReadonlyArray<string>
+  const list = settingValue(loaded.shown, field.key) as ReadonlyArray<string>
   return h.div(
     [h.Class("flex flex-col gap-1.5")],
     [
@@ -321,7 +330,8 @@ const fieldRow = (settings: SettingsModel, loaded: Loaded, field: SettingsField,
       case "toggle":
         return toggleRow(loaded, field, isDisabled, h)
       case "seconds":
-        return secondsRow(settings, loaded, field, isDisabled, h)
+      case "days":
+        return numberRow(settings, loaded, field, isDisabled, h)
       case "tools":
         return toolsRow(loaded, field, isDisabled, h)
       case "list":
@@ -346,7 +356,7 @@ const helpLineForToggle = (loaded: Loaded, field: SettingsField, h: H): Html =>
   h.p(
     [h.Class("pl-6.5 text-xs text-subtle-foreground")],
     [
-      `Default: ${formatValue(field, loaded.saved.defaults[field.key])}. `,
+      `Default: ${formatValue(field, settingValue(loaded.saved.defaults, field.key))}. `,
       h.button(
         [
           h.Type("button"),
@@ -414,8 +424,19 @@ const mutedProjects = (model: Model, h: H): Html => {
   )
 }
 
-const groupSection = (model: Model, loaded: Loaded, group: SettingsGroupId, title: string, h: H) =>
-  h.section(
+const groupSection = (
+  model: Model,
+  loaded: Loaded,
+  group: SettingsGroupId,
+  title: string,
+  h: H,
+): Html => {
+  const fields = presentFields(loaded.saved).filter((f) => f.group === group)
+  // A group whose only settings this daemon doesn't have (Storage on an older one) is hidden.
+  if (fields.length === 0 && group !== "sessions") {
+    return h.empty
+  }
+  return h.section(
     [h.AriaLabelledBy(`settings-group-${group}`), h.Class("flex flex-col gap-3.5")],
     [
       h.h3(
@@ -425,18 +446,39 @@ const groupSection = (model: Model, loaded: Loaded, group: SettingsGroupId, titl
         ],
         [title],
       ),
-      ...SETTINGS_FIELDS.filter((f) => f.group === group).map((f) =>
-        fieldRow(model.settings, loaded, f, h),
-      ),
+      ...fields.map((f) => fieldRow(model.settings, loaded, f, h)),
       group === "sessions" ? mutedProjects(model, h) : h.empty,
     ],
   )
+}
 
-const body = (model: Model, h: H): Html => {
+/** Footer link to the Setup panel (U-034); navigating closes the dialog. */
+const setupLink = (model: Model, h: H): Html =>
+  model.doctor._tag === "Unknown" || model.doctor._tag === "Unavailable"
+    ? h.empty
+    : h.a(
+        [
+          h.Href("#/setup"),
+          h.Class(
+            "ml-auto inline-flex items-center gap-1 rounded text-[13px] text-foreground underline-offset-2 hover:underline",
+          ),
+        ],
+        [
+          "Setup check",
+          model.doctor._tag === "Loaded" && model.doctor.report.attention > 0
+            ? h.span(
+                [h.Class("text-xs font-semibold text-needs")],
+                [` · ${attentionLabel(model.doctor.report.attention)}`],
+              )
+            : h.empty,
+        ],
+      )
+
+export const settingsBody = (model: Model, h: H): Html => {
   const load = model.settings.load
   if (load._tag === "Loaded") {
     const loaded = load.loaded
-    const allDefault = SETTINGS_FIELDS.every((f) => isDefault(loaded, f.key as UserSettingKey))
+    const allDefault = presentFields(loaded.saved).every((f) => isDefault(loaded, f.key))
     return h.div(
       [h.Class("flex flex-col gap-6")],
       [
@@ -456,13 +498,20 @@ const body = (model: Model, h: H): Html => {
               ["Reset all to defaults"],
             ),
             statusLine(model.settings, RESET_ALL, h),
+            setupLink(model, h),
           ],
         ),
       ],
     )
   }
   if (load._tag === "Failed") {
-    return h.p([h.Class("text-[13px] text-failed"), h.Role("alert")], [load.error])
+    return h.div(
+      [h.Class("flex flex-col gap-3")],
+      [
+        h.p([h.Class("text-[13px] text-failed"), h.Role("alert")], [load.error]),
+        setupLink(model, h),
+      ],
+    )
   }
   return h.p([h.Class("text-[13px] text-muted-foreground")], ["Loading settings…"])
 }
@@ -514,7 +563,7 @@ export const settingsDialogView = (model: Model, h: H): Html =>
                         ),
                       ],
                     ),
-                    h.div([h.Class("overflow-y-auto px-5 py-4")], [body(model, h)]),
+                    h.div([h.Class("overflow-y-auto px-5 py-4")], [settingsBody(model, h)]),
                   ],
                 ),
               ]

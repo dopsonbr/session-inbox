@@ -36,18 +36,19 @@ describe("reload on a new daemon build", () => {
   test("first hello is remembered; the same build again does nothing", () => {
     const a = update(fresh(), hello("0.1.0", "abc"))
     expect(a.model.maybeDaemonBuild).toEqual(Option.some("0.1.0·abc"))
-    expect(names(a)).toEqual([])
-    expect(names(update(a.model, hello("0.1.0", "abc")))).toEqual([])
+    // Every hello also refetches the setup check (U-034).
+    expect(names(a)).toEqual(["FetchDoctor"])
+    expect(names(update(a.model, hello("0.1.0", "abc")))).toEqual(["FetchDoctor"])
   })
   test("a reconnect to a different build or version reloads the page", () => {
     const a = update(fresh(), hello("0.1.0", "abc")).model
-    expect(names(update(a, hello("0.1.0", "def")))).toEqual(["ReloadPage"])
-    expect(names(update(a, hello("0.3.0", "abc")))).toEqual(["ReloadPage"])
+    expect(names(update(a, hello("0.1.0", "def")))).toEqual(["ReloadPage", "FetchDoctor"])
+    expect(names(update(a, hello("0.3.0", "abc")))).toEqual(["ReloadPage", "FetchDoctor"])
   })
   test("an old daemon's hello (no build) never reloads", () => {
     const a = update(fresh(), hello()).model
     expect(a.maybeDaemonBuild).toEqual(Option.none())
-    expect(names(update(update(a, hello()).model, hello("0.1.0", "x")))).toEqual([])
+    expect(names(update(update(a, hello()).model, hello("0.1.0", "x")))).toEqual(["FetchDoctor"])
   })
 })
 

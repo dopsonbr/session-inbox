@@ -4,7 +4,9 @@ import type { Html, HtmlBuilder } from "foldkit/html"
 import type { Message } from "../message.ts"
 import type { Model } from "../model.ts"
 import { findProject, findSession, formatAge, hashForItem, itemsInQueue } from "../selectors.ts"
+import { inlineLineView } from "./markdown.ts"
 import { dot, itemKindLabel, itemTone, kbd } from "./parts.ts"
+import { compactSetupRowView } from "./setup.ts"
 import { compactUpdateRowView } from "./update.ts"
 
 type H = HtmlBuilder<Message>
@@ -19,6 +21,15 @@ const row = (model: Model, snapshot: Snapshot, item: Item, isFirst: boolean, h: 
     Option.flatMap(session, (s) => Option.fromNullishOr(s.title)),
     () => "Untitled session",
   )
+  const projectName = Option.getOrElse(
+    Option.map(project, (p) => p.name),
+    () => "",
+  )
+  // Review rows say what was done (the summary, inline Markdown, one line); others say what's asked.
+  const subtitle: ReadonlyArray<Html | string> =
+    item.queue === "review" && item.summary !== null
+      ? inlineLineView(h, item.summary)
+      : [`${itemKindLabel(item)} · ${projectName}`]
   return h.keyed("li")(
     item.id,
     [],
@@ -39,15 +50,7 @@ const row = (model: Model, snapshot: Snapshot, item: Item, isFirst: boolean, h: 
                 [h.Class("block truncate text-[14px] font-semibold text-foreground")],
                 [title],
               ),
-              h.span(
-                [h.Class("block truncate text-xs text-muted-foreground")],
-                [
-                  `${itemKindLabel(item)} · ${Option.getOrElse(
-                    Option.map(project, (p) => p.name),
-                    () => "",
-                  )}`,
-                ],
-              ),
+              h.span([h.Class("block truncate text-xs text-muted-foreground")], subtitle),
             ],
           ),
           h.span(
@@ -55,6 +58,35 @@ const row = (model: Model, snapshot: Snapshot, item: Item, isFirst: boolean, h: 
             [formatAge(model.now, item.createdAt)],
           ),
         ],
+      ),
+    ],
+  )
+}
+
+/** How many "Ready to review" rows the popover lists when nothing needs you. */
+export const COMPACT_REVIEW_LIMIT = 5
+
+/** When nothing needs you, the popover shows what's ready to review instead of empty space. */
+const reviewList = (model: Model, snapshot: Snapshot, h: H): Html => {
+  const items = itemsInQueue(snapshot, model.itemOrder, "review").slice(0, COMPACT_REVIEW_LIMIT)
+  if (items.length === 0) {
+    return h.empty
+  }
+  return h.section(
+    [h.AriaLabelledBy("compact-review-label"), h.Class("border-t border-border pb-1")],
+    [
+      h.p(
+        [
+          h.Id("compact-review-label"),
+          h.Class(
+            "px-3.5 pt-3 pb-1 text-xs font-semibold tracking-[0.06em] text-subtle-foreground uppercase",
+          ),
+        ],
+        ["Ready to review"],
+      ),
+      h.ul(
+        [h.AriaLabelledBy("compact-review-label"), h.Class("m-0 list-none p-0")],
+        items.map((item) => row(model, snapshot, item, false, h)),
       ),
     ],
   )
@@ -84,10 +116,21 @@ export const compactView = (model: Model, h: H): Html =>
             ],
           ),
           compactUpdateRowView(model, h),
+          compactSetupRowView(model, h),
           items.length === 0
-            ? h.p(
-                [h.Class("flex items-center gap-2 px-3.5 py-4 text-[13px] text-muted-foreground")],
-                [dot(h, "ready"), "Nothing needs you right now."],
+            ? h.div(
+                [],
+                [
+                  h.p(
+                    [
+                      h.Class(
+                        "flex items-center gap-2 px-3.5 py-4 text-[13px] text-muted-foreground",
+                      ),
+                    ],
+                    [dot(h, "ready"), "Nothing needs you right now."],
+                  ),
+                  reviewList(model, snapshot, h),
+                ],
               )
             : h.ul(
                 [h.AriaLabel("Needs you"), h.Class("m-0 list-none p-0")],

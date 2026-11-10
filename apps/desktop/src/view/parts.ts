@@ -34,6 +34,25 @@ export const Icon = {
   shield: (h: H, c?: string) => icon(h, ["M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"], c),
   alert: (h: H, c?: string) =>
     icon(h, ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M15 9l-6 6", "M9 9l6 6"], c),
+  warn: (h: H, c?: string) =>
+    icon(
+      h,
+      [
+        "M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z",
+        "M12 9v4",
+        "M12 17h.01",
+      ],
+      c,
+    ),
+  info: (h: H, c?: string) =>
+    icon(h, ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M12 16v-4", "M12 8h.01"], c),
+  copy: (h: H, c?: string) => icon(h, ["M9 9h11v11H9z", "M5 15H4V4h11v1"], c),
+  wrench: (h: H, c?: string) =>
+    icon(
+      h,
+      ["M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"],
+      c,
+    ),
   activity: (h: H, c?: string) => icon(h, ["M22 12h-4l-3 9L9 3l-3 9H2"], c),
   clock: (h: H, c?: string) => icon(h, ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M12 7v5l3 2"], c),
   send: (h: H, c?: string) => icon(h, ["M22 2L11 13", "M22 2l-7 20-4-9-9-4 20-7z"], c),

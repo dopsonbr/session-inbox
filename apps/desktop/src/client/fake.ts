@@ -15,8 +15,9 @@ import type {
   TimelineEntry,
   UpdateStatus,
 } from "@session-inbox/contracts"
-import { Effect, Queue, Stream } from "effect"
+import { Effect, Option, Queue, Stream } from "effect"
 import { DaemonClient, type DaemonClientShape, DaemonError } from "./daemonClient.ts"
+import { fakeDoctorReport, fakeSetupKind, fakeTestNotify } from "./fakeDoctor.ts"
 import { makeFakeSettings } from "./fakeSettings.ts"
 import { type Fixtures, makeFixtures } from "./fixtures.ts"
 
@@ -30,6 +31,12 @@ export type FakeOptions = Readonly<{
   delayScale?: number
   /** `?update=available|updating|failed|source|none` picks the update banner state. */
   update?: string | null
+  /** `?setup=ok|attention|firstrun|none` picks the setup check report (none = 404). */
+  setup?: string | null
+  /** `?reply=conflict`: every reply is answered 409, to show the inline error. */
+  reply?: string | null
+  /** `?needs=none`: start with nothing in Needs you (the popover's review list). */
+  needs?: string | null
 }>
 
 const FAKE_VERSION = "0.1.0"
@@ -76,7 +83,12 @@ export const fakeUpdateStatus = (kind: string | null | undefined, now: number): 
     case "source":
       return { ...base, ...offered, state: "available", source: "source", auto: false }
     case "updated":
-      return { ...base, justUpdatedFrom: "0.0.9", updatedAt: now }
+      return {
+        ...base,
+        justUpdatedFrom: "0.0.9",
+        updatedAt: now,
+        notesUrl: "https://github.com/dopsonbr/session-inbox/releases/tag/v0.1.0",
+      }
     case "unsupported":
       return { ...base, state: "unsupported", source: null, auto: false, checkedAt: null }
     default:
@@ -95,12 +107,18 @@ export const makeFakeClient = (options: FakeOptions = {}): FakeDaemon => {
   const now = options.now ?? (() => Date.now())
   const delayScale = options.delayScale ?? 1
   const db = makeFixtures(now())
+  if (options.needs === "none") {
+    db.items = db.items.map((i) =>
+      i.queue === "needs-you" ? { ...i, state: "resolved", queue: "done", live: false } : i,
+    )
+  }
   let seq = 100
   const log: Array<StreamMessage> = []
   const listeners = new Set<(message: StreamMessage) => void>()
   let simulationStarted = false
   // Tests get "unsupported" (no update frames) unless they ask; entry.ts defaults to "idle".
   let update = fakeUpdateStatus(options.update ?? "unsupported", now())
+  const setup = fakeSetupKind(options.setup)
   /** Live-only, like the daemon's: not in the replay log. */
   const broadcastUpdate = () => {
     for (const listener of listeners) {
@@ -335,6 +353,10 @@ export const makeFakeClient = (options: FakeOptions = {}): FakeDaemon => {
             outbox: extras?.outbox ?? [],
             draft: extras?.draft ?? null,
             openUrl: extras?.openUrl ?? null,
+            ...(extras?.lastMessage === undefined ? {} : { lastMessage: extras.lastMessage }),
+            ...(extras?.replyUnavailable === undefined
+              ? {}
+              : { replyUnavailable: extras.replyUnavailable }),
           }
           return Effect.succeed(detail)
         }),
@@ -388,6 +410,18 @@ export const makeFakeClient = (options: FakeOptions = {}): FakeDaemon => {
 
     reply: (itemId, body) =>
       findItem(itemId).pipe(
+        Effect.flatMap((item) =>
+          options.reply === "conflict" || db.extras[itemId]?.replyUnavailable !== undefined
+            ? Effect.fail(
+                new DaemonError({
+                  message:
+                    db.extras[itemId]?.replyUnavailable ??
+                    "This session is running again, so a reply can't be queued. Wait until it stops, or reply in Claude.",
+                  status: 409,
+                }),
+              )
+            : Effect.succeed(item),
+        ),
         Effect.map(() => {
           const next = closeItem(itemId, "answered")
           sendThroughOutbox(next, body.body, body.idempotencyKey)
@@ -461,6 +495,18 @@ export const makeFakeClient = (options: FakeOptions = {}): FakeDaemon => {
               broadcastUpdate()
             })
             return update
+          }),
+    doctor: Effect.sync(() => Option.fromNullishOr(fakeDoctorReport(setup, now()))),
+    doctorNotify:
+      setup === "none"
+        ? Effect.fail(new DaemonError({ message: "404 Not Found", status: 404 }))
+        : Effect.sync(() => {
+            // Like the daemon: the check may have changed; pages refetch (live-only).
+            const report = fakeDoctorReport(setup, now())
+            for (const listener of listeners) {
+              listener({ _tag: "doctor", seq, attention: report?.attention ?? 0 })
+            }
+            return fakeTestNotify(setup)
           }),
   }
 

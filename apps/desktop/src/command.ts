@@ -1,8 +1,8 @@
 import { Answer, Decision } from "@session-inbox/contracts"
-import { Clock, Effect, Schema } from "effect"
+import { Clock, Effect, Option, Schema } from "effect"
 import { Command } from "foldkit"
 import * as Dom from "foldkit/dom"
-import { DaemonClient, type DaemonError } from "./client/daemonClient.ts"
+import { DaemonClient, DaemonError } from "./client/daemonClient.ts"
 import { Message, SnoozePreset } from "./message.ts"
 import { type ActionKind, DraftBody } from "./model.ts"
 import { snoozeUntil } from "./selectors.ts"
@@ -52,8 +52,11 @@ export const FetchItemDetail = Command.define("FetchItemDetail", {
     ),
 })
 
+const statusOf = (error: unknown): number | null =>
+  error instanceof DaemonError ? error.status : null
+
 const actionFailed = (action: ActionKind) => (error: unknown) =>
-  Effect.succeed(Message.FailedAction({ action, error: describe(error) }))
+  Effect.succeed(Message.FailedAction({ action, error: describe(error), status: statusOf(error) }))
 
 export const SubmitAnswers = Command.define("SubmitAnswers", {
   args: { itemId: Schema.String, answers: Schema.Array(Answer) },
@@ -215,6 +218,81 @@ export const ReloadPage = Command.define("ReloadPage", {
     window.location.reload()
     return Message.CompletedReload()
   }),
+})
+
+// SETUP CHECK (C-021): fetch the daemon's report, copy a fix, send a test notification.
+
+export const FetchDoctor = Command.define("FetchDoctor", {
+  messages: [
+    Message.SucceededFetchDoctor,
+    Message.FoundDoctorUnavailable,
+    Message.FailedFetchDoctor,
+  ],
+  execute: Effect.gen(function* () {
+    const client = yield* DaemonClient
+    const maybeReport = yield* client.doctor
+    return Option.match(maybeReport, {
+      onNone: () => Message.FoundDoctorUnavailable(),
+      onSome: (report) => Message.SucceededFetchDoctor({ report }),
+    })
+  }).pipe(
+    Effect.catch((error) => Effect.succeed(Message.FailedFetchDoctor({ error: describe(error) }))),
+  ),
+})
+
+/** Clipboard API first; the textarea fallback covers webviews that refuse it. */
+const writeClipboard = (text: string): Promise<void> => {
+  const fallback = () => {
+    const area = document.createElement("textarea")
+    area.value = text
+    area.setAttribute("readonly", "")
+    area.style.position = "fixed"
+    area.style.opacity = "0"
+    document.body.append(area)
+    area.select()
+    const ok = document.execCommand("copy")
+    area.remove()
+    if (!ok) {
+      throw new Error("copy refused")
+    }
+  }
+  return navigator.clipboard === undefined
+    ? Promise.resolve().then(fallback)
+    : navigator.clipboard.writeText(text).catch(fallback)
+}
+
+export const CopyFix = Command.define("CopyFix", {
+  args: { checkId: Schema.String, value: Schema.String },
+  messages: [Message.CompletedCopyFix],
+  execute: ({ checkId, value }) =>
+    Effect.tryPromise(() => writeClipboard(value)).pipe(
+      Effect.as(true),
+      Effect.catch(() => Effect.succeed(false)),
+      Effect.map((isCopied) => Message.CompletedCopyFix({ checkId, value, isCopied })),
+    ),
+})
+
+export const WaitCopied = Command.define("WaitCopied", {
+  args: { checkId: Schema.String },
+  messages: [Message.CompletedCopiedWait],
+  execute: ({ checkId }) =>
+    Effect.sleep("2 seconds").pipe(Effect.as(Message.CompletedCopiedWait({ checkId }))),
+})
+
+export const SendTestNotification = Command.define("SendTestNotification", {
+  messages: [Message.SucceededTestNotification, Message.FailedTestNotification],
+  execute: Effect.gen(function* () {
+    const client = yield* DaemonClient
+    const result = yield* client.doctorNotify
+    return Message.SucceededTestNotification({
+      via: result.via ?? null,
+      message: result.message ?? null,
+    })
+  }).pipe(
+    Effect.catch((error) =>
+      Effect.succeed(Message.FailedTestNotification({ error: describe(error) })),
+    ),
+  ),
 })
 
 export const FocusTreeNode = Command.define("FocusTreeNode", {
