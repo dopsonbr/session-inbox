@@ -54,7 +54,7 @@ Run the real daemon and the real hook end to end, with no Claude account:
 bun scripts/smoke.ts
 ```
 
-Run a live daemon seeded with sample sessions, for checking the UI in a browser (build the UI first):
+Run a live daemon seeded with sample sessions, for checking the UI in a browser (build the UI first). The URLs it prints include the token (`?k=…`), which the page needs to load:
 
 ```bash
 bun run --cwd apps/desktop build
@@ -123,13 +123,13 @@ The version lives in the `VERSION` file at the repository root. The compiled bin
 bun scripts/release.ts
 ```
 
-Add `--publish` to also create the GitHub Release with `gh`, with the tarball, its checksum and `install.sh` attached. It refuses to run on a dirty tree or when the tag exists, locally or on `origin`. It publishes the version in `VERSION` as `v<version>` and doesn't bump it:
+Add `--publish` to also create the GitHub Release with `gh`, with the tarball, its checksum and `install.sh` attached. Before it builds anything it refuses unless the checkout is clean and equal to `origin/main` (after a fetch), and when the tag exists locally or on `origin`; it tags exactly the commit it built. Push your commits first. It publishes the version in `VERSION` as `v<version>` and doesn't bump it:
 
 ```bash
 bun scripts/release.ts --publish
 ```
 
-The other way is the **Release** workflow, run by hand from the repository's Actions tab with a bump of patch, minor, major or none. It runs `scripts/bump.ts` to bump `VERSION` and commits it (none publishes `VERSION` as it stands and is the choice for the first release), stops at once if that version is already tagged, runs the tests, typecheck, lint, smoke test and the Rust checks, builds with `scripts/release.ts`, verifies the result with `scripts/verify-release.ts --require-app`, then tags, pushes and publishes. Because it bumps first, a patch bump from `0.2.0` publishes `0.2.1`; choose none to publish `0.2.0`.
+The other way is the **Release** workflow, run by hand from the repository's Actions tab with a bump of patch, minor, major or none. It runs `scripts/bump.ts` to bump `VERSION` and commits it (none publishes `VERSION` as it stands and is the choice for the first release), stops at once if that version is already tagged, runs the tests, typecheck, lint, smoke test and the Rust checks, builds with `scripts/release.ts`, verifies the result with `scripts/verify-release.ts --require-app`, then tags, pushes and publishes. The workflow only runs from the default branch and pushes the commit and the tag together, so one can't land without the other. Because it bumps first, a patch bump from `0.2.0` publishes `0.2.1`; choose none to publish `0.2.0`.
 
 CI runs the same checks on every push and pull request, plus a `package` job that builds the full release and verifies it. Nothing is uploaded from CI. The installer and the in-app updater both read releases from GitHub. Write the release's notes in the [Changelog](changelog.md) as part of the change.
 

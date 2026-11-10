@@ -17,13 +17,17 @@ The daemon checks for a new release about a minute after it starts, and then abo
 - No reply is being sent to a session.
 - No Claude session has sent an event in the last 30 seconds, so nothing is mid-turn.
 
-If any of them is false, the daemon waits and installs as soon as all three hold. A session is never interrupted for an update. An install that came from source only shows the update; it doesn't install it by itself.
+If any of them is false, the daemon waits and installs as soon as all three hold. A session is never interrupted for an update. An install that came from source only shows the update; it doesn't install it by itself. Pre-release versions are never offered as updates: only stable releases count.
 
 When an update is available, the inbox shows a banner under its header: "Session Inbox <version> is available". It has an **Update now** button, a **Release notes** link and **Not now**, which hides the banner until you reload the window. The popover shows a one-line version of it with an **Update** button. Click the button when you want the update right away: it doesn't wait for the quiet conditions above.
 
-While it installs, the banner reads "Updating to <version>…" and names the step: downloading, verifying, installing, restarting. If it fails, the banner says "Couldn't update to <version>", gives the reason and offers **Try again**. A version that failed is never retried automatically, only by hand.
+While it installs, the banner reads "Updating to <version>…" and names the step: downloading, verifying, installing, restarting. When it finishes, an "Updated to <version>" notice appears. If it fails, the banner says "Couldn't update to <version>", gives the reason and offers **Try again**. The banner's hint for the terminal is `session-inbox update --yes`. A version that failed is never retried automatically, only by hand.
 
-The daemon restarts as part of an update, and the menu-bar app reconnects by itself. If a call was being held at that moment, it falls back to Claude's own prompt, which is harmless. Claude's hooks keep failing open during the swap, so a session never stalls on it. The header shows the version you're on, with a **Check for updates** link, and a **What's new** link right after an update. **Check for Updates…** in the menu-bar menu opens the same check.
+The daemon restarts as part of an update, and the menu-bar app reconnects by itself. Claude's hooks keep failing open during the swap, so a session never stalls on it.
+
+### What happens to a pending request during an update
+
+A hook that is waiting on a permission request retries for up to 15 seconds when the daemon goes away, so an update or reinstall no longer drops the request: the new daemon picks it up and you can still answer it from the inbox. If the daemon stays away longer, Claude's own prompt is all that remains, which is harmless, and when the daemon returns the item shows as **Waiting in Claude**. In the classic mode a call that was being held falls back to Claude's own prompt. The header shows the version you're on, with a **Check for updates** link, and a **What's new** link right after an update. **Check for Updates…** in the menu-bar menu opens the same check.
 
 This was tested end to end under launchd against a local release server: a held call blocked the automatic update, it applied after 30 seconds of quiet, and a corrupted download was refused. It hasn't yet run against a real GitHub Release, because none has been published.
 
@@ -80,6 +84,8 @@ curl -fsSL https://raw.githubusercontent.com/dopsonbr/session-inbox/main/install
 ```
 
 This replaces the installed binaries with that version and leaves your data alone. Database changes between versions only add tables and columns, but going back across one hasn't been tested. If you want to stay on the older version, turn off **Install updates automatically** first, or the daemon will move forward again at its next check.
+
+A pre-release tag isn't taken as the latest version, but you can still name one here.
 
 Browse the available versions on the [releases page](https://github.com/dopsonbr/session-inbox/releases), and read what changed in the [Changelog](changelog.md).
 

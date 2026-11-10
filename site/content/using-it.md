@@ -90,7 +90,7 @@ A permission item shows what Claude wants to do, so you can decide without openi
 You have three choices:
 
 - **Allow once** lets this call run.
-- **Always allow** lets it run and adds the rule Claude itself suggests for that request, so Claude doesn't ask again for this kind of call. When Claude suggests none, or in the classic mode, it adds a rule to the project's `.claude/settings.local.json`, the same place Claude's own "don't ask again for this project" writes to.
+- **Always allow** lets it run and adds one narrow rule, so Claude doesn't ask again for this kind of call. The card says what it adds: "Always allow adds <rule> <where>." For a file tool that's that one file, for WebFetch the host, for Bash the exact command, for an MCP tool that tool. If Claude suggests its own rule, that rule is used and the card shows where it's saved (this session, this project's `.claude/settings.local.json`, the project settings or your user settings). When no narrow rule fits, the button isn't shown. It never allows a whole tool by name. See [How approvals work](holds.md#what-each-answer-does).
 - **Deny** stops the call. Claude is told "Denied by the user in Session Inbox." and carries on.
 
 In the default mode, Claude's own prompt stays on screen in Claude while you decide here, and whichever you answer first wins. Allow and answers took effect about 30 ms after the decision in testing. In the classic mode, where the call is held, an allow ran it half a second later, and the very first Bash call of a Claude session takes Claude itself about ten seconds to start, however long it was held.
@@ -132,9 +132,13 @@ If Claude is paused on a held call (classic mode), **Open in Claude** releases i
 | --- | --- |
 | <kbd>⌘</kbd><kbd>⇧</kbd><kbd>I</kbd> | Open the inbox window from anywhere |
 | <kbd>⌘</kbd><kbd>K</kbd> | Jump to a session or project by name |
-| <kbd>⌘</kbd><kbd>↵</kbd> | Send answers, allow once, or send the reply: whichever is the main action of the selected item |
+| <kbd>⌘</kbd><kbd>↵</kbd> | Send answers, allow once, or send the reply: whichever is the main action of the selected item. While you're typing it works only from the reply box or a question's **Other** field. |
 | <kbd>⌘</kbd><kbd>⌫</kbd> | Deny the permission request on screen. Ignored while you're typing, so it still deletes text. |
 | <kbd>↑</kbd> <kbd>↓</kbd> | Move through the session tree |
 | <kbd>⌘</kbd><kbd>,</kbd> | Open [Settings](settings.md) |
 
-<kbd>⌘</kbd><kbd>↵</kbd>, <kbd>⌘</kbd><kbd>⌫</kbd>, <kbd>⌘</kbd><kbd>K</kbd> and <kbd>⌘</kbd><kbd>,</kbd> work in the inbox window, not in the popover.
+<kbd>⌘</kbd><kbd>↵</kbd>, <kbd>⌘</kbd><kbd>⌫</kbd>, <kbd>⌘</kbd><kbd>K</kbd> and <kbd>⌘</kbd><kbd>,</kbd> work in the inbox window, not in the popover. <kbd>⌘</kbd><kbd>↵</kbd> and <kbd>⌘</kbd><kbd>⌫</kbd> act only on the inbox view with no dialog or menu open, so they never answer an item hidden behind Settings or the <kbd>⌘</kbd><kbd>K</kbd> jump box.
+
+## Opening the inbox in a browser
+
+The menu-bar app and `session-inbox open` open the inbox for you. If you type `http://127.0.0.1:<port>/` into a browser yourself, you get a short notice instead of the inbox, because the page only loads for a request that carries the install's token. Run `session-inbox open` (or `session-inbox open beta`) and it opens the right address. `session-inbox status` prints the address with a reminder of this. The address the command opens contains a one-time `?k=`; the page removes it from the address bar as soon as it loads, and a cookie keeps reloads working. See [why](decisions.md#D-095).

@@ -22,12 +22,12 @@ Claude Code runs a `PermissionRequest` hook whenever it is about to ask you for 
 
 Because Claude isn't waiting on a hook, the inbox can offer the decision for a long time. **Wait for an answer** in Settings sets how long: 10 minutes by default, from 1 to 55 minutes. After that the inbox stops answering for Claude. The item doesn't vanish: it stays in **Needs you** as **Waiting in Claude**, with only **Open in Claude**, and its notification is replaced by "Still waiting in Claude: …" with **Open** only. It ends by itself when Claude moves on: the call runs or is denied in Claude, you type a new prompt, or the session stops or ends.
 
-An item that is Claude's own prompt but isn't live (it ran out, or the project's install only observes) shows one quiet line, "Claude is asking in its own window. Answer there.", instead of the buttons. A reply or answer typed into it is refused, because sending one would collide with the prompt on screen.
+An item that is Claude's own prompt but isn't live (it ran out, or the project's install only observes) shows one quiet line, "Claude is asking in its own window. Answer there.", instead of the buttons. The same happens to a request nobody is listening for: if its hook has been gone for 20 seconds, the item becomes **Waiting in Claude** rather than accept an answer that would go nowhere, and answering it says to answer in Claude. A reply or answer typed into it is refused, because sending one would collide with the prompt on screen.
 
 ### What each answer does
 
 - **Allow once** lets this call run.
-- **Always allow** echoes the rule Claude itself suggests for that request, as if you had chosen "always allow" in Claude's prompt. If Claude suggests none, Session Inbox writes an allow rule to the project's `.claude/settings.local.json` under `permissions.allow`, the same file and scope as Claude's own "don't ask again for this project". It adds to that file and keeps everything else in it; if the file isn't a JSON object it's left alone and the call is still allowed once.
+- **Always allow** adds one rule, scoped to this call, and the card says exactly which: "Always allow adds <rule> <where>." For a file tool the rule is that one file (`Edit(//absolute/path)`), for WebFetch the host (`WebFetch(domain:host)`), for Bash the exact command, and for an MCP tool that tool. When Claude suggests a rule of its own for the request, that rule is used instead, and the card shows it with where it's saved: this session, this project's `.claude/settings.local.json`, the project settings or your user settings. It never writes a bare tool name, which would allow every use of that tool. When no narrow rule exists for the call, there is no **Always allow** button. Rules written to `.claude/settings.local.json` go under `permissions.allow`; Session Inbox adds to that file and keeps everything else in it, and if the file isn't a JSON object it's left alone and the call is still allowed once. See [why](decisions.md#D-082).
 - **Deny** tells Claude "Denied by the user in Session Inbox." The call doesn't run and Claude carries on.
 
 ### Checked live
@@ -51,7 +51,7 @@ Session Inbox reads your allow and deny rules to decide rule 3. It understands `
 
 A held call waits up to **120 seconds** for your decision, set by **Wait for an answer** in seconds (15 to 120; the hook itself stops waiting at 120). If you haven't answered by then, Session Inbox lets go and Claude shows its own prompt. The item stays in **Needs you** as **Waiting in Claude**, the same as a prompt that ran out in the default mode. Clicking **Open in Claude** on a held item releases the hold at once, so Claude's own prompt appears and you're never looking at a frozen session.
 
-**Always allow** in this mode writes the rule to the project's `.claude/settings.local.json` as described above. **Deny** tells Claude "Denied by the user in Session Inbox."
+**Always allow** in this mode adds the same kind of narrow rule to the project's `.claude/settings.local.json`, and is offered only when one exists for the call. **Deny** tells Claude "Denied by the user in Session Inbox."
 
 ### Which settings apply to which mode
 
@@ -79,7 +79,7 @@ Session Inbox must never be the reason Claude is slow or stuck, so the hook is b
 - If the daemon is slow to accept an event, the hook gives up after half a second.
 - If anything inside the hook goes wrong, including a bad payload or a closed socket, it still exits cleanly with no output.
 - The hook never exits with an error code that would block a call.
-- If the daemon disappears while a request is waiting, the hook goes quiet rather than denying anything.
+- If the daemon disappears while a request is waiting, the hook never denies anything. It retries for up to 15 seconds, so an update or reinstall doesn't drop a pending request, and if the daemon is still away after that it prints nothing and Claude's own prompt is all that remains. When the daemon comes back, the item shows as **Waiting in Claude**.
 - In the default mode the `PermissionRequest` hook prints a decision only when you answer in the inbox. When the wait runs out it prints nothing, which leaves Claude's own prompt on screen. In the classic mode, the only time the hook prints a decision on its own is when the 120 seconds run out, and then it says "ask", which hands the call back to Claude.
 
 ## Two channels on one machine
