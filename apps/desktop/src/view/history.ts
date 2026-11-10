@@ -31,6 +31,7 @@ export const MATCH_WORD: Record<HistoryMatch["where"], string> = {
   tool: "tool call",
   reply: "reply",
   reason: "reason",
+  branch: "branch",
   path: "path",
 }
 

@@ -159,11 +159,11 @@ interface Related {
 
 /**
  * Where the search matched when the row's own lines don't show it: the first word that
- * isn't in the summary, session title, branch or project name, found in what the item
+ * isn't in the summary, session title or project name, found in what the item
  * carried. Absent when every word is already visible.
  */
 export const matchOf = (item: ItemRow, r: Related, words: string[]): HistoryMatch | undefined => {
-  const visible = [item.summary, r.session.title, r.session.branch, r.project.name]
+  const visible = [item.summary, r.session.title, r.project.name]
     .filter((t): t is string => t !== null)
     .join("\n")
     .toLowerCase()
@@ -178,6 +178,7 @@ export const matchOf = (item: ItemRow, r: Related, words: string[]): HistoryMatc
     ["tool", r.approval ? [r.approval.tool, ...strings(parsed(r.approval.input_json))] : []],
     ["reason", r.approval?.reason ? [r.approval.reason] : []],
     ["reply", r.replies.map((o) => o.body)],
+    ["branch", r.session.branch ? [r.session.branch] : []],
     ["path", r.session.cwd ? [r.session.cwd] : []],
   ]
   for (const [where, texts] of sources)

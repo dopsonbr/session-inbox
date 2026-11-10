@@ -7,7 +7,7 @@ import { Schema, Struct } from "effect"
 import {
   Agent,
   Approval,
-  AttentionKind,
+  type AttentionKind,
   Counts,
   Decision,
   Item,
@@ -136,9 +136,9 @@ export const HistoryOutcome = Schema.Literals([
 ])
 export type HistoryOutcome = typeof HistoryOutcome.Type
 
-/** Where a query matched when the row's own lines (summary, session, project) don't show it. */
+/** Where a query matched when the row's own lines (summary, session title, project) don't show it. */
 export const HistoryMatch = Schema.Struct({
-  where: Schema.Literals(["question", "answer", "tool", "reply", "reason", "path"]),
+  where: Schema.Literals(["question", "answer", "tool", "reply", "reason", "branch", "path"]),
   /** A short excerpt around the first matching word, one line. */
   text: Schema.String,
 })
