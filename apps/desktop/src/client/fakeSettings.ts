@@ -21,6 +21,8 @@ export const FAKE_SETTING_DEFAULTS: UserSettings = {
   "notifications.fallback": true,
   "notifications.reviewGroupMs": 30_000,
   "titles.generate": true,
+  "updates.check": true,
+  "updates.auto": true,
 }
 
 const tidy = (key: string, value: unknown): unknown => {

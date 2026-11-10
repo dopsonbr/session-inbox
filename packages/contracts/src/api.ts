@@ -136,6 +136,8 @@ export const UserSettings = Schema.Struct({
   "notifications.fallback": Schema.Boolean,
   "notifications.reviewGroupMs": Schema.Finite,
   "titles.generate": Schema.Boolean,
+  "updates.check": Schema.Boolean,
+  "updates.auto": Schema.Boolean,
 })
 export type UserSettings = typeof UserSettings.Type
 export type UserSettingKey = keyof UserSettings

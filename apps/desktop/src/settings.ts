@@ -23,7 +23,7 @@ import { DaemonClient } from "./client/daemonClient.ts"
 // The pane renders from this list. A new boolean setting is one entry here (plus the
 // key in contracts' UserSettings); a new group is one entry in SETTINGS_GROUPS.
 
-export type SettingsGroupId = "approvals" | "notifications" | "sessions"
+export type SettingsGroupId = "approvals" | "notifications" | "sessions" | "updates"
 export type FieldKind = "toggle" | "seconds" | "tools" | "list"
 
 export type SettingsField = Readonly<{
@@ -40,6 +40,7 @@ export const SETTINGS_GROUPS: ReadonlyArray<Readonly<{ id: SettingsGroupId; titl
   { id: "approvals", title: "Approvals" },
   { id: "notifications", title: "Notifications" },
   { id: "sessions", title: "Sessions" },
+  { id: "updates", title: "Updates" },
 ]
 
 export const SETTINGS_FIELDS: ReadonlyArray<SettingsField> = [
@@ -94,6 +95,20 @@ export const SETTINGS_FIELDS: ReadonlyArray<SettingsField> = [
     kind: "toggle",
     label: "Generate short session titles",
     help: "Runs claude -p with Haiku once per session.",
+  },
+  {
+    key: "updates.check",
+    group: "updates",
+    kind: "toggle",
+    label: "Check for new versions",
+    help: "Asks GitHub for the latest release every few hours. Nothing else leaves this Mac.",
+  },
+  {
+    key: "updates.auto",
+    group: "updates",
+    kind: "toggle",
+    label: "Install updates automatically",
+    help: "Only while no tool call is held and nothing is being sent. Otherwise you get an Update now button.",
   },
 ]
 
