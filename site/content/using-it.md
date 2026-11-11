@@ -191,7 +191,7 @@ History searches what the inbox showed you and what you answered. It doesn't sea
 
 Choose **Open in Claude** when something needs real work. It opens the exact session:
 
-- Desktop sessions open in the Claude desktop app, on that session. This has been checked live.
+- Desktop sessions open in the Claude desktop app, on that session, at its latest message, even when the app is on its Chat tab. A session you archived in Claude opens too, with Claude's Unarchive bar; a deleted one shows Claude's "This session couldn't be found". This has been checked live.
 - CLI sessions open through Claude's `claude://resume` link, and a ready-to-paste command is copied to your clipboard as well: `cd <dir> && claude --resume <id>`. The link for CLI sessions hasn't been checked on a real session yet.
 
 If Claude is paused on a held call (classic mode), **Open in Claude** releases it first, so Claude's own prompt is on screen when you arrive and nothing is frozen. Each item's activity list also has a **Full transcript in Claude** link that does the same.

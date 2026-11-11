@@ -313,13 +313,15 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const LOCAL_ID = /^local_[A-Za-z0-9-]{1,64}$/
 
 /**
- * THE place "Open in Claude" URLs are computed (spike P-006, static evidence):
- * desktop id → continue that exact session; CLI uuid → import/resume it in the
- * desktop app; otherwise a new session in the folder.
+ * THE place "Open in Claude" URLs are computed (P-006, D-103):
+ * desktop id → the app's own session route, `claude://claude.ai/epitaxy/<local_id>`, which
+ * opens archived sessions too (`code/continue` only finds unarchived ones and otherwise
+ * lands on a blank new session); CLI uuid → import/resume it in the desktop app;
+ * otherwise a new session in the folder.
  */
 export const openUrlFor = (session: Session): string | null => {
   if (session.hostSessionId && LOCAL_ID.test(session.hostSessionId))
-    return `claude://code/continue?session=${encodeURIComponent(session.hostSessionId)}`
+    return `claude://claude.ai/epitaxy/${encodeURIComponent(session.hostSessionId)}`
   if (UUID.test(session.id)) return `claude://resume?session=${encodeURIComponent(session.id)}`
   if (session.cwd) return `claude://code/new?folder=${encodeURIComponent(session.cwd)}`
   return null

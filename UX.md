@@ -134,12 +134,17 @@ Starting point unless stated: the inbox window is open on **Needs you** with the
 - **UX-068** (fixed 2026-11-10, in the shell; U-092) Clicking a row in the popover did nothing useful in the native app (the link wasn't wired up). It now opens that item in the inbox window.
 - **UX-069** (fixed 2026-11-10, U-089 to U-091) Where a notification click and the menu-bar icon go is now a setting, "Notification clicks and the menu-bar icon": the window (default), the popover with the item's row marked, or the window while it's open.
 
+### Open in Claude
+
+- **UX-070** (fixed 2026-11-11, D-103) Open in Claude on an item from a session archived in Claude landed on an empty new session, so finding the thread took a search in Claude. It opens the session, with Claude's Unarchive bar.
+
 ### Accessibility
 
 - **UX-040** (fixed 2026-11-10, U-072) Three targets are under 24px tall: the two agent rows in the tree (23px) and "Full transcript in Claude" (20px).
 
 ## Changes
 
+- 2026-11-11 — Open in Claude uses the Claude app's own session link (D-103, P-032), so archived sessions open too. Closes UX-070. Checked live on the desktop app; step counts unchanged.
 - 2026-11-10 — The app as a window (0.4.0): a Dock icon with the count, ⌘Tab, a window that hides on close and remembers its place, Settings › Window and menu bar (U-089), and the popover marking the row a notification pointed at (U-090 to U-092). The setting and the marked row were checked in a browser against the demo daemon, in light and dark, at 1280×900 and the popover at 480×600 and 480×400; the Dock icon, ⌘Tab and the window's memory are unseen by a person. Closes UX-067 to UX-069; step 21 added.
 - 2026-11-10 — Stuck calls in the UI (G-035, C-030, U-084 to U-088): a Review row and title reading "Running npm run dev for 12 min", a card with the command and "Started at … No result yet.", Done/Snooze/Open in Claude, "Ran long" in History, and a switch plus minutes in Settings › Notifications. Checked on `dev:mock` in light and dark at 1280×820 and the popover at 480×600; not yet on a real hung call.
 - 2026-11-10 — Shortcut settings (G-034): a Shortcuts group in Settings with press-to-record, Clear and Reset, clash warnings, and the menu-bar app re-registering its system-wide key. Checked on the real daemon: after changing Next to N, J did nothing, N moved, and N still worked after a reload. The system-wide key changing in the running app is unverified (nobody could press keys). Closes UX-064; opens UX-065.

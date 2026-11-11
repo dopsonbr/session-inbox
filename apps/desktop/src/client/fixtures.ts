@@ -302,7 +302,7 @@ export const makeFixtures = (now: number): Fixtures => {
   const extras: Record<string, ItemExtras> = {
     "i-retry-questions": {
       ...none,
-      openUrl: "claude://code/session/local_s-retry",
+      openUrl: "claude://claude.ai/epitaxy/local_s-retry",
       questions: [
         {
           idx: 0,
@@ -328,7 +328,7 @@ export const makeFixtures = (now: number): Fixtures => {
     },
     "i-ravelo-migrate": {
       ...none,
-      openUrl: "claude://code/session/local_s-ravelo",
+      openUrl: "claude://claude.ai/epitaxy/local_s-ravelo",
       approval: {
         tool: "Bash",
         input: {
@@ -347,7 +347,7 @@ export const makeFixtures = (now: number): Fixtures => {
     "i-receipts-review": { ...none, openUrl: null, lastMessage: RECEIPTS_LAST_MESSAGE },
     "i-docs-review": {
       ...none,
-      openUrl: "claude://code/session/local_s-agentkit-docs",
+      openUrl: "claude://claude.ai/epitaxy/local_s-agentkit-docs",
       lastMessage: DOCS_LAST_MESSAGE,
       replyUnavailable:
         "Replies are sent with the claude CLI, which isn't logged in on this Mac. Reply in Claude instead, or log in with claude /login in a terminal.",
@@ -369,7 +369,7 @@ export const makeFixtures = (now: number): Fixtures => {
     },
     "i-sync-snoozed": {
       ...none,
-      openUrl: "claude://code/session/local_s-pos-sync",
+      openUrl: "claude://claude.ai/epitaxy/local_s-pos-sync",
       questions: [
         {
           idx: 0,

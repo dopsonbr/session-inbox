@@ -9,6 +9,10 @@ section: Reference
 
 What changed in each release, newest first. Versions are tagged on [GitHub Releases](https://github.com/dopsonbr/session-inbox/releases), where you can download them.
 
+## Unreleased
+
+- **Open in Claude reaches archived sessions.** Fixed: for a desktop session you had archived in Claude, **Open in Claude** landed on an empty new session. It now opens that session, with Claude's own Unarchive bar, through the same link the Claude app uses for its sessions. A session that no longer exists shows Claude's "This session couldn't be found".
+
 ## 0.4.1
 
 Published 2026-11-10: [v0.4.1 on GitHub](https://github.com/dopsonbr/session-inbox/releases/tag/v0.4.1). An install of 0.4.0 updates to it by itself, or with **Update now**.

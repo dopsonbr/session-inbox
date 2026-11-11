@@ -106,8 +106,8 @@ describe("openUrlFor", () => {
     state: "idle" as const,
     lastEventAt: 0,
   }
-  test("desktop → continue; cli → resume; no ids → new in folder", () => {
-    expect(openUrlFor(s)).toBe("claude://code/continue?session=local_abc-1")
+  test("desktop → its epitaxy route; cli → resume; no ids → new in folder", () => {
+    expect(openUrlFor(s)).toBe("claude://claude.ai/epitaxy/local_abc-1")
     expect(openUrlFor({ ...s, runtime: "cli", hostSessionId: null })).toBe(
       `claude://resume?session=${SID}`,
     )
