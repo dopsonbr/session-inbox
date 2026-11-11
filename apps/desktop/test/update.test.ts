@@ -448,6 +448,23 @@ describe("selection and tree", () => {
     expect(collapse.model.expandedNodes).not.toContain("p:p-pos")
   })
 
+  test("subagents stay folded unless the selected item is a subagent's (U-093)", () => {
+    const main = update(loaded(), Message.ChangedHash({ hash: "#/item/i-ravelo-migrate" }))
+    expect(main.model.expandedNodes).toContain("p:p-ravelo")
+    expect(main.model.expandedNodes).not.toContain("s:s-ravelo")
+    const sub = update(loaded(), Message.ChangedHash({ hash: "#/item/i-retry-questions" }))
+    expect(sub.model.expandedNodes).toContain("s:s-retry")
+  })
+
+  test("a session's chevron folds its subagents without changing the selection", () => {
+    const start = loaded()
+    const open = update(start, Message.ToggledTreeNode({ nodeId: "s:s-pos-sync" }))
+    expect(open.model.expandedNodes).toContain("s:s-pos-sync")
+    expect(open.model.maybeSelectedItemId).toEqual(start.maybeSelectedItemId)
+    const shut = update(open.model, Message.ToggledTreeNode({ nodeId: "s:s-pos-sync" }))
+    expect(shut.model.expandedNodes).not.toContain("s:s-pos-sync")
+  })
+
   test("a session with nothing open selects the session, not an item", () => {
     const ret = update(loaded(), Message.ClickedSession({ sessionId: "s-delivery" }))
     expect(ret.model.maybeSelectedItemId).toEqual(Option.none())

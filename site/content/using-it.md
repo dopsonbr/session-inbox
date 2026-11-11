@@ -83,7 +83,7 @@ Whichever you choose, the Open inbox shortcut, the Dock icon and links to a sess
 
 ## The inbox window
 
-The window has a tree on the left (project, then session, then subagent), a queue in the middle and the selected item on the right. The queues are:
+The window has a tree on the left (project, then session, then subagent), a queue in the middle and the selected item on the right. A session's subagents are folded: the number beside the session counts them (orange when one is asking you something, blue while one is working). Click the session's chevron, or press <kbd>→</kbd>, to show them. The queues are:
 
 - **Needs you:** questions, permission requests and failures. This is the list that drives the badge.
 - **Working:** sessions that are running right now. Nothing for you to do, but handy to see what's in flight.

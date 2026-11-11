@@ -138,12 +138,17 @@ Starting point unless stated: the inbox window is open on **Needs you** with the
 
 - **UX-070** (fixed 2026-11-11, D-103) Open in Claude on an item from a session archived in Claude landed on an empty new session, so finding the thread took a search in Claude. It opens the session, with Claude's Unarchive bar.
 
+### Session tree
+
+- **UX-071** (fixed 2026-11-11, U-093) A session with many subagents (18 in one real project) listed every one under it once selected, with no visible way to fold them, so the next session was hard to find; the agent rows also sat on the project's rail, so it wasn't clear which session they belonged to.
+
 ### Accessibility
 
 - **UX-040** (fixed 2026-11-10, U-072) Three targets are under 24px tall: the two agent rows in the tree (23px) and "Full transcript in Claude" (20px).
 
 ## Changes
 
+- 2026-11-11 — Subagents fold under their session by default, with a chevron and a count (U-093). Closes UX-071. Checked in a browser against the demo daemon at 1280×820 in light; dark not seen. Step counts unchanged (unfolding is one click or →).
 - 2026-11-11 — Open in Claude uses the Claude app's own session link (D-103, P-032), so archived sessions open too. Closes UX-070. Checked live on the desktop app; step counts unchanged.
 - 2026-11-10 — The app as a window (0.4.0): a Dock icon with the count, ⌘Tab, a window that hides on close and remembers its place, Settings › Window and menu bar (U-089), and the popover marking the row a notification pointed at (U-090 to U-092). The setting and the marked row were checked in a browser against the demo daemon, in light and dark, at 1280×900 and the popover at 480×600 and 480×400; the Dock icon, ⌘Tab and the window's memory are unseen by a person. Closes UX-067 to UX-069; step 21 added.
 - 2026-11-10 — Stuck calls in the UI (G-035, C-030, U-084 to U-088): a Review row and title reading "Running npm run dev for 12 min", a card with the command and "Started at … No result yet.", Done/Snooze/Open in Claude, "Ran long" in History, and a switch plus minutes in Settings › Notifications. Checked on `dev:mock` in light and dark at 1280×820 and the popover at 480×600; not yet on a real hung call.

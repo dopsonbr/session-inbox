@@ -9,6 +9,7 @@ import {
   needsYouCountForProject,
   projectHasOnlyFailures,
   sessionNodeId,
+  subagentsOf,
   type TreeNode,
   visibleTreeNodes,
 } from "../selectors.ts"
@@ -173,15 +174,20 @@ const nodeContent = (h: H, snapshot: Snapshot, node: TreeNode, isExpanded: boole
         : session?.state === "running"
           ? "working"
           : "neutral"
+    const runtime =
+      session === undefined || session.runtime === "desktop"
+        ? null
+        : h.span([h.Class("text-[11px] text-subtle-foreground")], [session.runtime])
+    const folded = node.hasChildren && !isExpanded ? subagentCount(h, snapshot, id) : null
     return {
       leading: dot(h, tone),
       label: session?.title ?? "Untitled session",
       trailing:
-        session === undefined
+        runtime === null && folded === null
           ? null
           : h.span(
-              [h.Class("text-[11px] text-subtle-foreground")],
-              [session.runtime === "desktop" ? "" : session.runtime],
+              [h.Class("flex shrink-0 items-center gap-1.5")],
+              [folded ?? h.empty, runtime ?? h.empty],
             ),
       emphasis: waiting,
     }
@@ -201,6 +207,26 @@ const nodeContent = (h: H, snapshot: Snapshot, node: TreeNode, isExpanded: boole
   }
 }
 
+/**
+ * What a folded session's subagents add up to (U-093): how many, coloured by the most urgent
+ * state among them so an asking or working subagent isn't hidden by the fold.
+ */
+const subagentCount = (h: H, snapshot: Snapshot, sessionId: string): Html => {
+  const agents = subagentsOf(snapshot, sessionId)
+  const tone = agents.some((a) => a.state === "waiting")
+    ? "text-needs font-bold"
+    : agents.some((a) => a.state === "failed")
+      ? "text-failed"
+      : agents.some((a) => a.state === "running")
+        ? "text-working"
+        : "text-subtle-foreground"
+  const n = agents.length
+  return h.span(
+    [h.Class(`text-[11px] tabular-nums ${tone}`), h.Title(`${n} subagent${n === 1 ? "" : "s"}`)],
+    [`${n}`, h.span([h.Class("sr-only")], [` subagent${n === 1 ? "" : "s"}`])],
+  )
+}
+
 const LEVEL: Record<TreeNode["kind"], number> = { project: 1, session: 2, agent: 3 }
 
 const treeRow = (
@@ -217,13 +243,55 @@ const treeRow = (
   const indent = {
     project: "",
     session: "ml-[15px] border-l-2 border-rail pl-2.5",
-    agent: "ml-[15px] border-l-2 border-rail pl-[22px]",
+    agent: "ml-[15px] border-l-2 border-rail pl-2.5",
   }[node.kind]
   const rowClass = {
     project: "min-h-9 text-[14px] font-semibold",
     session: "min-h-8 text-[13px]",
     agent: "min-h-[24px] text-[13px] text-muted-foreground",
   }[node.kind]
+  const select = h.div(
+    [
+      h.Class(
+        `flex min-w-0 flex-1 items-center gap-2 self-stretch pr-2 ${node.kind === "session" ? "" : "pl-2"}`,
+      ),
+      h.OnClick(Message.ClickedTreeNode({ nodeId: node.id })),
+    ],
+    [
+      content.leading,
+      h.span([h.Class("min-w-0 flex-1 truncate")], [content.label]),
+      content.trailing ?? h.empty,
+    ],
+  )
+  // A session's own chevron folds its subagents without selecting it (U-093); sessions
+  // without subagents keep the same gap so titles line up.
+  const toggle =
+    node.kind !== "session"
+      ? null
+      : node.hasChildren
+        ? h.span(
+            [
+              h.Class(
+                "flex shrink-0 items-center self-stretch pr-1.5 pl-2 text-subtle-foreground hover:text-foreground",
+              ),
+              h.Title(isExpanded ? "Hide subagents" : "Show subagents"),
+              h.OnClick(Message.ToggledTreeNode({ nodeId: node.id })),
+            ],
+            [isExpanded ? Icon.chevronDown(h, "size-[13px]") : Icon.chevronRight(h, "size-[13px]")],
+          )
+        : h.span([h.Class("w-[27px] shrink-0"), h.AriaHidden(true)], [])
+  const row = h.div(
+    [
+      h.Class(
+        `flex cursor-pointer items-center rounded-lg ${rowClass} ${
+          isCurrent
+            ? "border border-border bg-card font-semibold"
+            : "border border-transparent hover:bg-accent"
+        } ${content.emphasis ? "text-foreground" : ""}`,
+      ),
+    ],
+    [toggle ?? h.empty, select],
+  )
   return h.keyed("li")(
     node.id,
     [
@@ -234,9 +302,8 @@ const treeRow = (
       h.Tabindex(node.id === focusedId ? 0 : -1),
       h.DataAttribute("tree-node", node.id),
       h.Class(
-        `block cursor-pointer rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring ${indent}`,
+        `block rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring ${indent}`,
       ),
-      h.OnClick(Message.ClickedTreeNode({ nodeId: node.id })),
       h.OnKeyDownPreventDefault((key, modifiers) =>
         modifiers.metaKey || modifiers.ctrlKey || modifiers.altKey
           ? Option.none()
@@ -245,23 +312,11 @@ const treeRow = (
             ),
       ),
     ],
+    // Subagents hang off a second rail under their session's chevron.
     [
-      h.div(
-        [
-          h.Class(
-            `flex items-center gap-2 rounded-lg px-2 ${rowClass} ${
-              isCurrent
-                ? "border border-border bg-card font-semibold"
-                : "border border-transparent hover:bg-accent"
-            } ${content.emphasis ? "text-foreground" : ""}`,
-          ),
-        ],
-        [
-          content.leading,
-          h.span([h.Class("min-w-0 flex-1 truncate")], [content.label]),
-          content.trailing ?? h.empty,
-        ],
-      ),
+      node.kind === "agent"
+        ? h.div([h.Class("ml-[13px] border-l-2 border-rail pl-1.5")], [row])
+        : row,
     ],
   )
 }

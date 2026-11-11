@@ -271,7 +271,13 @@ const nodesToExpandFor = (snapshot: Snapshot, itemId: string): ReadonlyArray<str
     Option.flatMap(findItem(snapshot, itemId), (item) => findSession(snapshot, item.sessionId)),
     {
       onNone: () => [],
-      onSome: (session) => [projectNodeId(session.projectId), sessionNodeId(session.id)],
+      // Subagents stay folded (U-093) unless the item is a subagent's own, so its row shows.
+      onSome: (session) =>
+        Option.exists(findItem(snapshot, itemId), (item) =>
+          snapshot.agents.some((a) => a.id === item.agentId && a.parentAgentId !== null),
+        )
+          ? [projectNodeId(session.projectId), sessionNodeId(session.id)]
+          : [projectNodeId(session.projectId)],
     },
   )
 
