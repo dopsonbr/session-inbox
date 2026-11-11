@@ -14,7 +14,7 @@ Status as of 2026-11-11. **[v0.4.3](https://github.com/dopsonbr/session-inbox/re
 
 **In 0.4.2 (released):** Open in Claude uses the desktop app's own session link, `claude://claude.ai/epitaxy/<local_id>`, so sessions archived in Claude open too (D-103, P-032, UX-070). Checked live on the desktop app and on the beta install; this Mac's GA updated itself to it and opened items from two archived test sessions correctly (P-033). Beta is now a source install of `244c185` plus the release bump, still the observer.
 
-**In 0.4.3 (released):** subagents fold under their session by default, with a chevron, a count coloured by their most urgent state and their own rail (U-093, UX-071). Checked on the beta install against this Mac's real sessions (one with 23 subagents), in light and dark.
+**In 0.4.3 (released):** subagents fold under their session by default, with a chevron, a count coloured by their most urgent state and their own rail (U-093, UX-071). Checked on the beta install against this Mac's real sessions (one with 23 subagents), in light and dark. This Mac's GA was updated to it with `session-inbox update --yes` (P-034).
 
 **Merged on `main`, tests green:**
 
