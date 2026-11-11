@@ -1,6 +1,6 @@
-# Handoff: v0.4.1 is published; check what no person has seen
+# Handoff: v0.4.2 is published; check what no person has seen
 
-Status as of 2026-11-10. **[v0.4.1](https://github.com/dopsonbr/session-inbox/releases/tag/v0.4.1) is published** (P-031), after v0.4.0 from `63e8b67` (P-030), v0.3.1 from `67e0f4b` (P-028), v0.3.0 from `1352336` (P-027) and v0.2.0 from `e842e67` (P-026). Read with [DECISIONS.md](../DECISIONS.md) (G-024 to G-031, C-012 to C-026, D-033 to D-095, H-014 to H-050, U-022 to U-051, S-010 to S-023 and P-012 to P-024 cover this round), [CLAUDE.md](../CLAUDE.md) and the docs site (<https://dopsonbr.github.io/session-inbox/>, source in `site/content/`).
+Status as of 2026-11-11. **[v0.4.2](https://github.com/dopsonbr/session-inbox/releases/tag/v0.4.2) is published**, after v0.4.1 from `4579d27` (P-031), v0.4.0 from `63e8b67` (P-030), v0.3.1 from `67e0f4b` (P-028), v0.3.0 from `1352336` (P-027) and v0.2.0 from `e842e67` (P-026). Read with [DECISIONS.md](../DECISIONS.md) (G-024 to G-031, C-012 to C-026, D-033 to D-095, H-014 to H-050, U-022 to U-051, S-010 to S-023 and P-012 to P-024 cover this round), [CLAUDE.md](../CLAUDE.md) and the docs site (<https://dopsonbr.github.io/session-inbox/>, source in `site/content/`).
 
 ## Where things stand
 
@@ -11,6 +11,8 @@ Status as of 2026-11-10. **[v0.4.1](https://github.com/dopsonbr/session-inbox/re
 **In 0.4.0 (released):** the app is a regular Mac app as well as a menu-bar app: a Dock icon with the needs-you count, in ⌘Tab, a window that hides on close and remembers its place (monitor included), and a setting, `app.opens` ("Window and menu bar" in Settings), for where notification clicks and the menu-bar icon go. A popover row now opens its item in the window, and in "popover" mode the popover marks the row a notification pointed at (U-089 to U-092, UX-067 to UX-069). A script checked the routing on the installed beta app (P-029); no person has checked it yet.
 
 **In 0.4.1 (released):** a fix for the app running as a development run after a daemon-driven update (H-054, S-033, P-030).
+
+**In 0.4.2 (released):** Open in Claude uses the desktop app's own session link, `claude://claude.ai/epitaxy/<local_id>`, so sessions archived in Claude open too (D-103, P-032, UX-070). Checked live on the desktop app and on the beta install.
 
 **Merged on `main`, tests green:**
 
