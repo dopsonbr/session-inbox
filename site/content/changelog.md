@@ -9,6 +9,12 @@ section: Reference
 
 What changed in each release, newest first. Versions are tagged on [GitHub Releases](https://github.com/dopsonbr/session-inbox/releases), where you can download them.
 
+## 0.4.3
+
+Published 2026-11-11: [v0.4.3 on GitHub](https://github.com/dopsonbr/session-inbox/releases/tag/v0.4.3). An install of 0.4.2 updates to it by itself, or with **Update now**.
+
+- **Subagents fold under their session.** A session with many subagents no longer lists every one of them once you select it, so the sessions below stay in view. A session's subagents are folded by default; the number beside it counts them (orange when one is asking you something, blue while one is working). Click the session's chevron, or press <kbd>→</kbd>, to show them; they hang off their own line under the session. See [the inbox window](using-it.md#the-inbox-window).
+
 ## 0.4.2
 
 Published 2026-11-11: [v0.4.2 on GitHub](https://github.com/dopsonbr/session-inbox/releases/tag/v0.4.2). An install of 0.4.1 updates to it by itself, or with **Update now**.
