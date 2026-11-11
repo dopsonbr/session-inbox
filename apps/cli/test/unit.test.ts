@@ -637,3 +637,13 @@ describe("inbox URL for a browser (D-095)", () => {
     )
   })
 })
+
+describe("compiled binaries", () => {
+  test("the daemon and the CLI trust the macOS keychain; the hook doesn't need to (H-055)", async () => {
+    const { targets } = await import("../../../scripts/build.ts")
+    const flags = Object.fromEntries(targets.map((t) => [t.name, t.flags]))
+    expect(flags.inboxd).toContain("--compile-exec-argv=--use-system-ca")
+    expect(flags["session-inbox"]).toContain("--compile-exec-argv=--use-system-ca")
+    expect(flags["inbox-hook"]).not.toContain("--compile-exec-argv=--use-system-ca")
+  })
+})

@@ -11,10 +11,17 @@ const dist = join(root, "dist")
 
 export const BINARIES = ["inbox-hook", "inboxd", "session-inbox"] as const
 
-const targets = [
+/**
+ * The daemon and the CLI reach GitHub, so they trust the macOS keychain as well as Bun's own CA
+ * list (H-055): a TLS-inspecting proxy's root lives only there, and launchd passes none of the
+ * shell's NODE_EXTRA_CA_CERTS. The hook talks only to the local daemon, so it stays lean.
+ */
+const SYSTEM_CA = "--compile-exec-argv=--use-system-ca"
+
+export const targets = [
   { name: "inbox-hook", entry: "apps/hook/src/main.ts", flags: ["--minify", "--bytecode"] },
-  { name: "inboxd", entry: "apps/daemon/src/main.ts", flags: ["--minify"] },
-  { name: "session-inbox", entry: "apps/cli/src/main.ts", flags: ["--minify"] },
+  { name: "inboxd", entry: "apps/daemon/src/main.ts", flags: ["--minify", SYSTEM_CA] },
+  { name: "session-inbox", entry: "apps/cli/src/main.ts", flags: ["--minify", SYSTEM_CA] },
 ]
 
 /** The version in the root VERSION file. */

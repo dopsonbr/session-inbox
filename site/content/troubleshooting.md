@@ -133,6 +133,7 @@ The app fixes this itself: when its login item points at an older copy of the ap
 
 - **"no release has been published yet"**: GitHub has no release to download. Install from [a tarball or from source](install.md) instead.
 - **It couldn't reach GitHub**: the message says so when GitHub can't be reached or answers with a rate limit. Try again in a few minutes, or name the version: `SESSION_INBOX_VERSION=vX.Y.Z`. See [Install](install.md#one-line-install).
+- **"self signed certificate in certificate chain"** (in `doctor`'s Updates line or `update.log`): a company proxy that inspects HTTPS, such as Netskope, sits between this Mac and GitHub. Versions up to 0.4.4 trust only Bun's own certificate list, so the daemon can't download an update; later versions also trust the macOS keychain, where IT installs the proxy's certificate. Install the first fixed version yourself from [source or a tarball](install.md), or with `NODE_USE_SYSTEM_CA=1 session-inbox update --yes` in a terminal; after that, updates download on their own.
 - **`session-inbox: command not found` after installing**: `~/.local/bin` isn't on your `PATH`. The installer's closing lines then print the full path to the command and one line that adds the directory to `PATH` for zsh. Paste it, then open a new terminal.
 
 ## Replies don't send, or titles don't change
