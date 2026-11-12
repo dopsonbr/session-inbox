@@ -471,6 +471,13 @@ describe("selection and tree", () => {
     expect(ret.model.maybeSelectedSessionId).toEqual(Option.some("s-delivery"))
   })
 
+  test("Open in Claude on a selected session with no item opens the session (C-032)", () => {
+    const ret = update(loaded(), Message.ClickedSession({ sessionId: "s-delivery" }))
+    expect(names(update(ret.model, Message.ClickedOpenInClaude()))).toEqual(["OpenSessionInClaude"])
+    const item = update(loaded(), Message.ChangedHash({ hash: "#/item/i-ravelo-migrate" }))
+    expect(names(update(item.model, Message.ClickedOpenInClaude()))).toEqual(["OpenInClaude"])
+  })
+
   test("story: queue tab selection is local view state", () => {
     story(
       update,

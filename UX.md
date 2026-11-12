@@ -141,6 +141,7 @@ Starting point unless stated: the inbox window is open on **Needs you** with the
 ### Session tree
 
 - **UX-071** (fixed 2026-11-11, U-093) A session with many subagents (18 in one real project) listed every one under it once selected, with no visible way to fold them, so the next session was hard to find; the agent rows also sat on the project's rail, so it wasn't clear which session they belonged to.
+- **UX-072** (fixed 2026-11-12, U-094) A session selected with nothing waiting showed "Nothing here needs you" and no way into Claude: Open in Claude existed only on items, so reaching the session meant finding it in Claude by hand. It now has Open in Claude in its header.
 
 ### Accessibility
 
@@ -148,6 +149,7 @@ Starting point unless stated: the inbox window is open on **Needs you** with the
 
 ## Changes
 
+- 2026-11-12 — A selected session with no item has **Open in Claude** (U-094, C-032). Closes UX-072. Task 12 ("Open the session in Claude") is now 1 step from a session too, where it was not possible without an item.
 - 2026-11-11 — Subagents fold under their session by default, with a chevron and a count (U-093). Closes UX-071. Checked in a browser against the demo daemon at 1280×820 in light; dark not seen. Step counts unchanged (unfolding is one click or →).
 - 2026-11-11 — Open in Claude uses the Claude app's own session link (D-103, P-032), so archived sessions open too. Closes UX-070. Checked live on the desktop app; step counts unchanged.
 - 2026-11-10 — The app as a window (0.4.0): a Dock icon with the count, ⌘Tab, a window that hides on close and remembers its place, Settings › Window and menu bar (U-089), and the popover marking the row a notification pointed at (U-090 to U-092). The setting and the marked row were checked in a browser against the demo daemon, in light and dark, at 1280×900 and the popover at 480×600 and 480×400; the Dock icon, ⌘Tab and the window's memory are unseen by a person. Closes UX-067 to UX-069; step 21 added.

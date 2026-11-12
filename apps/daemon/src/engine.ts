@@ -2496,7 +2496,31 @@ export class Engine {
     })
     const s = this.store.session(item.session_id)
     if (!s) return { url: null }
-    const session = toSession(s)
+    return this.launch(toSession(s))
+  }
+
+  /**
+   * Open a session with no item selected (C-032). Any live hold in it is released with `ask`
+   * first, as for an item (C-007), so the session isn't frozen when it comes up.
+   */
+  async openSession(sessionId: string): Promise<{ url: string | null }> {
+    const s = this.store.session(sessionId)
+    if (!s) throw notFound("session")
+    this.tx((c) => {
+      this.appendEvent(c, { sessionId, hook: "daemon:open-session", payload: { sessionId } })
+      const live = this.store.all<ItemRow>(
+        "SELECT i.* FROM attention_items i JOIN approvals a ON a.item_id = i.id WHERE i.session_id = ? AND a.live = 1",
+        sessionId,
+      )
+      for (const item of live) {
+        this.decideIn(c, item, "ask", "open")
+        c.items.add(item.id)
+      }
+    })
+    return this.launch(toSession(s))
+  }
+
+  private async launch(session: Session): Promise<{ url: string | null }> {
     const url = openUrlFor(session)
     try {
       // Anything but an exact desktop session also gets the terminal command on the clipboard.

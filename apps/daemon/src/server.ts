@@ -373,6 +373,9 @@ export const uiHandler =
         const body = await decodeBody(MuteRequest, req)
         return json(e.mute(mute[1] ?? "", body.muted))
       }
+      const openSession = /^\/v1\/sessions\/([^/]+)\/open$/.exec(path)
+      if (openSession && m === "POST")
+        return json(await e.openSession(decodeURIComponent(openSession[1] ?? "")))
       const item = /^\/v1\/items\/([^/]+)(?:\/([a-z]+))?$/.exec(path)
       if (item) {
         const id = decodeURIComponent(item[1] ?? "")

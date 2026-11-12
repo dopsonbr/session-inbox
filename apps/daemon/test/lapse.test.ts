@@ -53,6 +53,17 @@ describe("lapsed hold (D-073)", () => {
     expect(items(h)[0]).toEqual(["permission", "resolved", false])
   })
 
+  test("opening the session (no item selected) releases a live hold first (C-032)", async () => {
+    const h = makeHarness()
+    await holdBash(h)
+    expect(items(h)).toEqual([["permission", "open", true]])
+    const { url } = await h.engine.openSession(SID)
+    expect(items(h)).toEqual([["permission", "answered", false]])
+    expect(url).toBe(`claude://resume?session=${SID}`)
+    expect(h.opener.opened.at(-1)).toBe(url ?? "")
+    expect(h.opener.copied.at(-1)).toContain(`claude --resume '${SID}'`)
+  })
+
   test("Stop, a typed prompt or SessionEnd ends it", async () => {
     for (const [event, payload] of [
       ["Stop", {}],

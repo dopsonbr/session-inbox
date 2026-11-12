@@ -522,6 +522,17 @@ export const makeFakeClient = (options: FakeOptions = {}): FakeDaemon => {
     open: (itemId) =>
       findItem(itemId).pipe(Effect.map(() => ({ url: db.extras[itemId]?.openUrl ?? null }))),
 
+    openSession: (sessionId) => {
+      const session = db.sessions.find((s) => s.id === sessionId)
+      return session === undefined
+        ? Effect.fail(new DaemonError({ message: `No session ${sessionId}`, status: 404 }))
+        : Effect.succeed({
+            url: session.hostSessionId
+              ? `claude://claude.ai/epitaxy/${session.hostSessionId}`
+              : null,
+          })
+    },
+
     mute: (projectId, body) =>
       Effect.sync(() => {
         const index = db.projects.findIndex((p) => p.id === projectId)

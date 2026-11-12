@@ -155,6 +155,17 @@ export const OpenInClaude = Command.define("OpenInClaude", {
     }).pipe(Effect.catch(actionFailed("open"))),
 })
 
+export const OpenSessionInClaude = Command.define("OpenSessionInClaude", {
+  args: { sessionId: Schema.String },
+  messages: [Message.SucceededOpenInClaude, Message.FailedAction],
+  execute: ({ sessionId }) =>
+    Effect.gen(function* () {
+      const client = yield* DaemonClient
+      const response = yield* client.openSession(sessionId)
+      return Message.SucceededOpenInClaude({ url: response.url })
+    }).pipe(Effect.catch(actionFailed("open"))),
+})
+
 export const WaitBeforeDraftSave = Command.define("WaitBeforeDraftSave", {
   args: { version: Schema.Number },
   messages: [Message.CompletedWaitBeforeDraftSave],

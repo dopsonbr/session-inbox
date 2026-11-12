@@ -39,6 +39,8 @@ export const Routes = {
   draft: (id: string) => `/v1/items/${id}/draft`,
   read: (id: string) => `/v1/items/${id}/read`,
   openInClaude: (id: string) => `/v1/items/${id}/open`,
+  /** POST: open a session in Claude when no item is selected (C-032). Answers OpenResponse. */
+  openSessionInClaude: (id: string) => `/v1/sessions/${encodeURIComponent(id)}/open`,
   notificationActed: (id: string) => `/v1/notifications/${id}/acted`,
   projectMute: (id: string) => `/v1/projects/${id}/mute`,
   settings: "/v1/settings",

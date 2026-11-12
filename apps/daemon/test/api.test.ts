@@ -388,6 +388,12 @@ describe("hooks + UI round trips", () => {
     expect(opened.url).toBe(`claude://resume?session=${sid}`)
     expect(opener.opened.at(-1)).toBe(opened.url ?? "")
     expect(opener.copied.at(-1)).toContain(`claude --resume '${sid}'`)
+    const sessionOpened = (await (await post(Routes.openSessionInClaude(sid), {})).json()) as {
+      url: string | null
+    }
+    expect(sessionOpened.url).toBe(`claude://resume?session=${sid}`)
+    expect(opener.opened.at(-1)).toBe(sessionOpened.url ?? "")
+    expect((await post(Routes.openSessionInClaude("nope"), {})).status).toBe(404)
     expect((await post(Routes.dismiss(id), {})).status).toBe(200)
     expect((await post(Routes.dismiss(id), {})).status).toBe(409)
     const pid = snap.projects[0]?.id ?? ""

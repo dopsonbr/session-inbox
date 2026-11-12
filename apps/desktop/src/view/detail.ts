@@ -1249,15 +1249,30 @@ const sessionOnlyView = (model: Model, sessionId: string, h: H): ReadonlyArray<H
       onNone: () => [muted(h, "Session not found.")],
       onSome: (session) => [
         h.div(
-          [],
+          [h.Class("flex items-start justify-between gap-4")],
           [
-            h.h1(
-              [h.Class("text-[22px] font-bold tracking-tight")],
-              [session.title ?? "Untitled session"],
+            h.div(
+              [h.Class("min-w-0")],
+              [
+                h.h1(
+                  [h.Class("text-[22px] font-bold tracking-tight")],
+                  [session.title ?? "Untitled session"],
+                ),
+                h.p(
+                  [h.Class(`mt-1 text-[13px] ${toneText[sessionTone(session)]}`)],
+                  [`${sessionStateLabel(session)} · ${runtimeLabel(session)}`],
+                ),
+              ],
             ),
-            h.p(
-              [h.Class(`mt-1 text-[13px] ${toneText[sessionTone(session)]}`)],
-              [`${sessionStateLabel(session)} · ${runtimeLabel(session)}`],
+            // The session itself opens in Claude, with nothing selected in it (C-032, U-094).
+            h.button(
+              [
+                h.Type("button"),
+                h.Class("btn shrink-0"),
+                h.DataAttribute("size", "lg"),
+                h.OnClick(Message.ClickedOpenInClaude()),
+              ],
+              [Icon.external(h), "Open in Claude"],
             ),
           ],
         ),

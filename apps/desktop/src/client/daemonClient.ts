@@ -53,6 +53,8 @@ export type DaemonClientShape = Readonly<{
   draft: (itemId: string, body: DraftRequest) => Effect.Effect<void, DaemonError>
   read: (itemId: string) => Effect.Effect<void, DaemonError>
   open: (itemId: string) => Effect.Effect<OpenResponse, DaemonError>
+  /** Open a session that has no item selected (C-032). */
+  openSession: (sessionId: string) => Effect.Effect<OpenResponse, DaemonError>
   mute: (projectId: string, body: MuteRequest) => Effect.Effect<void, DaemonError>
   getSettings: Effect.Effect<SettingsResponse, DaemonError>
   /** Only the changed keys; `null` resets one. The daemon answers with what it applied. */

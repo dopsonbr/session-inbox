@@ -175,6 +175,8 @@ export const makeHttpClient = (config: HttpClientConfig): DaemonClientShape => {
     draft: (itemId, body) => Effect.asVoid(request("PUT", Routes.draft(itemId), body)),
     read: (itemId) => Effect.asVoid(request("POST", Routes.read(itemId), {})),
     open: (itemId) => decoded(OpenResponse)(request("POST", Routes.openInClaude(itemId), {})),
+    openSession: (sessionId) =>
+      decoded(OpenResponse)(request("POST", Routes.openSessionInClaude(sessionId), {})),
     mute: (projectId, body) => Effect.asVoid(request("POST", Routes.projectMute(projectId), body)),
     getSettings: settingsResponse(request("GET", Routes.settings)),
     putSettings: (patch) => settingsResponse(request("PUT", Routes.settings, patch)),

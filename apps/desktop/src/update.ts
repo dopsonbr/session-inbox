@@ -28,6 +28,7 @@ import {
   MarkRead,
   MuteProject,
   OpenInClaude,
+  OpenSessionInClaude,
   ReloadPage,
   SaveDraft,
   ScrollToRow,
@@ -1649,9 +1650,17 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
           ),
 
+    // With no item selected, a selected session opens on its own (C-032).
     ClickedOpenInClaude: () =>
       Option.match(model.maybeSelectedItemId, {
-        onNone: () => ({ model }),
+        onNone: () =>
+          Option.match(model.maybeSelectedSessionId, {
+            onNone: () => ({ model }),
+            onSome: (sessionId) => ({
+              model,
+              commands: [OpenSessionInClaude({ sessionId })],
+            }),
+          }),
         onSome: (itemId) => ({ model, commands: [OpenInClaude({ itemId })] }),
       }),
 
