@@ -9,6 +9,12 @@ section: Reference
 
 What changed in each release, newest first. Versions are tagged on [GitHub Releases](https://github.com/dopsonbr/session-inbox/releases), where you can download them.
 
+## 0.4.4
+
+Published 2026-11-12: [v0.4.4 on GitHub](https://github.com/dopsonbr/session-inbox/releases/tag/v0.4.4). An install of 0.4.3 updates to it by itself, or with **Update now**.
+
+- **Open in Claude on any session.** Fixed: a session you selected with nothing waiting showed "Nothing here needs you" and no way into Claude, because **Open in Claude** only existed on items. The session view now has **Open in Claude** beside its title. See [the inbox window](using-it.md#the-inbox-window).
+
 ## 0.4.3
 
 Published 2026-11-11: [v0.4.3 on GitHub](https://github.com/dopsonbr/session-inbox/releases/tag/v0.4.3). An install of 0.4.2 updates to it by itself, or with **Update now**.
